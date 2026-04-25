@@ -1,0 +1,94 @@
+# ============================================================================
+# Shared Pipeline Configuration — 07_PlantCARE Analysis Defaults
+# ============================================================================
+# Promoter extraction parameters and GTF annotation paths shared across
+# all gene groups.  Gene-group overrides (raw_results_dir, etc.) live in
+# config/{GROUP}/07_plantcare_analysis.toml.
+# ============================================================================
+
+[pipeline]
+# Gene groups to process. Available: "DMP", "HAP2", "GRF", "GIF", "GRF_GIF", "PLA"
+gene_groups = [
+    #"DMP",
+    #"HAP2",
+    "GRF_GIF",
+    #"PLA",
+]
+
+[gene_sequence]
+upstream = 1000
+downstream = 1000
+
+# GTF extraction: reference annotations to filter by HMMER-identified genes.
+# Labels must match identification.target_labels; arrays are parallel (same order).
+[gene_sequence.gtf_extraction]
+labels = [
+    "Solanum_melongena_v4.1",
+    "GPE001970_SMEL5",
+    "GPE001530",
+    "GPE002800",
+]
+
+annotations = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_function_IPR_final.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001970.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001530.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE002800.gff",
+]
+
+genomes = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001530.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE002800.fa",
+]
+
+[plantcare]
+machine      = "Local"   # "Local" or "HPC" — selects compute profile below
+overwrite    = true      # overwrite existing outputs
+dpi       = 600
+
+operations = [
+    "GTF_extraction",
+    "Extraction_of_sequence_with_upstream_and_downstream",
+    #"PlantCARE_post_processing",        # Unzipping of results from PlantCARE website. 
+    #"PlantCARE_matrix_generation",
+    #"PlantCARE_heatmap_generation",
+    #"PlantCARE_combined_heatmap",
+    #"PlantCARE_groups_heatmap",
+]
+
+[plantcare.compute.Local]
+threads      = 12        # Total CPU threads available
+
+[plantcare.compute.HPC]
+threads      = 64        # Total CPU threads on HPC node
+
+# ---------- Heatmap color palette ----------
+# 8-step gradient (green → violet) shared by all PlantCARE heatmaps.
+[plantcare.colors]
+palette = [
+    "#d9e9c8ff",
+    "#8BC34A",
+    "#4CAF50",
+    "#009688",
+    "#00BCD4",
+    "#3F51B5",
+    "#673AB7",
+    "#4A148C",
+]
+
+cell_border_color = "white"
+
+# ---------- Heatmap figure parameters ----------
+[plantcare.figures]
+row_font        = 12
+col_font        = 10
+label_font      = 14
+cell_font       = 10
+cell_size        = 1.0
+min_freq        = 0
+column_rotation = 22.5
+cell_border_width = 0.5
+legend_height   = 4
+gene_label      = "Genes of Interest"

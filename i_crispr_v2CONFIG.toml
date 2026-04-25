@@ -1,0 +1,743 @@
+# ============================================================================
+# Shared Pipeline Configuration — 09_CRISPR v2 Pipeline Defaults
+# ============================================================================
+# Eight-stage KO prediction pipeline:
+#   [1] Design + scoring              (CRISPOR)
+#   [2] On-target rescoring           (CRISPRon / DeepSpCas9)
+#   [3] Off-target curation           (paralog-aware, manual flags)
+#   [4] Indel outcome prediction      (inDelphi / Lindel)
+#   [5] Mutant transcript rebuild     (Biopython + GTF)
+#   [6] Protein-level consequence     (domain check + ESMFold/AF3)
+#   [7] NMD prediction                (50-nt rule-based heuristic)
+#   [8] Composite KO score & ranking
+#
+# ── Pipeline modes ────────────────────────────────────────────────────────
+# mode = "crispor_only"
+#   Runs the full 8-stage pipeline using CRISPOR as the sole guide source.
+#   Outputs land in:  09_CRISPR_v2/{genome}/crispor_only/01_Design_Score/...
+#
+# mode = "comparison"
+#   Runs the full 8-stage pipeline on CRISPOR-designed guides AND on the
+#   pre-existing CRISPR-P v2.0 results (from v1 stage [1]), then runs a
+#   side-by-side comparison report.
+#   Outputs land in:
+#     09_CRISPR_v2/{genome}/crispor/01_Design_Score/...
+#     09_CRISPR_v2/{genome}/crispr_p_v2/01_Raw_Input/...
+#     09_CRISPR_v2/{genome}/comparison/...
+#
+# Gene-group overrides live in config/{GROUP}/09_crispr_analysis_v2.toml.
+# ============================================================================
+
+[pipeline]
+gene_groups = [
+    "DMP"
+]
+
+machine  = "Local"   # "Local" | "HPC" — selects compute profile below
+overwrite = true
+
+[pipeline.compute.Local]
+threads        = 12
+max_parallel   = 6
+
+[pipeline.compute.HPC]
+threads        = 64
+max_parallel   = 16
+
+[crispr_v2]
+enabled = true
+
+# Pipeline mode: "crispor_only" | "comparison"
+#   crispor_only — CRISPOR guides only, single output tree
+#   comparison   — CRISPOR + CRISPR-P v2.0 in parallel, plus a comparison report
+mode = "crispor_only"
+
+# Operations to run.  Comment out any stage to skip it.
+# "compare_tools" is only executed when mode = "comparison".
+operations = [
+    #"design_score",       # [1]  CRISPOR on-target + off-target scoring
+    #"plant_filter",       # [1b] plant sgRNA pre-filter (TTTT, GC, 5' G/A)
+    #"rescore_ontarget",   # [2]  CRISPRon / DeepSpCas9 rescoring
+    #"curate_offtargets",  # [3]  paralog-aware off-target curation
+    #"predict_indels",     # [4]  inDelphi / Lindel indel outcome
+    #"rebuild_transcripts",# [5]  mutant mRNA reconstruction (Biopython)
+    "protein_consequence",# [6]  domain impact + ESMFold/AF3 flag
+    #"predict_nmd",        # [7]  NMD: 50-nt rule + plant long-3'UTR rule
+    #"rank_guides",        # [8]  composite KO score & ranking
+    #"comparison_scatter", # [9]  v1-style scatter: on-target vs off-target
+    #"compare_tools",      # [C]  CRISPOR vs CRISPR-P v2.0 (mode=comparison only)
+]
+
+# Conda environment with v2 tools (created by setup_conda_crispr_v2.sh)
+conda_env = "crispr_v2"
+# Legacy env for inDelphi — requires scikit-learn 0.20.0. Create with:
+#   conda create -n crispr_v2_indelphi python=3.7 scikit-learn=0.20.0 numpy pandas
+#   conda run -n crispr_v2_indelphi pip install inDelphi
+# Leave empty ("") to skip inDelphi and use Lindel only.
+conda_env_indelphi = "crispr_v2_indelphi"
+# ---------- Genome subdirectories to process ----------
+[crispr_v2.genomes]
+names = [
+    "GPE001970_SMEL5", 
+    #"Solanum_melongena_v4.1"
+]
+
+# ============================================================================
+# [1] Design + on-target / off-target scoring  (CRISPOR)
+# ============================================================================
+# CRISPOR takes a TARGET nucleotide FASTA (CDS or locus) and DESIGNS candidate
+# guide RNAs inside it. It does NOT score pre-designed gRNAs.
+#
+# Target FASTAs are group-specific — set them in the group override:
+#   config/{GROUP}/09_crispr_analysis_v2.toml  →  [crispr_v2.design_score]
+#                                                 target_fasta_template = "..."
+#                                                 target_fastas         = [ ... ]
+#
+# Resolution order:
+#   1. target_fastas (explicit list) — takes precedence if non-empty
+#   2. target_fasta_template with {GENOME} substituted from the current
+#      entry in [crispr_v2.genomes].names
+#
+# Recommended source: CD-HIT–reduced transcripts from stage a_hmmer, e.g.
+#   III_RESULT/{GROUP}/01_Identification/{GENOME}/e-value_1e-10/
+#       c_CD_HIT_Reduced/{PFAM_ID}_{GROUP}/{PFAM_ID}_{GROUP}_transcripts_cdhit.fa
+# ============================================================================
+[crispr_v2.design_score]
+# PAM for SpCas9
+pam             = "NGG"
+# CRISPOR genome name or path to CRISPOR-indexed genome
+crispor_genome  = "melongena"   # override per group if needed
+
+# ── Stage-1 filter ───────────────────────────────────────────────────────────
+# The filter reads the FIRST column from `score_columns` that has a numeric
+# value per guide, and drops the guide when that value is below `min_score`.
+# Guides with no numeric value in ANY listed column pass through (missing
+# scores are not grounds for rejection).
+#
+# IMPORTANT: `min_score` does NOT scale uniformly across scorers — different
+# columns use different ranges. Pick the threshold that matches whichever
+# column is ACTIVE (first uncommented entry in `score_columns`).
+#
+# ┌───────────────────────┬────────┬──────────┬────────┬──────────┬────────┐
+# │ Column                │ Status │ Range    │ Strong │ Moderate │ Loose  │
+# ├───────────────────────┼────────┼──────────┼────────┼──────────┼────────┤
+# │ Moreno-Mateos-Score   │ ACTIVE │ 0–100    │ ≥40    │ ≥30      │ ≥20    │
+# │ Doench '16-Score      │ BROKEN │ 0–100    │ ≥60    │ ≥40      │ ≥30    │
+# │ Doench-RuleSet3-Score │ BROKEN │ −3 to +3 │ ≥+1.0  │ ≥+0.0    │ ≥−1.0  │
+# │ DoenchScore (2014)    │ —      │ 0–100    │ ≥60    │ ≥40      │ ≥30    │
+# │ on_target_score       │ —      │ depends  │ —      │ —        │ —      │
+# └───────────────────────┴────────┴──────────┴────────┴──────────┴────────┘
+# Tip: Moreno-Mateos tends to score 10–20 points LOWER than Doench '16 for
+# the same guide, so lower the threshold proportionally when switching.
+#
+# [BROKEN] = sklearn >= 1.0 + patched pickles; the scorer falls back to 0.0
+# for every guide. Filtering on a broken column drops everything that is not
+# "NotEnoughFlankSeq". Keep Moreno-Mateos first until Azimuth/RS3 are restored.
+#
+# ── Training-species caveat (MUST be cited in the thesis Methods) ───────────
+#   Moreno-Mateos-Score   : trained on ZEBRAFISH (Danio rerio) embryo screens
+#   Doench '16-Score      : trained on HUMAN cell lines (A375, MOLM13, …)
+#   Doench-RuleSet3-Score : trained on HUMAN CRISPR screens (RS3 meta-model)
+#   DeepSpCas9            : trained on HUMAN HEK293T data (Kim 2019)
+#   CFD off-target matrix : derived from HUMAN HEK293 mismatch activity data
+# None of the above were fit on plant data. For a plant target like Solanum
+# melongena, treat these scores as ORDERING heuristics, NOT absolute efficacy
+# predictions. Plant-specific efficacy is covered by the CRISPR-P v2.0 arm
+# (Liu et al. 2017) — enable mode = "comparison" and consult the comparison
+# report for cross-validation. See [crispr_v2.plant_scorer] near the bottom
+# of this file for optional plant-trained rescorers.
+#
+# ── Primary literature (short form; full references at bottom of file) ──────
+#   Moreno-Mateos-Score   : Moreno-Mateos et al. 2015  (doi:10.1038/nmeth.3543)
+#   Doench '16-Score      : Doench et al. 2016         (doi:10.1038/nbt.3437)
+#   Doench-RuleSet3-Score : DeWeirdt et al. 2022       (doi:10.1038/s41467-022-33024-2)
+#   DoenchScore (2014)    : Doench et al. 2014         (doi:10.1038/nbt.3026)
+#   Thresholds / CRISPOR  : Haeussler et al. 2016      (doi:10.1186/s13059-016-1012-2)
+#                           Concordet & Haeussler 2018 (doi:10.1093/nar/gky354)
+#
+# Threshold rationale: 40 = Moreno-Mateos "Strong" cut-off (table above).
+# Previously set to 50 — that was a Doench'16-calibrated value mis-applied to
+# Moreno-Mateos and discarded the bulk of viable DMP guides (Moreno-Mateos
+# scores 10–20 points LOWER than Doench'16 for the same guide). Use 30 for
+# "Moderate" capture or 20 for "Loose"; only raise past 50 when switching
+# `score_columns` to a Doench-scale scorer first.
+min_score       = 40
+
+score_columns = [
+    "Moreno-Mateos-Score",       # ACTIVE  — 0–100, Moreno-Mateos 2015 (zebrafish-trained, widely used)
+    #"Doench '16-Score",          # BROKEN  — Azimuth/Fusi; currently 0.0 for every guide
+    #"Doench-RuleSet3-Score",     # BROKEN  — RS3; also patched to fall back
+    #"DoenchScore",               #         — older Doench 2014 (RS1); rarely emitted by modern CRISPOR
+    #"on_target_score",           #         — generic fallback for non-CRISPOR TSVs
+]
+
+# Legacy key — unused by current CRISPOR CLI (--batchSize is web-server only).
+# Retained for documentation; harmless if left in the TOML.
+batch_size      = 100
+
+# ============================================================================
+# [1b] Plant-specific sgRNA pre-filter (U6/U3 Pol III compatibility)
+# ============================================================================
+# Applied BEFORE rescoring so on-target ranking reflects only guides that can
+# actually be expressed in a plant vector. These rules are plant-biology
+# requirements, not arbitrary heuristics — ignoring them is the most common
+# reason computationally "top" guides fail in the plant.
+#
+# ── Literature ───────────────────────────────────────────────────────────────
+#   Plant U6 promoter / Pol III termination on TTTT+ :
+#     Ma et al. 2015 (doi:10.1016/j.molp.2015.04.007)  [rice/tomato CRISPR]
+#     Gao & Zhao 2014 (doi:10.1111/jipb.12152)         [Arabidopsis U6/U3]
+#     Nekrasov et al. 2013 (doi:10.1038/nbt.2655)      [plant sgRNA design]
+#   GC content window 30–70 % :
+#     Liu et al. 2016 (doi:10.1093/nar/gkw223)
+#   5' G for U6, 5' A for U3 initiation :
+#     Shan et al. 2014 (doi:10.1038/nprot.2014.157)
+# ─────────────────────────────────────────────────────────────────────────────
+[crispr_v2.plant_filter]
+# Master switch. When false, the plant pre-filter is bypassed entirely
+# (module becomes a no-op pass-through). Leave true for plant targets.
+enabled = true
+
+# ── Poly-T Pol III termination signal ───────────────────────────────────────
+# RNA Pol III treats any run of >= termination_run_length T residues as a
+# transcription terminator. A guide with an internal TTTT (run length 4) will
+# be truncated, yielding a non-functional sgRNA. This is HARD-REJECT in
+# plants: no exceptions except when the termination_action is set to "flag".
+# Default run length 4 matches the most stringent plant vectors (rice,
+# tomato). Use 5 only if your vector's tRNA-processing system tolerates
+# TTTT (rare for U6/U3 direct driving).
+termination_run_length = 4
+# Action on hit: "reject" (drop guide), "flag" (keep + annotate column).
+# Default is reject because truncated sgRNAs waste downstream compute.
+termination_action     = "reject"
+
+# ── 5' nucleotide for Pol III promoter compatibility ────────────────────────
+# U6 promoter initiates transcription ONLY at a G (adds an extra G if
+# absent; some vectors reject the guide outright). U3 prefers A.
+# Action: "require" (reject guides missing the preferred base),
+#         "flag"    (keep + annotate — lets you pick U6 vs U3 vectors later),
+#         "prepend" (annotate with a pre-pended G/A candidate sequence).
+promoter_type     = "U6"     # "U6" | "U3" | "any"
+promoter_action   = "flag"   # "require" | "flag" | "prepend"
+
+# ── GC content window ───────────────────────────────────────────────────────
+# Guides outside [gc_min, gc_max] on the 20-nt protospacer are flagged (not
+# rejected). Extreme GC reduces Cas9 loading and activity in plants.
+gc_min = 0.30
+gc_max = 0.70
+
+# ============================================================================
+# [2] On-target rescoring (CRISPRon, DeepSpCas9)
+# ============================================================================
+# ── Literature ───────────────────────────────────────────────────────────────
+#   CRISPRon model : Xiang et al. 2021  (doi:10.1038/s41467-021-23576-0)
+#   CRISPRon/off   : Anthon et al. 2022 (doi:10.1093/bioinformatics/btac697)
+#   DeepSpCas9     : Kim et al. 2019    (doi:10.1126/sciadv.aax9249)
+# ─────────────────────────────────────────────────────────────────────────────
+[crispr_v2.rescore_ontarget]
+# Predictors to run; results merged as extra columns in the guide table
+predictors = [
+    "crisprOn", 
+    "DeepSpCas9"
+]
+
+# Guides whose best rescore < this threshold are flagged (not dropped)
+flag_threshold = 0.3
+
+# ============================================================================
+# [2b] Plant-trained on-target rescorers (optional)
+# ============================================================================
+# The stage-[2] predictors above (CRISPRon, DeepSpCas9) and the CRISPOR
+# scorers in stage [1] are ALL mammalian- or zebrafish-trained. This section
+# configures two OPTIONAL plant-trained alternatives whose weights feed into
+# stage [8]'s composite KO score. Neither is a drop-in replacement for the
+# animal models — each was trained on a specific plant species/target class:
+#
+# ── DeepCRISPR (Chuai et al. 2018, doi:10.1186/s13059-018-1459-4) ───────────
+#   Training data: HCT116/HEK293/HeLa/HL60 human cell lines.
+#   Architecture:  deep CNN + autoencoder on epigenetic features.
+#   Plant use:     NOT plant-trained, but more data-efficient than Azimuth;
+#                  treat as a human-derived SANITY CHECK alongside Doench'16.
+#
+# ── CRISPR-Local rice model (Sun et al. 2019, doi:10.1093/bib/bbz110) ──────
+#   Training data: Oryza sativa (rice) CRISPR screens.
+#   Architecture:  gradient-boosted regression on plant sgRNA features.
+#   Plant use:     BEST available plant-trained scorer. Rice is a monocot
+#                  (Solanum is eudicot), so transferability is partial — use
+#                  as an ordering heuristic, not an absolute efficacy metric.
+#                  Runs offline once its model weights are bundled under
+#                  modules/09_crispr_analysis/v2/tools/crispr_local/.
+#
+# ── CRISPR-P v2.0 (Liu et al. 2017, doi:10.1016/j.molp.2017.01.003) ────────
+#   Training data: multi-species plant datasets (rice, Arabidopsis, tobacco).
+#   Architecture:  modified Xu 2015 scoring + plant-specific off-target table.
+#   Plant use:     THE plant-specific reference. When mode = "comparison",
+#                  the CRISPR-P v2.0 arm already runs as a parallel pipeline
+#                  (see [crispr_v2.crispr_p]); the composite score below lets
+#                  you up-weight its ranking in the final decision.
+# ─────────────────────────────────────────────────────────────────────────────
+[crispr_v2.plant_scorer]
+# Master switch. When false, this block is a no-op.
+enabled = false
+
+# Which plant-aware rescorers to run in stage [2].
+# Append entries to [crispr_v2.rescore_ontarget].predictors when you enable
+# them — the module dispatches by name.
+#   "DeepCRISPR"    : animal-trained, data-efficient sanity check.
+#   "CRISPR-Local"  : rice-trained; best plant option when target is a monocot
+#                     or a conserved gene (e.g. DMP, HAP2).
+plant_predictors = [
+    #"DeepCRISPR",
+    #"CRISPR-Local",
+]
+
+# ── CRISPR-P v2.0 heavy-weighting in comparison mode ────────────────────────
+# When mode = "comparison", this block steers stage [8] to over-weight the
+# plant-specific CRISPR-P v2.0 arm relative to the mammalian CRISPOR arm.
+# Weights are multiplicative on the composite KO score per arm; the default
+# 1.0 means "equal weight". Use crisprp_weight >= 1.5 to treat CRISPR-P v2.0
+# as the primary authority and the CRISPOR arm as the confirmatory ranking
+# — this is the recommended configuration for plant publications.
+crispor_weight  = 1.0
+crisprp_weight  = 2.0
+
+# ============================================================================
+# [3] Off-target curation (paralog-aware)
+# ============================================================================
+# ── Literature ───────────────────────────────────────────────────────────────
+#   CFD off-target score : Doench et al. 2016 (doi:10.1038/nbt.3437)
+# ─────────────────────────────────────────────────────────────────────────────
+[crispr_v2.curate_offtargets]
+# Max mismatches used during CRISPOR off-target enumeration
+max_mismatches  = 4
+# Guides hitting ≥ this many DMP-family paralogs are labelled "paralog_risk"
+paralog_hit_threshold = 1
+# Gene name patterns to treat as same-family (paralogs); regex, case-insensitive
+paralog_patterns = [
+    "DMP", 
+    #"HAP2", 
+    #"GCS1"
+]
+
+# Guides with CFD off-target score sum above this value are flagged
+cfd_sum_threshold = 0.2
+
+# ============================================================================
+# [4] Indel outcome prediction (inDelphi / Lindel)
+# ============================================================================
+# ── Literature ───────────────────────────────────────────────────────────────
+#   inDelphi : Shen et al. 2018  (doi:10.1038/s41586-018-0686-x)
+#   Lindel   : Chen et al. 2019  (doi:10.1093/nar/gkz487)
+# ─────────────────────────────────────────────────────────────────────────────
+[crispr_v2.predict_indels]
+# Predictors to run; results appended as columns.
+# NOTE on inDelphi: the upstream models require scikit-learn 0.18.1 or 0.20.0
+# (pickled under those versions). The crispr_v2 env ships a modern sklearn, so
+# inDelphi will log one "unavailable" warning and the module will fall back to
+# Lindel alone. To enable inDelphi, create a dedicated legacy env and invoke
+# 04_predict_indels.py under it — do NOT downgrade the shared env.
+#
+# ── Plant-NHEJ caveat (MUST be cited in the thesis Methods) ────────────────
+# Supported cell types — "mESC", "U2OS", "HEK293", "HCT116", "K562" — are ALL
+# animal cell lines. Plant NHEJ microhomology preferences differ (the plant
+# KU70/KU80/LIG4 complex and MMEJ back-up pathway have distinct repair
+# signatures from mammalian cells). Indel-outcome frequencies from inDelphi
+# are therefore PUBLISHABLE ONLY WITH A CAVEAT for plant work, treated as
+# relative guide-to-guide ordering rather than absolute editing frequencies.
+#
+# A coarser but more transferable alternative is FORECasT (Allen et al. 2018,
+# doi:10.1038/nbt.4317): it is also mammalian-trained, but its outcome class
+# (deletion size + local microhomology) is less position-specific than
+# inDelphi, making it more robust across species. Consider running FORECasT
+# in parallel (add "FORECasT" to `predictors`) and reporting the consensus
+# frameshift fraction across the two models as the plant-facing estimate.
+#
+# Choice of cell_type: mESC is recommended for plant work despite being
+# mammalian — its NHEJ:MMEJ balance is closer to plant repair than the other
+# four options based on indel-profile comparisons in the inDelphi paper.
+predictors = ["inDelphi", "Lindel"]
+# inDelphi cell type. For plant targets (e.g. Solanum melongena) keep "mESC":
+# its MMEJ/NHEJ ratio is the closest available analogue to plant NHEJ.
+# Supported values: "mESC", "U2OS", "HEK293", "HCT116", "K562".
+indelphi_cell_type  = "mESC"
+# Frameshift fraction threshold to flag a guide as likely-KO
+frameshift_threshold = 0.5
+# Number of top indel outcomes to record per guide
+top_outcomes = 5
+
+# ============================================================================
+# [5] Mutant transcript reconstruction (Biopython + GTF)
+# ============================================================================
+# ── Literature ───────────────────────────────────────────────────────────────
+#   Biopython : Cock et al. 2009 (doi:10.1093/bioinformatics/btp163)
+# ─────────────────────────────────────────────────────────────────────────────
+[crispr_v2.rebuild_transcripts]
+# Reconstruct the top N most probable indel outcomes per guide
+top_indels = 3
+# GTF annotation to use for CDS boundary extraction
+# Set per gene group via [reference] in 00_common.toml
+gtf_key = "gpe001970_v5_gtf"   # key looked up from [reference] section
+# FASTA of reference genome for sequence extraction
+genome_key = "gpe001970_v5_genome"
+
+# ============================================================================
+# [6] Protein-level consequence (domain check + structure flag)
+# ============================================================================
+# ── Literature ───────────────────────────────────────────────────────────────
+#   ESMFold : Lin et al. 2023 (doi:10.1126/science.ade2574)
+# ─────────────────────────────────────────────────────────────────────────────
+[crispr_v2.protein_consequence]
+# Pfam domain annotation TSV (gene -> domains).  Relative to PIPELINE_DIR.
+domain_tsv_key = "dmp_domain_tsv"   # key in [reference]
+# If a truncation falls within a known domain, flag guide as "domain_hit"
+flag_domain_hits = true
+# Structure prediction backends to flag (not auto-run; just noted in report)
+structure_backends = [
+    "ESMFold", 
+    #"AlphaFold3"
+]
+
+# ESMFold inference backend.
+#   "api"   -- calls the public ESMFold API (esm.metagenomic.io); no GPU required
+#   "local" -- runs fair-esm locally; requires GPU with ~10 GB VRAM
+#              and fair-esm[esmfold] installed (setup_conda_crispr_v2.sh does this)
+esmfold_backend = "local"
+
+# ============================================================================
+# [7] NMD prediction (rule-based heuristics)
+# ============================================================================
+# ── Plant NMD caveat (MUST be cited in the thesis Methods) ──────────────────
+# The canonical "50-nt EJC rule" (Maquat 2004) is a MAMMALIAN model. Plants
+# have an additional, EJC-independent NMD trigger: any transcript whose 3'
+# UTR is ≥ 350 nt is NMD-susceptible even without a downstream exon-exon
+# junction (Kerényi et al. 2008, doi:10.1038/emboj.2008.189). Both rules are
+# applied: a guide is labelled "nmd_predicted" if EITHER (a) the PTC is ≥
+# ptc_distance_threshold upstream of the last EJC, OR (b) the induced 3' UTR
+# is ≥ long_3utr_threshold in length.
+#
+# ── Literature ───────────────────────────────────────────────────────────────
+#   50-nt EJC rule   : Maquat 2004         (doi:10.1038/nrm1310)      [mammalian]
+#   Long 3' UTR rule : Kerényi et al. 2008 (doi:10.1038/emboj.2008.189) [plant]
+#   Plant NMD review : Shaul 2015          (doi:10.1016/j.tplants.2015.08.011)
+# ─────────────────────────────────────────────────────────────────────────────
+[crispr_v2.predict_nmd]
+# Rule (a) — 50-nt EJC rule (Maquat 2004):
+# PTC is NMD-susceptible when it falls ≥50 nt upstream of the last
+# exon-exon junction.
+ptc_distance_threshold = 50
+# Rule (b) — plant long-3'UTR rule (Kerényi 2008):
+# An induced 3' UTR of ≥350 nt is itself a plant-specific NMD trigger,
+# independent of EJC position. Set to 0 to disable the long-3'UTR check and
+# fall back to mammalian-only NMD prediction.
+long_3utr_threshold    = 350
+# Guides with either trigger are labelled "nmd_predicted".
+# Guides where the PTC is in the last exon AND 3' UTR < long_3utr_threshold
+# are labelled "nmd_escape".
+
+# ============================================================================
+# [8] Composite KO score & ranking
+# ============================================================================
+[crispr_v2.rank_guides]
+# Weights for the composite KO score. Validated at runtime: they MUST sum to
+# 1.0 (±1e-6). Drift is auto-renormalised and logged as a WARN (|drift|<5%)
+# or an ERROR (≥5%); never edit without keeping the sum at 1.0.
+# w_ontarget    : mean of ALL available normalised on-target scorers
+#                 (Doench'16, Moreno-Mateos, CRISPRon, DeepSpCas9, CRISPR-P).
+#                 Previous versions used first-hit only and discarded
+#                 rescorers — this is fixed in the current module.
+# w_frameshift  : predicted frameshift fraction (inDelphi/Lindel)
+# w_nmd         : 1 if nmd_predicted, 0.5 if nmd_escape, 0 otherwise
+# w_offtarget   : 1 − min(cfd_sum, cfd_sum_cap) / cfd_sum_cap (penalty inverted)
+# w_domain      : 1 if domain_hit, 0 otherwise
+weights = { w_ontarget = 0.30, w_frameshift = 0.25, w_nmd = 0.20, w_offtarget = 0.15, w_domain = 0.10 }
+
+# Top N guides to highlight in the final report
+top_n = 10
+
+# Output table format: "tsv" | "csv" | "xlsx"
+output_format = "tsv"
+
+# Absolute cap for CFD off-target sum normalisation.
+# The previous per-batch max-normalisation made a guide's off-target penalty
+# depend on which sibling guides were in the same run — two identical guides
+# in different gene groups would receive different composite scores. An
+# absolute cap yields gene-independent, reproducible rankings.
+# Guides with cfd_sum >= cfd_sum_cap receive c_offtarget = 0. Default 5.0 is
+# the "essentially unusable" threshold consistent with the Haeussler/CRISPOR
+# off-target specificity guidance.
+cfd_sum_cap = 5.0
+
+# ============================================================================
+# [9] Guide comparison scatter (v1-style on-target-vs-off-target plot)
+# ============================================================================
+# Aggregates all stage-8 per-gene ranked tables into a single scatter plot:
+#   x-axis : c_ontarget        (normalised on-target efficacy, 0–1)
+#   y-axis : offtargetCount    (CRISPOR off-target hits)
+#   colour : per-gene palette
+#   marker : composite KO-score tier (▲ High ≥0.7, ● Moderate ≥0.5, ■ Low)
+# Writes three figures to 09_Guide_Scatter/:
+#   guide_comparison.{fmt}          — scatter + top-N companion table
+#   guide_comparison_scatter.{fmt}  — scatter only
+#   guide_comparison_table.{fmt}    — top-N table only
+# DPI / format inherit from [crispr_v2.report].
+[crispr_v2.comparison_scatter]
+# ── Labels & layout ─────────────────────────────────────────────────────────
+# Top-N guides per gene to label on the scatter + list in the table.
+top_n = 3
+
+# ── Y-axis (off-target count) ───────────────────────────────────────────────
+# Upper bound for the off-target y-axis. Set to 0 to auto-scale (max observed
+# × 1.15). Any positive number clamps the axis — guides above the cap render
+# at the top edge with "(>cap)" appended to their label, and the number of
+# over-cap guides is logged. Keeps the plot readable when a few guides have
+# pathological off-target counts that compress the rest into a flat line.
+y_max_cap = 100
+
+# ── Tier markers (controls point SHAPE, applied across all variants) ────────
+# Tier is computed on `composite_ko_score` (0–1 from stage 08):
+#   composite ≥ tier_high      → ▲ High
+#   composite ≥ tier_moderate  → ● Moderate
+#   otherwise                  → ■ Low
+# These are plot-only: they do NOT filter guides, only pick the marker shape.
+tier_high     = 0.7
+tier_moderate = 0.5
+
+# ── Single-variant fallback ─────────────────────────────────────────────────
+# Used only when `score_variants` (below) is empty. Kept so the module runs
+# as a sensible single-scatter tool when invoked standalone.
+x_score_column  = "Moreno-Mateos-Score"
+x_axis_high     = 40.0   # green dashed line
+x_axis_moderate = 30.0   # orange dotted line
+x_axis_max      = 100.0  # 0 = auto-scale (max observed × 1.05)
+
+# ── Multi-variant: one figure set per entry ─────────────────────────────────
+# Each string is "column:high:moderate:axis_max:file_suffix". Thresholds match
+# the scorer scale (see the table in [crispr_v2.design_score]). Comment out
+# variants you don't need — the pipeline writes one {guide_comparison,…}_
+# {suffix}.{fmt} per uncommented entry into 09_Guide_Scatter/. Leave the list
+# empty to fall back to the single-scatter defaults above.
+score_variants = [
+    # ── Stage [1] — CRISPOR design (raw scorers emitted by crispor.py) ──
+    #"Doench '16-Score:60:40:100:1a_doench16",              # BROKEN — Azimuth/Fusi patched to 0.0 under sklearn ≥1.0
+    "Moreno-Mateos-Score:40:30:100:1b_moreno_mateos",      # ACTIVE filter scorer (Moreno-Mateos 2015, 0–100)
+    #"Doench-RuleSet3-Score:1:0:3:1c_rs3",                  # BROKEN — RS3 pickles patched to fall back
+    "Out-of-Frame-Score:66:50:100:1d_oof_bae",             # Bae et al. microhomology (0–100)
+    "Lindel-Score:50:30:100:1e_lindel",                    # frameshift probability (0–100, Chen et al. 2019)
+    # ── Stage [2] — On-target rescoring (deep-learning predictors) ──
+    "crisprOn_score:0.7:0.5:1:2a_crispron",                # stage-2 CRISPRon deep rescore (0–1)
+    # ── Stage [8] — Composite KO score ──────────────────────────────
+    "c_ontarget:0.7:0.5:1:8a_c_ontarget_norm",             # normalised on-target component (0–1)
+    "composite_ko_score:0.7:0.5:1:8b_composite_ko",        # final weighted KO ranking score (0–1)
+]
+
+# ============================================================================
+# Report / visualization shared settings
+# ============================================================================
+[crispr_v2.report]
+dpi    = 600
+format = "png"    # png | svg | pdf
+
+# ============================================================================
+# CRISPR-P v2.0 input (used only when mode = "comparison")
+# ============================================================================
+# ── Literature ───────────────────────────────────────────────────────────────
+#   CRISPR-P v2.0 : Liu et al. 2017 (doi:10.1016/j.molp.2017.01.003)
+# ─────────────────────────────────────────────────────────────────────────────
+# Point crispor_p_raw_dir at the folder that already contains the raw
+# CRISPR-P v2.0 scoring outputs (the 01_Raw_Scoring_Results_from_CRISPR-P_V2_0
+# directories produced by i_crispr_v1.sh stage [1]).
+# Override per gene group in config/{GROUP}/09_crispr_analysis_v2.toml.
+[crispr_v2.crispr_p]
+# Path relative to PIPELINE_DIR, or absolute.
+# Default: reuse v1 results that already exist under III_RESULT/{GROUP}/
+raw_dir_template = "III_RESULT/{GROUP}/09_CRISPR_Off-Target_Analysis/{GENOME}/01_Raw_Scoring_Results_from_CRISPR-P_V2_0"
+
+# The CRISPR-P v2.0 TSVs are fed through stages [2]–[8] identically to
+# CRISPOR output.  Column name mappings handle score column differences.
+#
+# IMPORTANT: CRISPR-P v2.0 uses a modified Xu 2015 algorithm (Xu et al. 2015,
+# doi:10.1101/gr.191452.115), NOT Doench 2016. Mapping its "score" column to
+# "doench2016OnTarget" (the previous default) was scientifically misleading
+# and propagated a mislabeled score into stage [8]'s composite KO score. The
+# correct destination column name is "crisprP_score"; downstream rankers now
+# recognise this column alongside doench2016OnTarget / crisprOn_score.
+score_column_map = { "score" = "crisprP_score", "on_target_score" = "crisprP_score" }
+
+# ============================================================================
+# Comparison report (used only when mode = "comparison")
+# ============================================================================
+[crispr_v2.comparison]
+# Metrics to compare side by side
+metrics = [
+    "doench2016OnTarget",   # raw on-target score
+    "crisprOn_score",       # rescored on-target
+    "best_fs_frac",         # predicted frameshift fraction
+    "cfd_sum",              # total CFD off-target score
+    "composite_ko_score",   # final KO ranking score
+]
+# Guide overlap metric: Jaccard index on top-N guides from each tool
+jaccard_top_n  = 10
+# Figures written to comparison/ subfolder
+dpi    = 600
+format = "png"
+
+# ============================================================================
+# References (full citations for inline shorthand markers used above)
+# ============================================================================
+# Shorthand in this file (e.g. "Moreno-Mateos et al. 2015" or "doi:10.1038/…")
+# resolves to the full entries below. Newest refs added here; keep short-form
+# markers above in sync with DOIs listed here.
+#
+# On-target scoring — sgRNA activity predictors:
+#
+#   Moreno-Mateos MA, Vejnar CE, Beaudoin J-D, Fernandez JP, Mis EK, Khokha
+#     MK, Giraldez AJ. 2015. CRISPRscan: designing highly efficient sgRNAs
+#     for CRISPR-Cas9 targeting in vivo. Nature Methods 12(10):982–988.
+#     doi:10.1038/nmeth.3543
+#
+#   Doench JG, Fusi N, Sullender M, Hegde M, Vaimberg EW, Donovan KF, Smith
+#     I, Tothova Z, Wilen C, Orchard R, Virgin HW, Listgarten J, Root DE.
+#     2016. Optimized sgRNA design to maximize activity and minimize
+#     off-target effects of CRISPR-Cas9. Nature Biotechnology 34(2):184–191.
+#     doi:10.1038/nbt.3437
+#
+#   DeWeirdt PC, McGee AV, Zheng F, Nwolah I, Hegde M, Doench JG. 2022.
+#     Accounting for small variations in the tracrRNA sequence improves
+#     sgRNA activity predictions for CRISPR screening.
+#     Nature Communications 13:5255.
+#     doi:10.1038/s41467-022-33024-2
+#
+#   Doench JG, Hartenian E, Graham DB, Tothova Z, Hegde M, Smith I,
+#     Sullender M, Ebert BL, Xavier RJ, Root DE. 2014. Rational design of
+#     highly active sgRNAs for CRISPR-Cas9-mediated gene inactivation.
+#     Nature Biotechnology 32(12):1262–1267.
+#     doi:10.1038/nbt.3026
+#
+# Threshold conventions and CRISPOR integration:
+#
+#   Haeussler M, Schönig K, Eckert H, Eschstruth A, Mianné J, Renaud J-B,
+#     Schneider-Maunoury S, Shkumatava A, Teboul L, Kent J, Joly J-S,
+#     Concordet J-P. 2016. Evaluation of off-target and on-target scoring
+#     algorithms and integration into the guide RNA selection tool CRISPOR.
+#     Genome Biology 17:148.
+#     doi:10.1186/s13059-016-1012-2
+#
+#   Concordet J-P, Haeussler M. 2018. CRISPOR: intuitive guide selection for
+#     CRISPR/Cas9 genome editing experiments and screens.
+#     Nucleic Acids Research 46(W1):W242–W245.
+#     doi:10.1093/nar/gky354
+#
+# On-target rescoring — CRISPRon / DeepSpCas9:
+#
+#   Xiang X, Corsi GI, Anthon C, et al. 2021. Enhancing CRISPR-Cas9 gRNA
+#     efficiency prediction by data integration and deep learning.
+#     Nature Communications 12:3238.
+#     doi:10.1038/s41467-021-23576-0
+#
+#   Anthon C, Corsi GI, Gorodkin J. 2022. CRISPRon/off: CRISPR/Cas9 on-
+#     and off-target gRNA design. Bioinformatics 38(24):5437–5439.
+#     doi:10.1093/bioinformatics/btac697
+#
+#   Kim HK, Kim Y, Lee S, et al. 2019. SpCas9 activity prediction by
+#     DeepSpCas9, a deep learning–based model with high generalization
+#     performance. Science Advances 5:eaax9249.
+#     doi:10.1126/sciadv.aax9249
+#
+# Indel outcome prediction — inDelphi / Lindel:
+#
+#   Shen MW, Arbab M, et al. 2018. Predictable and precise template-free
+#     CRISPR editing of pathogenic variants. Nature 563(7733):646–651.
+#     doi:10.1038/s41586-018-0686-x
+#
+#   Chen W, McKenna A, Schreiber J, et al. 2019. Massively parallel profiling
+#     and predictive modeling of the outcomes of CRISPR/Cas9-mediated
+#     double-strand break repair. Nucleic Acids Research 47(15):7989–8003.
+#     doi:10.1093/nar/gkz487
+#
+# Sequence toolkit — Biopython:
+#
+#   Cock PJA, Antao T, Chang JT, Chapman BA, Cox CJ, Dalke A, Friedberg I,
+#     Hamelryck T, Kauff F, Wilczynski B, de Hoon MJL. 2009. Biopython:
+#     freely available Python tools for computational molecular biology and
+#     bioinformatics. Bioinformatics 25(11):1422–1423.
+#     doi:10.1093/bioinformatics/btp163
+#
+# Protein structure — ESMFold:
+#
+#   Lin Z, Akin H, Rao R, Hie B, Zhu Z, Lu W, et al. 2023. Evolutionary-
+#     scale prediction of atomic-level protein structure with a language
+#     model. Science 379(6637):1123–1130.
+#     doi:10.1126/science.ade2574
+#
+# Nonsense-mediated decay — mammalian 50-nt rule:
+#
+#   Maquat LE. 2004. Nonsense-mediated mRNA decay: splicing, translation and
+#     mRNP dynamics. Nature Reviews Molecular Cell Biology 5:89–99.
+#     doi:10.1038/nrm1310
+#
+# Nonsense-mediated decay — plant long-3'UTR rule:
+#
+#   Kerényi Z, Mérai Z, Hiripi L, Benkovics A, Gyula P, Lacomme C, Barta E,
+#     Nagy F, Silhavy D. 2008. Inter-kingdom conservation of mechanism of
+#     nonsense-mediated mRNA decay. EMBO Journal 27(11):1585–1595.
+#     doi:10.1038/emboj.2008.189
+#
+#   Shaul O. 2015. Unique aspects of plant nonsense-mediated mRNA decay.
+#     Trends in Plant Science 20(12):767–779.
+#     doi:10.1016/j.tplants.2015.08.011
+#
+# Plant sgRNA design conventions — U6/U3 Pol III, GC, 5' nucleotide:
+#
+#   Ma X, Zhang Q, Zhu Q, Liu W, Chen Y, Qiu R, Wang B, Yang Z, Li H, Lin Y,
+#     Xie Y, Shen R, Chen S, Wang Z, Chen Y, Guo J, Chen L, Zhao X, Dong Z,
+#     Liu Y-G. 2015. A robust CRISPR/Cas9 system for convenient, high-
+#     efficiency multiplex genome editing in monocot and dicot plants.
+#     Molecular Plant 8(8):1274–1284.
+#     doi:10.1016/j.molp.2015.04.007
+#
+#   Gao Y, Zhao Y. 2014. Self-processing of ribozyme-flanked RNAs into
+#     guide RNAs in vitro and in vivo for CRISPR-mediated genome editing.
+#     Journal of Integrative Plant Biology 56(4):343–349.
+#     doi:10.1111/jipb.12152
+#
+#   Nekrasov V, Staskawicz B, Weigel D, Jones JDG, Kamoun S. 2013. Targeted
+#     mutagenesis in the model plant Nicotiana benthamiana using Cas9 RNA-
+#     guided endonuclease. Nature Biotechnology 31:691–693.
+#     doi:10.1038/nbt.2655
+#
+#   Shan Q, Wang Y, Li J, Gao C. 2014. Genome editing in rice and wheat
+#     using the CRISPR/Cas system. Nature Protocols 9(10):2395–2410.
+#     doi:10.1038/nprot.2014.157
+#
+#   Liu X, Homma A, Sayadi J, Yang S, Ohashi J, Takumi T. 2016. Sequence
+#     features associated with the cleavage efficiency of CRISPR/Cas9 system.
+#     Nucleic Acids Research 44(10):gkw223.
+#     doi:10.1093/nar/gkw223
+#
+# Plant-trained / plant-specific on-target rescorers:
+#
+#   Chuai G, Ma H, Yan J, Chen M, Hong N, Xue D, Zhou C, Zhu C, Chen K,
+#     Duan B, Gu F, Qu S, Huang D, Wei J, Liu Q. 2018. DeepCRISPR: optimized
+#     CRISPR guide RNA design by deep learning. Genome Biology 19:80.
+#     doi:10.1186/s13059-018-1459-4
+#
+#   Sun J, Liu H, Liu J, Cheng S, Peng Y, Zhang Q, Yan J, Liu H-J, Chen L-L.
+#     2019. CRISPR-Local: a local single-guide RNA (sgRNA) design tool for
+#     non-reference plant genomes. Briefings in Bioinformatics 20(4):bbz110.
+#     doi:10.1093/bib/bbz110
+#
+# Indel-outcome — alternative (more transferable) mammalian model:
+#
+#   Allen F, Crepaldi L, Alsinet C, Strong AJ, Kleshchevnikov V, De Angeli P,
+#     Páleníková P, Khodak A, Kiselev V, Kosicki M, Bassett AR, Harding H,
+#     Galanty Y, Muñoz-Martínez F, Metzakopian E, Jackson SP, Parts L. 2018.
+#     Predicting the mutations generated by repair of Cas9-induced double-
+#     strand breaks. Nature Biotechnology 37:64–72.
+#     doi:10.1038/nbt.4317
+#
+# Guide design — CRISPR-P v2.0 (plant-specific):
+#
+#   Liu H, Ding Y, Zhou Y, Jin W, Xie K, Chen L-L. 2017. CRISPR-P 2.0: an
+#     improved CRISPR-Cas9 tool for genome editing in plants.
+#     Molecular Plant 10(3):530–532.
+#     doi:10.1016/j.molp.2017.01.003

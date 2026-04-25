@@ -48,20 +48,19 @@ while IFS=$'\t' read -r species_full species_short gene_name locus_id hir_pct ci
 
     if [[ "$OVERWRITE" != "true" && -s "$out_file" ]]; then
         echo "  [SKIP] $species_short ($species_full) -> $(basename "$out_file") exists"
+        extracted_count=$((extracted_count + 1))
         continue
     fi
 
     # Truncate so re-runs do not double-append
     : > "$out_file"
 
-    src_count=0
     # Try CDS first
     if [[ -n "$local_cds" && "$local_cds" != "-" ]]; then
         cds_path="$PIPELINE_DIR/$local_cds"
         if [[ -f "$cds_path" ]]; then
             python3 "$EXTRACTOR" --fasta "$cds_path" --patterns "$patterns" \
-                --out "$out_file" --name "${gene_name//|/+}" \
-                && src_count=$((src_count + 1)) || true
+                --out "$out_file" --name "${gene_name//|/+}" || true
         else
             echo "  [WARN] local CDS not found: $cds_path" >&2
         fi
@@ -71,8 +70,9 @@ while IFS=$'\t' read -r species_full species_short gene_name locus_id hir_pct ci
         prot_path="$PIPELINE_DIR/$local_prot"
         if [[ -f "$prot_path" ]]; then
             python3 "$EXTRACTOR" --fasta "$prot_path" --patterns "$patterns" \
-                --out "$out_file" --name "${gene_name//|/+}" \
-                && src_count=$((src_count + 1)) || true
+                --out "$out_file" --name "${gene_name//|/+}" || true
+        else
+            echo "  [WARN] local protein not found: $prot_path" >&2
         fi
     fi
 

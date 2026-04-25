@@ -307,10 +307,10 @@ if should_run "DOWNLOAD_CROP_GENOMES"; then
     # we delete all *.fa/*.fa.gz in the crop dir so the downloader re-fetches.
     if [[ -f "$CROP_MODULE" ]]; then
         if [[ "$OVERWRITE" == "true" ]]; then
-        if $DRY_RUN; then
+            if $DRY_RUN; then
                 echo "[DRY-RUN] find $CROP_DIR -type f \( -name '*.fa' -o -name '*.fa.gz' \) -delete"
-            echo "[DRY-RUN] bash $CROP_MODULE"
-        else
+                echo "[DRY-RUN] bash $CROP_MODULE"
+            else
                 log_info "  overwrite=true: clearing existing crop FASTA files"
                 find "$CROP_DIR" -type f \( -name '*.fa' -o -name '*.fa.gz' -o -name '*.fna' \
                     -o -name '*.fna.gz' -o -name '*.faa' -o -name '*.faa.gz' \) -delete 2>/dev/null || true
@@ -321,8 +321,8 @@ if should_run "DOWNLOAD_CROP_GENOMES"; then
                 echo "[DRY-RUN] bash $CROP_MODULE  # per-file skip honored by module"
             else
                 log_info "  overwrite=false: per-file skip is honored by RefSeq_Downloader.sh"
-            bash "$CROP_MODULE"
-        fi
+                bash "$CROP_MODULE"
+            fi
         fi
     else
         log_warn "  [SKIP-MISSING] Crop genomes downloader not found at $CROP_MODULE"

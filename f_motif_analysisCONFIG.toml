@@ -1,0 +1,73 @@
+# ============================================================================
+# Shared Pipeline Configuration — 06_Motif_Analysis Defaults
+# ============================================================================
+# MEME-suite tool parameters shared across all gene groups.
+# Gene-group overrides ([pipeline] operations, [meme.inputs]) live in
+# config/{GROUP}/06_motif_analysis.toml.
+# ============================================================================
+
+[pipeline]
+machine      = "Local"   # "Local" or "HPC" — selects compute profile below
+overwrite    = true
+operations = [
+    #"RUN_READY_DATABASE",
+    #"RUN_MEME_SUITE_Analysis",
+    "RUN_JPEG_Export",
+]
+
+[pipeline.compute.Local]
+threads      = 12        # Total CPU threads available
+max_parallel = 10        # Concurrent TOMTOM/FIMO jobs (single-threaded tools; MEME parallelism = threads/optimal_threads)
+
+[pipeline.compute.HPC]
+threads      = 64        # Total CPU threads on HPC node
+max_parallel = 64        # Concurrent TOMTOM/FIMO jobs
+
+[meme]
+enabled       = true
+overwrite     = true
+databases_dir = "II_INPUTS/meme_motif_databases"  # run setup_meme_databases.sh once
+# Pipeline steps to run (comma-separated, order matters):
+#   meme   — de novo motif discovery from input FASTA sequences
+#   tomtom — compare discovered motifs against known databases
+#   fimo   — scan input sequences for occurrences of discovered motifs
+#   jpeg   — assemble motif logo PNGs into a single grid JPEG per dataset
+steps         = "meme,jpeg"  # tomtom,fimo
+
+# --- JPEG export (step: jpeg) ---
+# color_scheme: preset name (default|nature|colorblind|dmp) or path to .alph file.
+# Colors are baked into MEME XML at discovery time via the -alph flag.
+# Changing color_scheme requires re-running the MEME step to take effect.
+color_scheme      = "dmp"      # try also: default, nature, colorblind
+jpeg_dpi          = 900
+jpeg_columns      = 5
+jpeg_quality      = 92         # 92 is near-lossless; lower (e.g. 75) for smaller files
+jpeg_logo_padding = 10         # px spacing between logo tiles in the grid
+
+# Motif location diagram palette: version name from
+# config/colors_config/meme_motif_colors.toml (wong|warm|cool|pastel|high_contrast|dark|dmp_interaction)
+# or comma-separated hex codes for a custom palette.
+# dmp_interaction: 4-color cycle (TM helices → N-terminal → beta sheet → loops)
+# synchronized with [DMP.interaction] in protein_structure_colors.toml.
+motif_location_palette = "dmp_interaction"
+# Background for motif location diagram: dark|light or hex code (empty = white).
+motif_location_bg      = "dark"   # black background (#111111)
+
+# --- Discovery ---
+nmotifs = 9      # motifs to find
+minw    = 6       # min width (bp)
+maxw    = 50      # max width (bp)
+mod     = "zoops" # zero-or-one per sequence (best for TF motifs)
+
+# --- Databases (paths relative to databases_dir, comma-separated) ---
+# Unified keys (used by module and orchestrator via get_toml meme tomtom_databases):
+tomtom_databases = "JASPAR/JASPAR2024_CORE_plants_non-redundant_v2.meme,ARABD/ArabidopsisDAPv1.meme"
+fimo_databases   = "JASPAR/JASPAR2024_CORE_plants_non-redundant_v2.meme,ARABD/ArabidopsisDAPv1.meme"
+# Split keys for reference (not currently read by orchestrator):
+# tomtom_databases_dna = "JASPAR/...,ARABD/..."
+# tomtom_databases_protein = "PROTEIN/prosite2021_04.meme,PROTEIN/elm2024.meme"
+
+# --- Threading ---
+optimal_threads = 5      # per MEME run → floor(cpu/optimal_threads) parallel jobs
+time_limit      = 18000  # seconds per run (5 h)
+markov_order    = 3      # trinucleotide background

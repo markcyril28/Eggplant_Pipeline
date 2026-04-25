@@ -1,0 +1,12 @@
+# ============================================================================
+# HAP2 — Gene-Specific CRISPR gRNA Inputs
+# ============================================================================
+# Only gRNA FASTA paths are unique per gene group.
+# Shared defaults (enabled, max_mismatches) are in
+# i_crispr_v1CONFIG.toml (project root).
+# ============================================================================
+
+[crispr]
+grna_fastas = []
+# Populate with HAP2 gRNA FASTA files, e.g.:
+# grna_fastas = ["II_INPUTS/HAP2/gRNAs/SmelHAP2_guide_RNAs.fasta"]

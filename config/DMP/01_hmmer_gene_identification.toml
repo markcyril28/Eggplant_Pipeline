@@ -1,0 +1,9 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: DMP — 01_Identification (HMMER)
+# ============================================================================
+# Gene-group overrides only. Shared defaults (method, db_type, targets,
+# hmmer_params, nhmmer_params, cdhit_params, cdhit_est_params) live in
+# a_hmmer_identifyCONFIG.toml (project root) and are deep-merged.
+# hmm_profiles and seed_alignments now live in
+# a_hmmer_identifyCONFIG.toml under [identification.gene_groups.DMP].
+# ============================================================================

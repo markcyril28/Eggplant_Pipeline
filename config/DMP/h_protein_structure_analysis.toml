@@ -1,0 +1,8 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: DMP — 08_Protein_Structure
+# ============================================================================
+
+[protein_structure]
+input_nucleotide_fasta = "III_RESULT/DMP/01_Identification/GPE001970_SMEL5/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"
+# Op selection for 1-5 and 6-9 is controlled via operation_1_5 / operation_6_9
+# in h_protein_structureCONFIG.toml (project root).

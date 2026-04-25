@@ -1,0 +1,25 @@
+# ============================================================================
+# DMP-HAP2 — Gene-Specific Protein Structure Inputs
+# ============================================================================
+
+[protein_structure]
+# input_nucleotide_fasta not needed for DMP-HAP2 — complex structures are re-rendered
+# from existing AlphaFold3 outputs; no translation step is required.
+
+# ============================================================================
+# PPI / GROMACS — Shared structure inputs for molecular dynamics
+# Paths relative to paths.input_base (from config/PPI/shared/common.toml)
+# ============================================================================
+
+[ppi_structures]
+# DMP-HAP2 AlphaFold3 predictions (GPE001970_SMEL5)
+active = [
+    "hap2_and_smel5_01g008730_1/fold_hap2_and_smel5_01g008730_1_2026_04_08_02_36_model_0.cif",
+    "hap2_and_smel5_01g026030_1/fold_hap2_and_smel5_01g026030_1_2026_04_08_02_37_model_0.cif",
+    "hap2_and_smel5_02g013320_1/fold_hap2_and_smel5_02g013320_1_2026_04_08_02_38_model_0.cif",
+    "hap2_and_smel5_04g005390_1/fold_hap2_and_smel5_04g005390_1_2026_04_08_02_38_model_0.cif",
+    "hap2_and_smel5_04g005390_1_model_1/fold_hap2_and_smel5_04g005390_1_2026_04_08_02_38_model_1.cif",
+    "hap2_and_smel5_10g003660_1/fold_hap2_and_smel5_10g003660_1_2026_04_08_02_39_model_0.cif",
+    "hap2_and_smel5_10g017610_1/fold_hap2_and_smel5_10g017610_1_2026_04_08_02_40_model_0.cif",
+    "hap2_and_smel5_12g005350_1/fold_hap2_and_smel5_12g005350_1_2026_04_08_02_40_model_0.cif",
+]

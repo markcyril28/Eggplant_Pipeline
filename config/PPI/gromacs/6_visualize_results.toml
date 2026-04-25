@@ -1,0 +1,40 @@
+# ==============================================================================
+# STEP 6 — Visualize Results
+#
+# PURPOSE: Post-simulation step that (re)generates all visualization outputs
+#          from existing simulation data produced by steps 1–5. Can be re-run
+#          independently to regenerate plots with different settings (e.g. DPI,
+#          format, focused contact-map pairs) without re-running simulations.
+#
+# OUTPUTS PER SOURCE STEP:
+#   plots/                        — Matplotlib MD analysis plots (RMSD, RMSF,
+#                                   Rg, SASA, H-bonds, min-distance, contact maps)
+#   visualization/                — PyMOL (.pml), VMD (.vmd), ChimeraX (.cxc) scripts
+#   statistics/md_statistics.json — Aggregated MD metrics
+#   plots/batch_*.png             — Batch comparison bar/scatter plots (step 4)
+#
+# TYPICAL WORKFLOW:
+#   Run this step after any simulation step to produce or refresh all figures.
+#   Use "source_steps" to limit which prior step outputs are processed.
+#
+# THRESHOLDS / TUNABLES:
+#   dpi              — Resolution for raster outputs (default: 150)
+#   plot_format      — Output image format: png, svg, pdf (default: png)
+#   max_contact_pairs— Cap on focused contact-map residue pairs (default: 50)
+#   generate_pymol   — Generate PyMOL .pml scripts (default: true)
+#   generate_vmd     — Generate VMD .vmd scripts (default: true)
+#   generate_chimerax— Generate ChimeraX .cxc scripts (default: true)
+#   source_steps     — Which prior step outputs to process (default: all found)
+# ==============================================================================
+ 
+[settings]
+dpi               = 600
+plot_format       = "png"
+max_contact_pairs = 50
+
+generate_pymol    = true
+generate_vmd      = true
+generate_chimerax = true
+
+# Limit to specific source steps; empty = process all that exist (1-5)
+# source_steps = ["compare_chain_stability", "interface_analysis", "production_md"]

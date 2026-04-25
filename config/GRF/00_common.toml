@@ -1,0 +1,12 @@
+# ============================================================================
+# GRF Gene Family — Group-Specific Settings
+# ============================================================================
+# Split from GRF_GIF so PlantCARE (and other stages) output to III_RESULT/GRF
+# independently of GIF.  Shared defaults live in config/shared/00_common.toml.
+# HMM profile mapping lives in a_hmmer_identifyCONFIG.toml under
+# [identification.gene_groups.GRF.genes].
+# ============================================================================
+
+[general]
+gene_group = "GRF"
+base_dir   = "III_RESULT/GRF_GIF"

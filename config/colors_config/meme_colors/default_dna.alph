@@ -1,0 +1,20 @@
+# MEME Suite custom alphabet: default DNA colors
+# These are the factory-default MEME colors for DNA sequence logos.
+# Usage:  meme --alph default_dna.alph <sequences> ...
+ALPHABET "DNA Default" DNA-LIKE
+A "Adenine" 00A558 ~ T "Thymine" FF0000
+C "Cytosine" 0000FF ~ G "Guanine" E9A501
+# Ambiguous symbols
+U = T
+R = AG
+Y = CT
+K = GT
+M = AC
+S = CG
+W = AT
+B = CGT
+D = GAT
+H = ACT
+V = ACG
+N = ACGT
+X = ACGT

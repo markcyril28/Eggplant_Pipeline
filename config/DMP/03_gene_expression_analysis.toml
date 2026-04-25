@@ -1,0 +1,10 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: DMP — 06_Gene_Expression (RNA-Seq)
+# ============================================================================
+
+[gene_expression]
+enabled = true
+project_id = "PRJNA328564"
+srr_list_file = "II_INPUTS/DMP/srr_list_PRJNA328564.txt"
+ref_fasta = "II_INPUTS/DMP/Experimental_FASTA_FILE.fa"
+steps = "download,trim,align,quantify,prepde"

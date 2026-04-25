@@ -1,0 +1,7 @@
+# Colorblind-safe DNA color scheme (Wong 2011 palette)
+# Used with: ceqlogo -c colorblind.txt  OR  meme2images --color colorblind.txt
+# Format: LETTER <hex_color>
+A #009E73
+C #0072B2
+G #E69F00
+T #D55E00

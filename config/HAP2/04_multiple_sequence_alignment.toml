@@ -1,0 +1,18 @@
+# ============================================================================
+# HAP2 — Gene-Specific MSA Inputs
+# ============================================================================
+# Only input sets are unique per gene group.
+# Shared defaults (methods, aligner params) are in
+# d_msa_alignmentCONFIG.toml (project root).
+# ============================================================================
+
+[alignment]
+active_input_sets = []
+# Populate after HMMER/BLAST results are available, e.g.:
+# active_input_sets = ["hmmer_hits", "blast_orthologs"]
+
+# [alignment.input_sets.hmmer_hits]
+# fastas = ["01_Identification/<genome>/e-value_<X>/PF10699_HAP2_hmmer_identified.fasta"]
+
+# [alignment.input_sets.blast_orthologs]
+# fastas = ["02_BLAST_Alignment/<genome>/blastx_results/<file>.fasta"]

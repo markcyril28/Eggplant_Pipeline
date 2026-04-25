@@ -1,0 +1,52 @@
+# ============================================================================
+# DMP — 09_CRISPR v2 Pipeline Overrides
+# ============================================================================
+# DMP-specific paths and overrides for the v2 CRISPR KO prediction pipeline.
+# Shared defaults live in i_crispr_v2CONFIG.toml (project root).
+# ============================================================================
+
+# ---------- Target gene sequences for CRISPOR de-novo guide design ----------
+# CRISPOR takes TARGET nucleotide sequences (CDS or locus FASTA) and designs
+# candidate guide RNAs within them — it does NOT score pre-designed guides.
+# Source: CD-HIT–reduced transcripts produced by stage a_hmmer_identify.sh.
+#
+# The orchestrator resolves {GENOME} at runtime from [crispr_v2.genomes].names
+# so the same template covers every eggplant accession. If you need to pin a
+# fixed path, add an explicit entry to `target_fastas` (takes precedence).
+[crispr_v2.design_score]
+# Separate CRISPOR runs per prioritized SmelDMP gene.
+# Source: III_RESULT/DMP/Prioritized_DMP_transcripts_cdhit.fa split by record.
+# Each entry becomes one CRISPOR invocation (parallelized up to MAX_PARALLEL).
+target_fastas = [
+    "III_RESULT/DMP/Prioritized_by_gene/SMEL5_01g008730.fa",
+    "III_RESULT/DMP/Prioritized_by_gene/SMEL5_01g026030.fa",
+    "III_RESULT/DMP/Prioritized_by_gene/SMEL5_02g013320.fa",
+    "III_RESULT/DMP/Prioritized_by_gene/SMEL5_10g017610.fa",
+]
+
+# Pre-designed gRNA FASTAs from CRISPR-P v2.0 (comparison mode only).
+# These are NOT valid CRISPOR input. To use them, set mode = "comparison"
+# and configure [crispr_v2.crispr_p].raw_dir_template to point at the
+# directory that contains these files.
+# Paths kept here for reference:
+#   II_INPUTS/DMP/gRNAs/SmelDMP_10_200_guide_RNAs.fasta
+#   II_INPUTS/DMP/gRNAs/SmelDMP_01_990_guide_RNAs.fasta
+#   II_INPUTS/DMP/gRNAs/SmelDMP_02_guide_RNAs.fasta
+
+# CRISPOR genome identifier for Solanum melongena (set to local path if indexed)
+crispor_genome = "melongena"
+
+# ---------- CRISPR-P v2.0 raw results dir (comparison mode only) ----------
+# Override the template from i_crispr_v2CONFIG.toml if the DMP v1 results
+# live in a non-standard location.
+# [crispr_v2.crispr_p]
+# raw_dir_template = "III_RESULT/DMP/09_CRISPR_Off-Target_Analysis/{GENOME}/01_Raw_Scoring_Results_from_CRISPR-P_V2_0"
+
+# ---------- Off-target curation: DMP paralogs in eggplant ----------
+[crispr_v2.curate_offtargets]
+# DMP family members in S. melongena — guides hitting these are paralog_risk
+paralog_gene_ids = [
+    "SmelDMP01", "SmelDMP02", "SmelDMP03", "SmelDMP04",
+    "SmelDMP05", "SmelDMP06", "SmelDMP07", "SmelDMP08",
+    "SmelDMP09", "SmelDMP10",
+]

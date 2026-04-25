@@ -1,0 +1,42 @@
+# ==============================================================================
+# Script 3 — Interface Analysis  (GPU+CPU, EM-based)
+# (3_gromacs_interface_analysis.sh)
+#
+# PURPOSE: Detailed characterisation of the protein-protein interface after
+#          energy minimization. Identifies contact residues, computes a
+#          quality score, and generates contact-map heatmaps.
+#          GPU offloads non-bonded + bonded forces; PME stays on CPU
+#          (steep integrator limitation).
+#
+# KEY OUTPUTS per structure:
+#   interface_report.txt       — Human-readable quality assessment + score
+#   interface_residues.txt     — List of interface residue pairs
+#   analysis/contact_map.txt   — Inter-chain Cα distance matrix
+#   plots/contact_map_heatmap.png — Full contact map
+#   plots/contact_map_focused.png — Top-50 closest residue pairs
+#   visualization/visualize_interface.pml — PyMOL script
+#
+# HOW TO READ RESULTS (thresholds from interface_analyzer.py):
+#   • BSA > 8 nm² = strong binding;  < 4 nm² = weak
+#   • H-bonds ≥ 10 = strong;  < 5 = weak
+#   • Contacts (0.6 nm cutoff) ≥ 50 = strong;  < 20 = weak
+#   • Coul-SR < −200 kJ/mol and LJ-SR < −100 kJ/mol = strong
+#   • Contact-map hot spots → candidate residues for mutagenesis
+#
+# Values here override common.toml defaults.
+# ==============================================================================
+
+[settings]
+override_existing = true
+box_distance      = 1.5
+em_steps          = 50000
+gpu_id            = 0
+max_threads       = 8
+
+# [structures]
+# Structures loaded from config/<GENE_GROUP>/h_protein_structure_analysis.toml
+# Uncomment below to override for this step only:
+# [structures]
+# active = [
+#     "path/to/structure.cif",
+# ]

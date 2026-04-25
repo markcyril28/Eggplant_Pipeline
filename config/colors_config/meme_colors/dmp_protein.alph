@@ -1,0 +1,42 @@
+# MEME Suite custom alphabet: DMP protein structural propensity palette
+# Colors synchronized with [DMP.interaction] in protein_structure_colors.toml.
+# Each amino acid is assigned to the DMP secondary-structure element it most
+# commonly occupies; logo letter colors therefore match structure-figure colors.
+#
+# Color mapping (DMP.interaction palette):
+#   Deep orange-red (#D43005)  =  Transmembrane helices    (TM1-TM4)
+#   Golden amber    (#D9A621)  =  N-terminal domain        (amphipathic helices)
+#   Beige           (#F5DEB3)  =  Extracellular beta sheet (sheet region + Cys disulfides)
+#   Gray            (#B3B3B3)  =  Loops                    (coils, turns, Pro helix-break)
+#
+# Usage:  meme --alph dmp_protein.alph <sequences> ...
+ALPHABET "Protein DMP Structural" PROTEIN-LIKE
+# TM helix propensity — hydrophobic core transmembrane residues
+I "Isoleucine"   D43005
+L "Leucine"      D43005
+V "Valine"       D43005
+F "Phenylalanine" D43005
+A "Alanine"      D43005
+M "Methionine"   D43005
+W "Tryptophan"   D43005
+# N-terminal domain / amphipathic helix (charged + polar helical residues)
+E "Glutamate"    D9A621
+K "Lysine"       D9A621
+R "Arginine"     D9A621
+Q "Glutamine"    D9A621
+H "Histidine"    D9A621
+# Extracellular beta-pleated sheet (sheet-forming + disulfide residues)
+Y "Tyrosine"     F5DEB3
+T "Threonine"    F5DEB3
+C "Cysteine"     F5DEB3
+# Loop / flexible / turn propensity (coil-forming residues + Pro helix-breaker)
+N "Asparagine"   B3B3B3
+D "Aspartate"    B3B3B3
+S "Serine"       B3B3B3
+G "Glycine"      B3B3B3
+P "Proline"      B3B3B3
+# Ambiguous symbols
+B = DN
+Z = EQ
+J = IL
+X = ACDEFGHIKLMNPQRSTVWY

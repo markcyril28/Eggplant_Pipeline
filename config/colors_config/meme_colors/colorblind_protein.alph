@@ -1,0 +1,45 @@
+# MEME Suite custom alphabet: Colorblind-safe protein palette
+# Based on Wong (2011) "Points of view: Color blindness" (Nature Methods 8, 441)
+# Safe for protanopia, deuteranopia, and tritanopia.
+#
+# Color mapping (physicochemical grouping):
+#   Vermillion (D55E00) = Nonpolar / hydrophobic core
+#   Blue       (0072B2) = Positively charged
+#   Magenta    (CC79A7) = Negatively charged
+#   Orange     (E69F00) = Polar uncharged
+#   Teal       (009E73) = Aromatic
+#   Grey       (999999) = Special (Gly, Pro, Cys)
+#
+# Usage:  meme --alph colorblind_protein.alph <sequences> ...
+ALPHABET "Protein Colorblind-Safe" PROTEIN-LIKE
+# Nonpolar / Hydrophobic
+A "Alanine" D55E00
+V "Valine" D55E00
+L "Leucine" D55E00
+I "Isoleucine" D55E00
+M "Methionine" D55E00
+# Aromatic
+F "Phenylalanine" 009E73
+W "Tryptophan" 009E73
+Y "Tyrosine" 009E73
+# Polar / Uncharged
+S "Serine" E69F00
+T "Threonine" E69F00
+N "Asparagine" E69F00
+Q "Glutamine" E69F00
+# Positively charged
+K "Lysine" 0072B2
+R "Arginine" 0072B2
+H "Histidine" 0072B2
+# Negatively charged
+D "Aspartate" CC79A7
+E "Glutamate" CC79A7
+# Special
+C "Cysteine" 999999
+G "Glycine" 999999
+P "Proline" 999999
+# Ambiguous symbols
+B = DN
+Z = EQ
+J = IL
+X = ACDEFGHIKLMNPQRSTVWY

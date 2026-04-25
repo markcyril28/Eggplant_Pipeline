@@ -1,0 +1,113 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: DMP — 02_BLAST_Alignment
+# ============================================================================
+
+[ortholog_blast]
+# ── Operations ────────────────────────────────────────────────────────────────
+# Comment in/out to select which stages run.  All run by default when absent.
+operations = [
+    "blastn",               # BLASTn: nucleotide query vs nucleotide DB (identification + ortholog)
+    #"blastx",              # BLASTx: nucleotide query vs protein DB (translated ortholog)
+    "blastp",               # BLASTp: protein query vs protein DB (ortholog alignment)
+    "visualize_heatmap",        # Fig 1  — cross-species % identity heatmap
+    "visualize_heatmap_evalue", # Fig 1b — % identity + E-value overlay heatmap
+    "visualize_lollipop",       # Fig 3  — per-gene top-hits lollipop (Bit Score)
+]
+
+# BLASTn Identification
+blastn_e_value = "1e-10"
+blastn_word_size = 11
+blastn_max_target_seqs = 500
+blastn_max_hsps = 1
+blastn_perc_identity = 0
+blastn_qcov_hsp_perc = 0
+blastn_task = "blastn"
+blastn_dust = "yes"
+
+# BLASTx Ortholog Alignment (translated nucleotide query vs protein DB)
+blastx_e_value = "1e-15"
+blastx_word_size = 3
+blastx_max_target_seqs = 500
+blastx_max_hsps = 1
+blastx_qcov_hsp_perc = 0
+blastx_matrix = "BLOSUM62"
+blastx_seg = "yes"
+
+# BLASTp Search (protein query vs protein DB)
+blastp_e_value = "1e-15"
+blastp_word_size = 2
+blastp_max_target_seqs = 500
+blastp_max_hsps = 1
+blastp_qcov_hsp_perc = 0
+blastp_matrix = "BLOSUM62"
+blastp_seg = "yes"
+
+# Target genomes — comment in/out matching quadruplets (label, genome, protein, transcript)
+target_labels = [
+    "Solanum_melongena_v4.1",
+    #"Solanum_melongena_V3",
+    "GPE001970_SMEL5",
+]
+
+target_genomes = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970",
+]
+
+target_proteins = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_protein.function.fa",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.protein.putative_function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_proteins.fa",
+]
+
+target_transcripts = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
+]
+
+query_fastas = [
+    "II_INPUTS/DMP_query_fasta_file/Arabidopsis_thaliana/v1_keyword_searched/AtDMPs_nuc_seq_merged_v1.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Arabidopsis_thaliana/v2_based_from_paper/AtDMPs_nuc_seq_merged_v2.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Oryza_sativa/OsDMPs_nuc_seq_merged.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Zea_mays/v4_based_on_genome/ZmDMPs_nuc_seq_merged_v4.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Ipomea_batatas/IpDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/Capsicum_annuum_Pepper/CaDMPs_nuc_seq_merged.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Glycine_max_Pepper/GmDMPs_nuc_seq_merged_v1.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Other_DMPs/OtherDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_1_Setaria_italica/SiDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_1_Physcomitrella_patens/PpDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_2_Citrus_sinensis/CsDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_3_Musa_acuminata/MaDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_3_Glycine_max/GmDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_4_Solanum_lycopersicum/SlDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_4_Populus_trichocarpa/PtDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_5_Gossypium_raimondii/GrDMPs_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_5_Brachypodium_distachyon/BdDMPs_merged_fasta.fa",
+]
+
+query_protein_fastas = [
+    "II_INPUTS/DMP_query_fasta_file/Arabidopsis_thaliana/v1_keyword_searched/AtDMPs_prot_seq_merged_v1.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Arabidopsis_thaliana/v2_based_from_paper/AtDMPs_prot_seq_merged_v2.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Oryza_sativa/OsDMPs_prot_seq_merged.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Zea_mays/v4_based_on_genome/ZmDMPs_prot_seq_merged_v4.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Ipomea_batatas/IpDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/Capsicum_annuum_Pepper/CaDMPs_prot_seq_merged.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Glycine_max_Pepper/GmDMPs_prot_seq_merged_v1.fasta",
+    "II_INPUTS/DMP_query_fasta_file/Other_DMPs/OtherDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_1_Setaria_italica/SiDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_1_Physcomitrella_patens/PpDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_2_Citrus_sinensis/CsDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_3_Musa_acuminata/MaDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_3_Glycine_max/GmDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_4_Solanum_lycopersicum/SlDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_4_Populus_trichocarpa/PtDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_5_Gossypium_raimondii/GrDMPs_protein_merged_fasta.fa",
+    "II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_5_Brachypodium_distachyon/BdDMPs_protein_merged_fasta.fa",
+]
+
+use_hmmer_output = true      # Use HMMER-identified proteins as BLASTp subject database
+
+[blast_visualize]
+lollipop_top_n = 10     # Top-N hits shown per gene in Fig 3 (haploid-inducer genes always included)

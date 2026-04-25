@@ -1,0 +1,123 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: DMP — 06_Motif_Analysis
+# ============================================================================
+
+[pipeline]
+operations = [
+    #"RUN_READY_DATABASE",
+    "RUN_MEME_SUITE_Analysis",
+    "RUN_JPEG_Export",
+]
+
+# ============================================================================
+# MEME Suite — Motif Analysis
+# ============================================================================
+[meme]
+enabled = true
+
+# ---------------------------------------------------------------------------
+# Explicit FASTA inputs for MEME (parallel arrays: labels[i] <-> fasta_files[i]).
+# Comment individual entries in/out to control which datasets are analysed.
+# When this section is present it takes priority over the upstream/downstream
+# extraction stage; files are used directly without re-merging.
+#
+# Grouped by source set:
+#   CD-HIT/   — CD-HIT-reduced sequences from HMMER identification (Smel v4.1)
+#   All/      — merged across all eggplant + query species (MSA input)
+#   Selected/ — curated crop-species subsets (MSA input)
+# ---------------------------------------------------------------------------
+[meme.inputs]
+labels = [
+    # --- CD-HIT reduced: HMMER-identified Smel v4.1 (PF05078_DMP) ---
+    #"cdhit_Smel_v4_1_transcripts_nucleotide",
+    #"cdhit_Smel_v4_1_proteins_amino_acid",
+
+    # --- All: full multi-species merged sets ---
+    #"all_eggplant_nucleotide",
+    #"all_GPE001970_amino_acid",
+    #"all_GPE001970_nucleotide_fixed",
+    #"all_GPE001970_nucleotide",
+    #"all_Smel_v4_1_amino_acid",
+    #"all_Smel_v4_1_nucleotide",
+
+    # --- Selected v1 Full: curated crop species ---
+    "selected_GPE001970_amino_acid",
+    "selected_GPE001970_nucleotide",
+
+    # --- Selected v2 Reduced: reduced set ---
+    #"selected_v2_nucleotide",
+]
+fasta_files = [
+    # --- CD-HIT reduced: HMMER-identified Smel v4.1 (PF05078_DMP) ---
+    #"III_RESULT/DMP/01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa",
+    #"III_RESULT/DMP/01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa",
+
+    # --- All: full multi-species merged sets ---
+    #"III_RESULT/DMP/04_MSA/merged_input/All/eggplant_and_query_species_nucleotide.fa",
+    #"III_RESULT/DMP/04_MSA/merged_input/All/per_genome_gpe001970_amino_acid_and_query_species_amino_acid.fa",
+    #"III_RESULT/DMP/04_MSA/merged_input/All/per_genome_gpe001970_nucleotide_and_query_species_nucleotide_fixed.fa",
+    #"III_RESULT/DMP/04_MSA/merged_input/All/per_genome_gpe001970_nucleotide_and_query_species_nucleotide.fa",
+    #"III_RESULT/DMP/04_MSA/merged_input/All/per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid.fa",
+    #"III_RESULT/DMP/04_MSA/merged_input/All/per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide.fa",
+
+    # --- Selected v1 Full: curated crop species ---
+    "III_RESULT/DMP/04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fasta",
+    "III_RESULT/DMP/04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fasta",
+
+    # --- Selected v2 Reduced: reduced set ---
+    #"III_RESULT/DMP/04_MSA/merged_input/Selected/v2_Reduced/v2_nucleotide.fasta",
+]
+# Phylo-order files (parallel to labels/fasta_files): CLUSTAL alignment whose
+# sequence order defines top-to-bottom row order in the motif location diagram.
+# Use "" for datasets without a phylo-ordered reference.
+phylo_order_files = [
+    # --- Selected v1 Full ---
+    "III_RESULT/DMP/09_Secondary_Structure_Analysis/GPE001970_SMEL5/INPUTS/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence_phylo_ordered_tier1.aln",
+    "III_RESULT/DMP/09_Secondary_Structure_Analysis/GPE001970_SMEL5/INPUTS/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence_phylo_ordered_tier1.aln",  # nucleotide — shares AA-tree topology
+]
+
+# Path to extracted motif databases (run setup_meme_databases.sh once first).
+# Relative path from pipeline root (PIPELINE_DIR).
+databases_dir = "II_INPUTS/meme_motif_databases"
+
+# Steps to execute (comma-separated): meme, tomtom, fimo, jpeg
+steps = "meme,jpeg" # tomtom,fimo,"
+
+# --- MEME de novo motif discovery ---
+nmotifs = 7        # number of motifs to find
+minw    = 6         # minimum motif width (bp)
+maxw    = 50        # maximum motif width (bp)
+mod     = "anr"     # model: anr (any # repetitions), oops, zoops
+
+# --- JPEG export ---
+# color_scheme: preset name (default|nature|colorblind|dmp) or path to .alph file.
+# Colors are baked into MEME XML at discovery time via -alph flag.
+# Changing color_scheme requires re-running the MEME step with --overwrite.
+color_scheme      = "nature"
+jpeg_dpi          = 600        # 600 DPI for publication-grade output
+jpeg_columns      = 5
+jpeg_quality      = 92
+jpeg_logo_padding = 10
+motif_location_palette = "dmp_interaction"
+motif_location_bg      = "dark"
+ 
+# --- Motif databases for TOMTOM comparison ---
+# Relative paths within databases_dir, comma-separated.
+# DNA databases (for nucleotide queries): JASPAR, ArabidopsisDAP
+# Protein databases (for amino-acid queries): ELM, PROSITE
+# The pipeline's alphabet filter auto-routes each query to compatible DBs.
+tomtom_databases = "JASPAR/JASPAR2024_CORE_plants_non-redundant_v2.meme,ARABD/ArabidopsisDAPv1.meme,PROTEIN/elm2024.meme,PROTEIN/prosite2021_04.meme"
+
+# --- Motif databases for FIMO scanning ---
+# Same mixed set as TOMTOM — alphabet filter selects compatible DBs at runtime.
+fimo_databases = "JASPAR/JASPAR2024_CORE_plants_non-redundant_v2.meme,ARABD/ArabidopsisDAPv1.meme,PROTEIN/elm2024.meme,PROTEIN/prosite2021_04.meme"
+
+# --- Threading and parallelization ---
+# MEME is multi-threaded: each genome run gets optimal_threads.
+# Parallel genome jobs = floor(CPU / optimal_threads) — set in orchestrator.
+# TOMTOM/FIMO are single-threaded: max_parallel DB jobs = MAX_PARALLEL (passed as
+# --max-parallel to the module from the orchestrator's MAX_PARALLEL variable).
+optimal_threads = 12     # threads per MEME genome run
+time_limit      = 300   # seconds per MEME run (increase for large datasets)
+markov_order    = 0     # Markov background order (0 = uniform)
+

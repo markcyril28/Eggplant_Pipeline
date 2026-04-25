@@ -1,0 +1,8 @@
+# ============================================================================
+# DMP — 09_CRISPR_Off-Target_Analysis
+# DMP-specific overrides. Shared defaults live in
+# i_crispr_v1CONFIG.toml (project root).
+# ============================================================================
+
+# gRNA FASTA files are defined in i_crispr_v1CONFIG.toml under
+# [crispr.offtarget.DMP] — add overrides here only if needed.

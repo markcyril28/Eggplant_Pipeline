@@ -1,0 +1,21 @@
+# MEME Suite custom alphabet: DMP project DNA palette
+# Matches the DMP gene family visualization colors.
+# Gray adenine, golden amber cytosine, warm peach guanine, dark orange thymine.
+# Usage:  meme --alph dmp_dna.alph <sequences> ...
+ALPHABET "DNA DMP" DNA-LIKE
+A "Adenine" B3B3B3 ~ T "Thymine" E69F00
+C "Cytosine" D9A621 ~ G "Guanine" FFB366
+# Ambiguous symbols
+U = T
+R = AG
+Y = CT
+K = GT
+M = AC
+S = CG
+W = AT
+B = CGT
+D = GAT
+H = ACT
+V = ACG
+N = ACGT
+X = ACGT

@@ -1,0 +1,21 @@
+# MEME Suite custom alphabet: Nature publication palette
+# Muted, high-contrast colors optimized for print and digital publication.
+# Source: nature.txt preset adapted to MEME .alph format.
+# Usage:  meme --alph nature_dna.alph <sequences> ...
+ALPHABET "DNA Nature" DNA-LIKE
+A "Adenine" 009B55 ~ T "Thymine" D62728
+C "Cytosine" 0059A3 ~ G "Guanine" E69F00
+# Ambiguous symbols
+U = T
+R = AG
+Y = CT
+K = GT
+M = AC
+S = CG
+W = AT
+B = CGT
+D = GAT
+H = ACT
+V = ACG
+N = ACGT
+X = ACGT

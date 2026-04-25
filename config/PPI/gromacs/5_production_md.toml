@@ -1,0 +1,58 @@
+# ==============================================================================
+# Script 5 — Production MD Simulation  (Full GPU Offload)
+# (5_production_md)
+#
+# PURPOSE: Publication-quality long MD run with maximum GPU offloading.
+#          Same EM → NVT → NPT → MD pipeline as Step 2, but tuned for
+#          extended simulations with wall-clock limits and checkpointing.
+#
+# MD:    gmx mdrun -deffnm md -v -maxh <max_hours> -ntmpi 1
+#                   -nb gpu -pme gpu -bonded gpu -update gpu
+# EM:    gmx mdrun -deffnm em -v -ntmpi 1
+#                   -nb gpu -pme cpu -bonded gpu
+#        (steep integrator cannot use -pme gpu or -update gpu)
+#
+# Flags explained:
+#   -deffnm md    — all input/output files use "md" prefix
+#   -v            — verbose; prints step number, time, performance
+#   -maxh         — maximum wall-clock hours; checkpoints and stops at limit
+#   -ntmpi 1      — single thread-MPI rank (one rank per GPU)
+#   -nb gpu       — non-bonded interactions (Coulomb + vdW) on GPU
+#   -pme gpu      — PME electrostatics (long-range Coulomb via Particle Mesh Ewald) on GPU
+#   -bonded gpu   — bonded interactions (bonds, angles, dihedrals) on GPU
+#   -update gpu   — coordinate update and constraints (LINCS/SETTLE) on GPU
+#
+# KEY OUTPUTS (same layout as Step 2):
+#   analysis/rmsd.xvg, rmsf.xvg, gyrate.xvg, sasa.xvg, hbonds.xvg, mindist.xvg
+#   statistics/md_statistics.json — Mean ± std for all metrics over trajectory
+#   trajectories/md_center.xtc   — PBC-corrected trajectory for visualization
+#   structures/final_structure.pdb
+#
+# HOW TO READ RESULTS:
+#   • Same interpretation as Step 2 (RMSD plateau, RMSF, Rg, etc.)
+#   • Longer runs give more reliable equilibrium statistics
+#   • Note: does NOT compute interaction energy (use Step 2 for that)
+#
+# Values here override common.toml defaults.
+# ==============================================================================
+
+[settings]
+override_existing = true
+mode              = "full"  # full | sim-only | md-only
+box_distance      = 1.2
+ion_concentration = 0.15
+em_steps          = 5000
+nvt_steps         = 50000   # 100 ps
+npt_steps         = 50000   # 100 ps
+md_steps          = 250000  # 500 ps
+gpu_id            = 0
+max_threads       = 8
+max_hours         = 5000    # wall-clock hour limit for production MD (-maxh)
+
+# [structures]
+# Structures loaded from config/<GENE_GROUP>/h_protein_structure_analysis.toml
+# Uncomment below to override for this step only:
+# [structures]
+# active = [
+#     "path/to/structure.pdb",
+# ]

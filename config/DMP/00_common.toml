@@ -1,0 +1,53 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: DMP Gene Family — Common / Shared
+# ============================================================================
+# Output folder structure (canonical, same for all gene groups):
+#   III_RESULT/DMP/
+#   ├── 01_Identification/
+#   ├── 02_BLAST_Alignment/
+#   ├── 04_MSA/
+#   ├── 05_Phylogenetics/
+#   ├── 06_Motif_Analysis/
+#   ├── 06_Gene_Expression/
+#   ├── 07_PlantCARE/
+#   ├── 08_Protein_Structure/
+#   └── 09_CRISPR_Off-Target_Analysis/
+# ============================================================================
+
+[general]
+gene_group = "DMP"
+base_dir = "III_RESULT/DMP"
+
+[output_dirs]
+identification     = "01_Identification"
+blast_alignment    = "02_BLAST_Alignment"
+msa                = "04_MSA"
+phylogenetics      = "05_Phylogenetics"
+gene_sequence      = "06_Motif_Analysis"
+gene_expression    = "06_Gene_Expression"
+plantcare          = "07_PlantCARE_Analysis"
+protein_structure  = "08_Protein_Structure"
+crispr             = "09_CRISPR_Off-Target_Analysis"
+
+# ============================================================================
+# Reference Genomes and Databases
+# ============================================================================
+[reference]
+eggplant_v4_1_genome      = "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1.fa"
+eggplant_v4_1_transcripts = "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa"
+eggplant_v4_1_proteins    = "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_protein.function.fa"
+eggplant_v4_1_cds         = "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_cds.fa"
+gpe001970_v5_genome       = "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970.fa"
+gpe001970_v5_gtf          = "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001970.gff"
+
+# ==========================================================================
+# Shared MSA Query FASTA Selection
+# ==========================================================================
+# Used by d_msa_alignment.sh merge-mode sets to choose which BLAST query list
+# from [ortholog_blast] should be appended.
+[msa_query_selection]
+nucleotide_query_fastas_key = "query_fastas"
+amino_acid_query_fastas_key = "query_protein_fastas"
+
+
+

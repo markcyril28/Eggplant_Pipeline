@@ -1,0 +1,52 @@
+# ============================================================================
+# DMP — 09_CRISPR v3 Pipeline Overrides (PLANT-ONLY)
+# ============================================================================
+# DMP-specific paths and overrides for the v3 CRISPR KO prediction pipeline.
+# Shared defaults live in i_crispr_v3CONFIG.toml (project root).
+#
+# v3 is plant-only: CRISPR-P v2.0 is the sole guide source, so this file
+# overrides the CRISPR-P raw-results directory and the paralog list. No
+# mammalian-trained scorers are configured.
+# ============================================================================
+
+# ---------- CRISPR-P v2.0 raw results directory (SOLE guide source in v3) ---
+# Run CRISPR-P v2.0 (https://crispr.hzau.edu.cn/CRISPR2/) manually on the
+# prioritized SmelDMP target FASTAs (one per gene), download the scoring
+# TSV/CSV outputs, and place them in the directory below. The v3
+# orchestrator will symlink them into 09_CRISPR_v3/{GENOME}/crisprp_only/
+# 01_Raw_Input/ and feed them through stages [1b]–[9].
+#
+# Target FASTAs (from stage a_hmmer CD-HIT reduction) for reference:
+#   III_RESULT/DMP/Prioritized_by_gene/SMEL5_01g008730.fa
+#   III_RESULT/DMP/Prioritized_by_gene/SMEL5_01g026030.fa
+#   III_RESULT/DMP/Prioritized_by_gene/SMEL5_02g013320.fa
+#   III_RESULT/DMP/Prioritized_by_gene/SMEL5_10g017610.fa
+[crispr_v3.crispr_p]
+raw_dir_template = "III_RESULT/DMP/09_CRISPR_Off-Target_Analysis/{GENOME}/01_Raw_Scoring_Results_from_CRISPR-P_V2_0"
+
+# ---------- Off-target curation: DMP paralogs in eggplant ----------
+# Same list as v2 (same target biology). The v3 paralog regex is anchored
+# so bare family tags like "DMP" do not false-match "HDMP"/"XDMP".
+[crispr_v3.curate_offtargets]
+paralog_gene_ids = [
+    "SmelDMP01", "SmelDMP02", "SmelDMP03", "SmelDMP04",
+    "SmelDMP05", "SmelDMP06", "SmelDMP07", "SmelDMP08",
+    "SmelDMP09", "SmelDMP10",
+]
+
+# ---------- Promoter vector selection (optional, group-specific) ----------
+# Uncomment when you commit to a specific plant expression vector. The
+# default v3 behaviour is `promoter_action = "flag"` (annotate only);
+# switch to "require" when the vector is finalised so incompatible 5'
+# nucleotides are hard-rejected.
+#[crispr_v3.plant_filter]
+#promoter_type   = "U6"      # U6 = OsU6 / AtU6; most common for SpCas9
+#promoter_action = "require"
+
+# ---------- Plant-scorer env names ----------
+# Set once `setup_conda_crispr_v3.sh --with-plant-scorers` has created
+# the isolated runtime envs. Both default to "" (disabled) in the shared
+# config; uncommenting here activates the subprocess dispatch paths.
+#[crispr_v3.plant_scorer]
+#deepcrispr_env   = "crispr_v3_deepcrispr"
+#crispr_local_env = "crispr_v3_crispr_local"

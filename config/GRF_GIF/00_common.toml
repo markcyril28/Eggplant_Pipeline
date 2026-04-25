@@ -1,0 +1,13 @@
+# ============================================================================
+# GRF_GIF Gene Family — Group-Specific Settings
+# ============================================================================
+# Only [general] is unique per gene group.
+# Shared defaults (output_dirs, reference, msa_query_selection) are in
+# config/shared/00_common.toml.
+# Per-gene HMM profile mapping lives in
+# a_hmmer_identifyCONFIG.toml under [identification.gene_groups.GRF_GIF.genes].
+# ============================================================================
+
+[general]
+gene_group = "GRF_GIF"
+base_dir = "III_RESULT/GRF_GIF"

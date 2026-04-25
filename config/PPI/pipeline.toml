@@ -1,0 +1,268 @@
+# ==============================================================================
+# PPI Analysis Pipeline — Configuration Index
+#
+# This monolithic config has been SPLIT into per-script TOML files:
+#
+#   shared/common.toml                     — Shared defaults (paths, env, GROMACS)
+#   gromacs/1_quick_stability.toml         — 1_gromacs_quick_stability.sh
+#   gromacs/2_compare_chain_stability.toml — 2_gromacs_compare_chain_stability_gpu.sh
+#   gromacs/3_interface_analysis.toml      — 3_gromacs_interface_analysis.sh
+#   gromacs/4_batch_comparison.toml        — 4_gromacs_batch_comparison.sh
+#   gromacs/gromacs_pipeline.toml          — run_gromacs_pipeline.sh
+#   mutatex/a_mutatex.toml                 — a_mutatex_repo_version.sh
+#
+# Each script loads common.toml first, then its own per-script TOML.
+# Edit those files directly to change settings.
+# ==============================================================================
+
+
+# ==============================================================================
+# PATHS
+# ==============================================================================
+
+[paths]
+input_base  = "III_RESULT/DMP-HAP2/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results"
+output_base = "III_RESULT/DMP-HAP2/11_PPI"
+
+[paths.results]
+gromacs = "III_RESULT/DMP-HAP2/11_PPI"
+mutatex = "III_RESULT/DMP-HAP2/11_PPI_MutateX"
+
+[paths.datasets]
+# Subdirectory names relative to paths.input_base
+SmelDMP    = "SmelDMP"
+SmelGRF_GIF = "SmelGRF-GIF"
+SmelGIF_SWI2 = "SmelGIF-SWI2"
+
+
+# ==============================================================================
+# ENVIRONMENT
+# ==============================================================================
+
+[environment]
+conda_env_ppi     = "PPI"
+conda_env_gromacs = "gromacs_CUDA"
+gromacs_cuda_path = "~/miniconda3/envs/gromacs_CUDA"
+
+
+# ==============================================================================
+# GROMACS — Shared Defaults
+# Individual scripts may override these in their own [scripts.*] sections.
+# ==============================================================================
+
+[gromacs]
+forcefield        = "amber99sb-ildn"
+water_model       = "tip3p"
+override_existing = false
+
+[gromacs.box]
+distance = 1.0          # nm — distance from protein to box edge
+type     = "dodecahedron"
+
+[gromacs.simulation]
+ion_concentration = 0.15   # mol/L
+em_steps          = 5000
+nvt_steps         = 50000  # 100 ps
+npt_steps         = 50000  # 100 ps
+md_steps          = 250000 # 500 ps
+
+[gromacs.performance]
+max_threads = 12
+nthreads    = 12
+
+[gromacs.gpu]
+id      = 0
+use_gpu = true
+# mdrun_option:
+#   "Option_A" — NVIDIA/CUDA: full GPU offload, bonded on GPU
+#   "Option_B" — NVIDIA/CUDA: bonded kept on CPU (more stable for some systems)
+mdrun_option = "Option_A"
+
+[gromacs.gpu.flags]
+# EM: -pme cpu required (steep integrator limitation); -bonded gpu OK on NVIDIA
+em          = "-nb gpu -pme cpu -bonded gpu"
+# MD Option A: full GPU offload (bonded on GPU)
+md_option_a = "-nb gpu -pme gpu -bonded gpu -update gpu"
+# MD Option B: conservative (bonded on CPU)
+md_option_b = "-nb gpu -pme gpu -bonded cpu -update gpu"
+
+[gromacs.nvidia_gpu_env]
+GMX_ENABLE_DIRECT_GPU_COMM = 1
+CUDA_VISIBLE_DEVICES        = "0"
+
+
+# ==============================================================================
+# SCRIPT 1 — Quick Stability Comparison
+# (1_gromacs_quick_stability.sh)
+# ==============================================================================
+
+[scripts.quick_stability]
+override_existing = false
+box_distance      = 1.0   # overrides gromacs.box.distance
+em_steps          = 10000 # overrides gromacs.simulation.em_steps
+max_threads       = 12
+
+[scripts.quick_stability.structures]
+# Paths relative to paths.input_base. Minimum 2 required.
+active = [
+    "SmelGRF-GIF/fold_1_x_1_model_0.pdb",
+    "SmelGRF-GIF/fold_2_x_1_model_0.pdb",
+    # "SmelDMP/SmelDMP01.730_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP01.990_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP02_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP04_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP10.200_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP10_550_560_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP12_SmelHAP2.pdb",
+]
+
+
+# ==============================================================================
+# SCRIPT 2 — Compare Chain Stability (GPU)
+# (2_gromacs_compare_chain_stability_gpu.sh)
+# ==============================================================================
+
+[scripts.compare_chain_stability]
+override_existing = false
+mode              = "full"  # full | sim-only | viz-only | compare-only
+box_distance      = 1.2
+ion_concentration = 0.15
+em_steps          = 5000
+nvt_steps         = 50000  # 100 ps
+npt_steps         = 50000  # 100 ps
+md_steps          = 250000 # 500 ps
+gpu_id            = 0
+max_threads       = 12
+mdrun_option      = "Option_B"
+
+[scripts.compare_chain_stability.structures]
+# Paths relative to paths.input_base. Minimum 2 required.
+active = [
+    "SmelGRF-GIF/fold_1_x_1_model_0.pdb",
+    "SmelGRF-GIF/fold_2_x_1_model_0.pdb",
+    # "SmelDMP/SmelDMP01.730_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP01.990_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP02_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP04_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP10.200_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP10_550_560_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP12_SmelHAP2.pdb",
+]
+
+
+# ==============================================================================
+# SCRIPT 3 — Interface Analysis
+# (3_gromacs_interface_analysis.sh)
+# ==============================================================================
+
+[scripts.interface_analysis]
+override_existing = false
+box_distance      = 1.0
+em_steps          = 5000
+
+[scripts.interface_analysis.structures]
+# Paths relative to paths.input_base.
+active = [
+    "SmelGRF-GIF/fold_1_x_1_model_0.pdb",
+    "SmelGRF-GIF/fold_2_x_1_model_0.pdb",
+    "SmelGIF-SWI2/SmelGIF-SW2.pdb",
+    # "SmelDMP/SmelDMP01.730_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP01.990_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP02_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP04_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP10.200_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP10_550_560_SmelHAP2.pdb",
+    # "SmelDMP/SmelDMP12_SmelHAP2.pdb",
+]
+
+
+# ==============================================================================
+# SCRIPT 4 — Batch Comparison
+# (4_gromacs_batch_comparison.sh)
+# ==============================================================================
+
+[scripts.batch_comparison]
+override_existing = false
+em_steps          = 2000
+box_distance      = 0.8
+box_type          = "cubic"
+
+[scripts.batch_comparison.datasets]
+# Dataset names from paths.datasets. Comment out to disable.
+active = [
+    "SmelGRF-GIF",
+    # "SmelDMP",
+    # "SmelGIF-SWI2",
+]
+
+
+# ==============================================================================
+# MUTATEX (FoldX)
+# (a_mutatex_repo_version.sh)
+# ==============================================================================
+
+[mutatex]
+threads            = 12
+nruns              = 3
+force_rerun        = true
+cleanup_during_run = true  # Incremental cleanup; saves ~195 GB of intermediate files
+
+[mutatex.debug]
+debug_mode      = true
+verbose_logging = true
+
+[mutatex.paths]
+# Paths relative to the project root (SCRIPT_DIR)
+foldx_binary       = "modules/PPI/foldx_20270131_5.1"
+rotabase           = "modules/PPI/rotabase.txt"
+repair_template    = "modules/PPI/repair_runfile_template.txt"
+mutate_template    = "modules/PPI/mutate_runfile_template.txt"
+interface_template = "modules/PPI/interface_runfile_template.txt"
+results_dir        = "RESULTS/results_mutatex"
+inputs_dir         = "inputs/SmelDMP"
+
+[mutatex.structures]
+# Paths relative to project root.
+active = [
+    "inputs/SmelGRF-GIF/fold_1_x_1_model_0.pdb",
+    "inputs/SmelGRF-GIF/fold_recruitment_of_smelgif_to_swi_model_0.pdb",
+    "inputs/SmelDMP/SmelDMP01.730_SmelHAP2.pdb",
+    # "inputs/SmelGRF-GIF/fold_2_x_1_model_0.pdb",
+    # "inputs/SmelDMP/SmelDMP01.990_SmelHAP2.pdb",
+    # "inputs/SmelDMP/SmelDMP02_SmelHAP2.pdb",
+    # "inputs/SmelDMP/SmelDMP04_SmelHAP2.pdb",
+    # "inputs/SmelDMP/SmelDMP10.200_SmelHAP2.pdb",
+    # "inputs/SmelDMP/SmelDMP10_550_560_SmelHAP2.pdb",
+    # "inputs/SmelDMP/SmelDMP12_SmelHAP2.pdb",
+]
+
+
+# ==============================================================================
+# MUTATEX — Visualization
+# (b_mutatex_generate_mutatex_visualizations.py)
+# ==============================================================================
+
+[mutatex.visualization]
+# Results directories searched in order of priority
+results_dirs    = ["RESULTS/results_mutatex", "run_results"]
+figure_format   = "png"    # png | pdf | svg
+dpi             = 300
+heatmap_cmap    = "plasma"
+diverging_cmap  = "RdBu_r"
+distrib_cmap    = "viridis"
+hotspot_threshold = 0.01   # kcal/mol; residues with |ΔΔG| > this are highlighted
+
+# Standard amino acid order matching the default MutateX mutation_list.txt
+aa_order = ["G","A","V","L","I","M","F","W","P","S","T","C","Y","N","Q","D","E","K","R","H"]
+
+
+# ==============================================================================
+# MUTATEX — Critical Residues Extraction
+# (c_mutatex_extract_all_critical_residues.py / extract_critical_residues.py)
+# ==============================================================================
+
+[mutatex.critical_residues]
+output_subdir           = "critical_residues"
+destabilizing_threshold = 2.0    # kcal/mol; DDG > this value is considered destabilizing
+stabilizing_threshold   = -2.0   # kcal/mol; DDG < this value is considered stabilizing
+top_n                   = 30     # number of top residues to extract per category

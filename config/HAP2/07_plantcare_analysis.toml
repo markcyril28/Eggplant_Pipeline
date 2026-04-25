@@ -1,0 +1,10 @@
+# ============================================================================
+# HAP2 — Gene-Specific PlantCARE Inputs
+# ============================================================================
+# Only raw results directory is unique per gene group.
+# Shared defaults (upstream/downstream lengths, GTF params, pipeline ops) are
+# in g_plant_care_analysisCONFIG.toml (project root).
+# ============================================================================
+
+[plantcare]
+# raw_results_dir = "III_RESULT/HAP2/07_PlantCARE_Analysis/<genome>/03_PlantCARE_Results"

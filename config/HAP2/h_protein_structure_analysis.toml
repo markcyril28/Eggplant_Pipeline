@@ -1,0 +1,7 @@
+# ============================================================================
+# HAP2 — Gene-Specific Protein Structure Inputs
+# ============================================================================
+
+[protein_structure]
+input_nucleotide_fasta = "II_INPUTS/HAP2/All_SmelHAP2s_nucleotide_sequence.fa"
+# color_config inherited from h_protein_structureCONFIG.toml (project root)

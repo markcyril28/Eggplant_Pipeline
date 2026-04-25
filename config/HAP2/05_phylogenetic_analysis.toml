@@ -1,0 +1,12 @@
+# ============================================================================
+# HAP2 — Gene-Specific Phylogenetic Inputs
+# ============================================================================
+# Only input alignment files are unique per gene group.
+# Shared defaults (software, models, bootstrap) are in
+# e_phyloCONFIG.toml (project root).
+# ============================================================================
+
+[phylogenetics]
+input_files = []
+# Populate after MSA stage produces alignments, e.g.:
+# input_files = ["04_MSA/<genome>/<method>/PF10699_HAP2_aligned.fas"]

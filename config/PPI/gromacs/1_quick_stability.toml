@@ -1,0 +1,39 @@
+# ==============================================================================
+# Script 1 — Quick Stability Comparison  (GPU+CPU, fast)
+# (1_gromacs_quick_stability.sh)
+#
+# PURPOSE: Energy-minimize each complex and compare static PPI metrics
+#          across structures — no MD simulation, just EM.
+#          GPU offloads non-bonded + bonded forces; PME stays on CPU
+#          (steep integrator limitation).
+#
+# KEY OUTPUTS per structure:
+#   energies.xvg   — Potential, Coulomb-SR, LJ-SR, Pressure
+#   hbonds.xvg     — Inter-chain hydrogen bond count
+#   mindist.xvg    — Minimum inter-chain distance
+#   sasa*.xvg      — Solvent-accessible surface area (complex + per-chain)
+#   metrics.txt    — Compiled summary
+#
+# HOW TO READ RESULTS:
+#   • Lower potential energy = more stable complex
+#   • BSA = (SASA_A + SASA_B − SASA_complex)/2;  >8 nm² = strong binding
+#   • More H-bonds (≥10) and contacts (≥50) = better interface
+#   • Min distance ~0.25–0.35 nm is typical for a well-packed interface
+#
+# Values here override common.toml defaults.
+# ==============================================================================
+
+[settings]
+override_existing = true
+box_distance      = 1.5
+em_steps          = 50000
+gpu_id            = 0
+max_threads       = 8
+
+# [structures]
+# Structures loaded from config/<GENE_GROUP>/h_protein_structure_analysis.toml
+# Uncomment below to override for this step only:
+# [structures]
+# active = [
+#     "path/to/structure.cif",
+# ]

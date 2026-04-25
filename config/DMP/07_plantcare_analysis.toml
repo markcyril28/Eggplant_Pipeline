@@ -1,0 +1,39 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: DMP — 07_PlantCARE Promoter Analysis
+# ============================================================================
+
+[gene_sequence]
+upstream = 2000
+downstream = 0
+
+# GTF extraction: reference annotations to filter by HMMER-identified genes.
+# Labels must match identification.target_labels; arrays are parallel (same order).
+[gene_sequence.gtf_extraction]
+labels = [
+    "Solanum_melongena_v4.1",
+    "GPE001970_SMEL5",
+]
+
+annotations = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_function_IPR_final.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001970.gff",
+]
+
+genomes = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970.fa",
+]
+
+[plantcare]
+enabled = false
+raw_results_dir = "III_RESULT/DMP/07_PlantCARE_Analysis/GPE001970_SMEL5/03_PlantCARE_Results"
+
+# Optional: filter specific genes or functions for heatmaps
+# selected_genes = "SmelDMP01 SmelDMP02"
+# selected_functions = "MYB binding site drought-inducibility"
+
+# Override shared color/figure defaults here if needed:
+# [plantcare.colors]
+# palette = ["#d9e9c8ff", ...]
+# [plantcare.figures]
+# row_font = 12

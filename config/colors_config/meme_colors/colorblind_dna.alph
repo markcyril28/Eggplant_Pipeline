@@ -1,0 +1,21 @@
+# MEME Suite custom alphabet: Colorblind-safe palette
+# Wong (2011) "Points of Significance: Color blindness" palette.
+# Distinguishable under protanopia, deuteranopia, tritanopia.
+# Usage:  meme --alph colorblind_dna.alph <sequences> ...
+ALPHABET "DNA Colorblind-Safe" DNA-LIKE
+A "Adenine" 009E73 ~ T "Thymine" D55E00
+C "Cytosine" 0072B2 ~ G "Guanine" E69F00
+# Ambiguous symbols
+U = T
+R = AG
+Y = CT
+K = GT
+M = AC
+S = CG
+W = AT
+B = CGT
+D = GAT
+H = ACT
+V = ACG
+N = ACGT
+X = ACGT

@@ -1,0 +1,97 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: DMP — 05_Phylogenetics
+# ============================================================================
+
+[phylogenetics]
+software = ["MEGA_CC"]
+input_pattern = "*.fas"
+
+# Alignment files to include in phylogenetic analysis.
+# Paths are relative to the MSA output directory (output_dirs.msa).
+# Comment out entries to exclude them from the run.
+input_files = [
+    # --- GPE001970 (unito) genome — nucleotide ---
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_nucleotide/CLUSTALO_aligned/PF05078_DMP_transcripts_cdhit.fas",
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_nucleotide/MAFFT_aligned/PF05078_DMP_transcripts_cdhit.fas",
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_nucleotide/MUSCLE_aligned/PF05078_DMP_transcripts_cdhit.fas",
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_nucleotide_and_query_species_nucleotide/CLUSTALO_aligned/per_genome_gpe001970_nucleotide_and_query_species_nucleotide.fas",
+    #"GPE001970_SMEL5/All_Result/per_genome_gpe001970_nucleotide_and_query_species_nucleotide/MAFFT_aligned/per_genome_gpe001970_nucleotide_and_query_species_nucleotide.fas",
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_nucleotide_and_query_species_nucleotide/MUSCLE_aligned/per_genome_gpe001970_nucleotide_and_query_species_nucleotide.fas",
+
+    # --- GPE001970 (unito) genome — amino acid ---
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_amino_acid/CLUSTALO_aligned/PF05078_DMP_proteins_cdhit.fas",
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_amino_acid/MAFFT_aligned/PF05078_DMP_proteins_cdhit.fas",
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_amino_acid/MUSCLE_aligned/PF05078_DMP_proteins_cdhit.fas",
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_amino_acid_and_query_species_amino_acid/CLUSTALO_aligned/per_genome_gpe001970_amino_acid_and_query_species_amino_acid.fas",
+    #"GPE001970_SMEL5/All_Result/per_genome_gpe001970_amino_acid_and_query_species_amino_acid/MAFFT_aligned/per_genome_gpe001970_amino_acid_and_query_species_amino_acid.fas",
+    #"GPE001970_SMEL5/All_Result/per_genome_gpe001970_amino_acid_and_query_species_amino_acid/MAFFT_aligned/per_genome_gpe001970_amino_acid_and_query_species_amino_acid_curated.fas",
+    # "GPE001970_SMEL5/All_Result/per_genome_gpe001970_amino_acid_and_query_species_amino_acid/MUSCLE_aligned/per_genome_gpe001970_amino_acid_and_query_species_amino_acid.fas",
+
+    # --- GPE001970 (unito) genome — selected crop species nucleotide ---
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/per_genome_gpe001970_nucleotide_and_selected_crop_species_nucleotide/CLUSTALO_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/per_genome_gpe001970_nucleotide_and_selected_crop_species_nucleotide/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/per_genome_gpe001970_nucleotide_and_selected_crop_species_nucleotide/MUSCLE_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+
+    # --- GPE001970 (unito) genome — selected crop species amino acid ---
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/per_genome_gpe001970_amino_acid_and_selected_crop_species_amino_acid/CLUSTALO_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+    #"GPE001970_SMEL5/Selected_Result/v1_Full/per_genome_gpe001970_amino_acid_and_selected_crop_species_amino_acid/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/per_genome_gpe001970_amino_acid_and_selected_crop_species_amino_acid/MUSCLE_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+
+    # --- GPE001970 (unito) — selected_v1_full_* (standalone curated sets) --- v1 Full Selected
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_nucleotide/CLUSTALO_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+    "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_nucleotide/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_nucleotide/MUSCLE_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_amino_acid/CLUSTALO_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+    "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_amino_acid/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_amino_acid/MUSCLE_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+
+    # --- GPE001970 (unito) — selected_v2_reduced_nucleotide ---
+    # "GPE001970_SMEL5/Selected_Result/v2_Reduced/selected_v2_reduced_nucleotide/CLUSTALO_aligned/v2_nucleotide.fas",
+    # "GPE001970_SMEL5/Selected_Result/v2_Reduced/selected_v2_reduced_nucleotide/MAFFT_aligned/v2_nucleotide.fas",
+    # "GPE001970_SMEL5/Selected_Result/v2_Reduced/selected_v2_reduced_nucleotide/MUSCLE_aligned/v2_nucleotide.fas",
+
+    # --- Solanum melongena v4.1 genome — nucleotide ---
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_nucleotide/CLUSTALO_aligned/PF05078_DMP_transcripts_cdhit.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_nucleotide/MAFFT_aligned/PF05078_DMP_transcripts_cdhit.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_nucleotide/MUSCLE_aligned/PF05078_DMP_transcripts_cdhit.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide/CLUSTALO_aligned/per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide/MAFFT_aligned/per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide/MUSCLE_aligned/per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide.fas",
+
+    # --- Solanum melongena v4.1 genome — amino acid ---
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_amino_acid/CLUSTALO_aligned/PF05078_DMP_proteins_cdhit.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_amino_acid/MAFFT_aligned/PF05078_DMP_proteins_cdhit.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_amino_acid/MUSCLE_aligned/PF05078_DMP_proteins_cdhit.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid/CLUSTALO_aligned/per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid/MAFFT_aligned/per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid.fas",
+    # "Solanum_melongena_v4.1/per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid/MUSCLE_aligned/per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid.fas",
+
+    # --- Solanum melongena v4.1 genome — selected crop species nucleotide --- v1 Full Selected
+    # (enabled in 04_msa.toml once source files are in place)
+    # "Solanum_melongena_v4.1/Selected_Result/v1_Full/per_genome_smel_v4_1_nucleotide_and_selected_crop_species_nucleotide/CLUSTALO_aligned/per_genome_smel_v4_1_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+    # "Solanum_melongena_v4.1/Selected_Result/v1_Full/per_genome_smel_v4_1_nucleotide_and_selected_crop_species_nucleotide/MAFFT_aligned/per_genome_smel_v4_1_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+    # "Solanum_melongena_v4.1/Selected_Result/v1_Full/per_genome_smel_v4_1_nucleotide_and_selected_crop_species_nucleotide/MUSCLE_aligned/per_genome_smel_v4_1_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+
+    # --- Solanum melongena v4.1 genome — selected crop species amino acid --- v1 Full Selected
+    # (enabled in 04_msa.toml once source files are in place)
+    # "Solanum_melongena_v4.1/Selected_Result/v1_Full/per_genome_smel_v4_1_amino_acid_and_selected_crop_species_amino_acid/CLUSTALO_aligned/per_genome_smel_v4_1_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+    # "Solanum_melongena_v4.1/Selected_Result/v1_Full/per_genome_smel_v4_1_amino_acid_and_selected_crop_species_amino_acid/MAFFT_aligned/per_genome_smel_v4_1_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+    # "Solanum_melongena_v4.1/Selected_Result/v1_Full/per_genome_smel_v4_1_amino_acid_and_selected_crop_species_amino_acid/MUSCLE_aligned/per_genome_smel_v4_1_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+
+    # --- Shared / cross-genome datasets — nucleotide ---
+    # "shared/All_Result/all_eggplant_nucleotide/CLUSTALO_aligned/hmmer_identified_transcripts.fas",
+    # "shared/All_Result/all_eggplant_nucleotide/MAFFT_aligned/hmmer_identified_transcripts.fas",
+    # "shared/All_Result/all_eggplant_nucleotide/MUSCLE_aligned/hmmer_identified_transcripts.fas",
+    # "shared/All_Result/eggplant_and_query_species_nucleotide/CLUSTALO_aligned/eggplant_and_query_species_nucleotide.fas",
+    # "shared/All_Result/eggplant_and_query_species_nucleotide/MAFFT_aligned/eggplant_and_query_species_nucleotide.fas",
+    # "shared/All_Result/eggplant_and_query_species_nucleotide/MUSCLE_aligned/eggplant_and_query_species_nucleotide.fas",
+
+    # --- Shared / cross-genome datasets — amino acid ---
+    # "shared/All_Result/all_eggplant_amino_acid/CLUSTALO_aligned/hmmer_identified_proteins.fas",
+    # "shared/All_Result/all_eggplant_amino_acid/MAFFT_aligned/hmmer_identified_proteins.fas",
+    # "shared/All_Result/all_eggplant_amino_acid/MUSCLE_aligned/hmmer_identified_proteins.fas",
+
+    # --- OLD_RESULTS_V1 (Solanum melongena v4.1) — legacy, not generated by current pipeline ---
+    # "Solanum_melongena_v4.1/OLD_RESULTS_V1/2_All_SmelDMPs/Nucleotide_Sequence_Alignment/All_SmelDMPs_merged_fasta.fas",
+    # "Solanum_melongena_v4.1/OLD_RESULTS_V1/2_All_SmelDMPs/Polypeptide_Sequence_Alignment/All_SmelDMPs_merged_fasta.fas",
+]

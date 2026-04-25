@@ -1,0 +1,9 @@
+# ============================================================================
+# GRF — PlantCARE Promoter Analysis Overrides
+# ============================================================================
+# subdir: appended to 07_PlantCARE_Analysis/ so GRF and GIF outputs do not
+# collide when both groups share base_dir = "III_RESULT/GRF_GIF".
+# ============================================================================
+
+[plantcare]
+subdir = "GRF"

@@ -1,0 +1,226 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: DMP — 04_MSA
+# ============================================================================
+#
+# Input sources:
+#   A) HMMER-identified sequences — produced by 01_Identification, merged by
+#      02_BLAST_Alignment into single protein/transcript FASTAs.
+#   B) Cross-species query FASTAs — the BLAST query files listed in
+#      [ortholog_blast].query_fastas (02_blast_alignment.toml).
+#
+# Each input_set is a labeled combination of (scope × sequence type).
+# The orchestrator outputs to 04_MSA/<top_folder>/All_Result/<set_name>/<METHOD>_aligned/
+# so combinations with identical file basenames never collide and per-genome
+# outputs are separated at the first folder.
+# Curated selections live in 04_MSA/<top_folder>/Selected_Result/v1_Full/.
+# ============================================================================
+
+[alignment]
+#methods = ["CLUSTALO"]
+methods = [
+    "CLUSTALO", 
+    "MAFFT", 
+    "MUSCLE", 
+    #"PROBCONS", 
+    #"CLUSTALW"
+]
+
+sequence_types = [
+    "nucleotide",
+    "amino_acid"
+]
+
+# --- Active input sets (comment in/out to select) -------------------------
+# Only sets listed here will be processed.  Section definitions below
+# provide fastas, merge flags, and output_subdir for each set.
+active_input_sets = [
+    # — Per-genome: single genome —
+    #"per_genome_smel_v4_1_nucleotide",
+    #"per_genome_smel_v4_1_amino_acid",
+    #"per_genome_gpe001970_nucleotide",
+    #"per_genome_gpe001970_amino_acid",
+
+    # — All eggplant: both genomes merged —
+    #"all_eggplant_nucleotide",
+    #"all_eggplant_amino_acid",
+
+    # — Eggplant + cross-species query FASTAs (merge at runtime) —
+    #"eggplant_and_query_species_nucleotide",
+    #"per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide",
+    #"per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid",
+    #"per_genome_gpe001970_nucleotide_and_query_species_nucleotide",
+    #"per_genome_gpe001970_amino_acid_and_query_species_amino_acid",
+
+    # — Fixed / corrected merged inputs —
+    #"per_genome_gpe001970_nucleotide_and_query_species_nucleotide_fixed",
+
+    # — Selected / curated inputs —
+    "selected_v1_full_amino_acid",
+    "selected_v1_full_nucleotide",
+    #"selected_v2_reduced_nucleotide",
+
+    # — GPE001970 + Selected Crop Species (curated pre-merged) — v1 Full Selected
+    #"per_genome_gpe001970_nucleotide_and_selected_crop_species_nucleotide",
+    #"per_genome_gpe001970_amino_acid_and_selected_crop_species_amino_acid",
+
+    # — Smel v4.1 + Selected Crop Species (uncomment once files exist) —
+    #"per_genome_smel_v4_1_nucleotide_and_selected_crop_species_nucleotide",
+    #"per_genome_smel_v4_1_amino_acid_and_selected_crop_species_amino_acid",
+]
+
+# --- HMMER-identified source FASTAs (paths relative to base_dir) ----------
+[alignment.sources]
+hmmer_nucleotide = "02_BLAST_Alignment/hmmer_identified_transcripts.fa"
+hmmer_amino_acid = "02_BLAST_Alignment/hmmer_identified_proteins.fa"
+
+# --- Method-specific parameters (tuned for accuracy) ----------------------
+#
+# Dataset context: DMP family — ~30-40 short sequences (~200-250 aa).
+# Small dataset allows maximum-accuracy settings without prohibitive runtime.
+#
+# Threading rule (CPU=12):
+#   parallel_jobs    = CPU / optimal_threads  (min 1)
+#   threads_per_job  = optimal_threads        (or CPU when optimal >= CPU)
+#   total_cpu_used   = threads_per_job × parallel_jobs
+#
+#   CLUSTALO  optimal=12 → 1 parallel × 12 threads =  12 CPUs  (full utilization)
+#   MAFFT     optimal=12 → 1 parallel × 12 threads =  12 CPUs  (full utilization)
+#   MUSCLE v3 optimal= 1 → 12 parallel × 1 thread  =  12 CPUs  (v3 is single-threaded)
+#   MUSCLE v5 optimal=12 → 1 parallel × 12 threads =  12 CPUs  (v5 multi-threaded)
+#   PROBCONS  optimal= 1 → 12 parallel × 1 thread  =  12 CPUs  (full utilization)
+#   CLUSTALW  optimal= 1 → 12 parallel × 1 thread  =  12 CPUs  (full utilization)
+
+[alignment.clustalo]
+optimal_threads          = 12      # Multi-threaded — runs 1 job at full CPU
+outfmt                   = "fasta"
+full                     = true     # Full distance matrix (not mBed heuristic)
+full_iter                = true     # Full distance matrix on each iteration
+iterations               = 10       # --iter: combined guide-tree + HMM iterations
+max_guidetree_iterations = 10       # Refine guide tree up to 10 times per iter
+max_hmm_iterations       = 10       # Refine HMM up to 10 times per iter
+
+[alignment.mafft]
+optimal_threads = 12               # Multi-threaded — runs 1 job at full CPU
+algorithm       = "--localpair"    # L-INS-i (most accurate); alt: --genafpair, --auto
+maxiterate      = 1000             # Iterate until convergence (capped at 1000)
+ep              = 0.0              # No offset; more sensitive to weakly conserved regions
+anysymbol       = true             # Allow non-standard characters (e.g. 'z') instead of crashing
+
+[alignment.muscle]
+optimal_threads = 1                # MUSCLE v3 is single-threaded — runs CPU parallel jobs (12 at once)
+                                   # Change to 12 if using MUSCLE v5 (multi-threaded)
+maxiters        = 100              # v3: refinement iterations (default 16; 100 is near-maximum accuracy)
+
+[alignment.probcons]
+optimal_threads = 1                # Single-threaded — runs CPU parallel jobs (12 at once)
+consistency     = 5                # -c: consistency transform passes (default 2)
+iterative_ref   = 1000             # -ir: iterative refinement rounds (default 100)
+pre_training    = 20               # -pre: EM pre-training rounds (default 0)
+
+[alignment.clustalw]
+optimal_threads = 1                # Single-threaded — runs CPU parallel jobs (12 at once)
+output          = "FASTA"
+iteration       = "TREE"           # Iterative refinement guided by tree topology
+numiter         = 100               # Number of refinement iterations
+
+# --- Input sets -----------------------------------------------------------
+# All paths relative to base_dir (III_RESULT/DMP).  Files are referenced
+# in-place — no copies.  Only merge-flagged sets create a new file.
+#
+# Naming convention: <scope>_<genome>_<sequence_type>
+#   scope:         per_genome | all_eggplant | eggplant_and_query_species
+#   genome:        smel_v4_1 | gpe001970 | (omitted when both)
+#   sequence_type: nucleotide | amino_acid
+#
+# Each set outputs to: 04_MSA/<top_folder>/All_Result/<set_name>/<METHOD>_aligned/
+# Curated selections go in:  04_MSA/<top_folder>/Selected_Result/v1_Full/
+
+[alignment.input_sets]
+
+# --- Per-genome: one genome at a time -------------------------------------
+
+[alignment.input_sets.per_genome_smel_v4_1_nucleotide]
+fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
+
+[alignment.input_sets.per_genome_smel_v4_1_amino_acid]
+fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
+
+[alignment.input_sets.per_genome_gpe001970_nucleotide]
+fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
+
+[alignment.input_sets.per_genome_gpe001970_amino_acid]
+fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
+
+# --- All eggplant: both genomes merged ------------------------------------
+
+[alignment.input_sets.all_eggplant_nucleotide]
+fastas  = ["02_BLAST_Alignment/hmmer_identified_transcripts.fa"]
+
+[alignment.input_sets.all_eggplant_amino_acid]
+fastas  = ["02_BLAST_Alignment/hmmer_identified_proteins.fa"]
+
+# --- Eggplant + cross-species query FASTAs --------------------------------
+# Merge: concatenates listed fastas + ortholog_blast.query_fastas at runtime.
+# Query FASTAs are nucleotide-only, so no amino acid cross-species set.
+
+[alignment.input_sets.eggplant_and_query_species_nucleotide]
+merge   = true
+fastas  = ["02_BLAST_Alignment/hmmer_identified_transcripts.fa"]
+# query_fastas from [ortholog_blast] are appended automatically during merge
+
+[alignment.input_sets.per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide]
+merge   = true
+fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
+
+[alignment.input_sets.per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid]
+merge   = true
+fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
+
+[alignment.input_sets.per_genome_gpe001970_nucleotide_and_query_species_nucleotide]
+merge   = true
+fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
+
+[alignment.input_sets.per_genome_gpe001970_amino_acid_and_query_species_amino_acid]
+merge   = true
+fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
+
+# --- GPE001970 fixed nucleotide (pre-assembled corrected merged file) -----
+[alignment.input_sets.per_genome_gpe001970_nucleotide_and_query_species_nucleotide_fixed]
+fastas  = ["04_MSA/merged_input/All/per_genome_gpe001970_nucleotide_and_query_species_nucleotide_fixed.fa"]
+
+# --- Selected / curated inputs (manual curation of representative species) -
+# Paths are relative to base_dir (III_RESULT/DMP).
+# output_subdir is auto-inferred from the set name by resolve_output_subdir():
+#   *selected*v2* | *v2_reduced*  → Selected_Result/v2_Reduced
+#   *selected*                    → Selected_Result/v1_Full
+#   (default)                     → All_Result
+# Add an explicit output_subdir key only to override this behaviour.
+
+[alignment.input_sets.selected_v1_full_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fasta"]
+
+[alignment.input_sets.selected_v1_full_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v2_reduced_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v2_Reduced/v2_nucleotide.fasta"]
+
+# --- GPE001970 + Selected Crop Species (curated pre-merged FASTAs) --------
+# Source files: 04_MSA/merged_input/Selected/v1_Full/
+# These are manually curated inputs — not computed at runtime.
+
+[alignment.input_sets.per_genome_gpe001970_nucleotide_and_selected_crop_species_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.per_genome_gpe001970_amino_acid_and_selected_crop_species_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fasta"]
+
+# --- Smel v4.1 + Selected Crop Species (curated pre-merged FASTAs) --------
+# Files to create: 04_MSA/merged_input/Selected/v1_Full/per_genome_smel_v4_1_and_Selected_Crop_Species_*_Sequence.fasta
+# Set enabled = true once files are in place.
+
+[alignment.input_sets.per_genome_smel_v4_1_nucleotide_and_selected_crop_species_nucleotide]
+fastas  = ["04_MSA/merged_input/Selected/v1_Full/per_genome_smel_v4_1_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.per_genome_smel_v4_1_amino_acid_and_selected_crop_species_amino_acid]
+fastas  = ["04_MSA/merged_input/Selected/v1_Full/per_genome_smel_v4_1_and_Selected_Crop_Species_AMINO_ACID_Sequence.fasta"]

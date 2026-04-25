@@ -1,0 +1,7 @@
+# Nature-style DNA color scheme (publication-quality, clean)
+# Used with: ceqlogo -c nature.txt  OR  meme2images --color nature.txt
+# Format: LETTER <hex_color>
+A #009B55
+C #0059A3
+G #E69F00
+T #D62728

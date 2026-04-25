@@ -1,0 +1,48 @@
+# DMP protein-structure-synchronized color scheme
+# Matches the [DMP.interaction] palette from protein_structure_colors.toml.
+#
+# Mapping (DMP.interaction):
+#   Deep orange-red (#D43005)  →  Transmembrane helices    (TM1-TM4)
+#   Golden amber    (#D9A621)  →  N-terminal domain        (amphipathic helices)
+#   Beige           (#F5DEB3)  →  Extracellular beta sheet (sheet + Cys disulfides)
+#   Gray            (#B3B3B3)  →  Loops                    (coils, turns, Pro)
+#
+# Used with: ceqlogo -c dmp.txt  OR  meme2images --color dmp.txt
+# Format: LETTER <hex_color>
+
+# ── DNA bases (structure-analogous mapping) ──────────────────────────────────
+# A = gray         (loops)         T = deep orange-red  (TM helices)
+# C = golden amber (N-terminal)    G = beige            (beta sheets)
+A #B3B3B3
+C #D9A621
+G #F5DEB3
+T #D43005
+
+# ── Amino acids (grouped by DMP structural-domain propensity) ────────────────
+# Transmembrane helices (deep orange-red) — hydrophobic residues in TM segments
+I #D43005
+L #D43005
+V #D43005
+F #D43005
+W #D43005
+M #D43005
+
+# N-terminal domain / amphipathic helix (golden amber) — charged/polar helical
+E #D9A621
+K #D9A621
+R #D9A621
+Q #D9A621
+H #D9A621
+
+# Extracellular beta-pleated sheet (beige) — sheet-forming + disulfide residues
+Y #F5DEB3
+# Note: T already defined above (DNA thymine); protein logos use it as threonine
+# Note: C already defined above (DNA cytosine); protein logos use it as cysteine
+
+# Loops / turns (gray) — flexible and helix-breaking residues
+# Note: A already defined above (DNA adenine); protein logos use it as alanine
+# Note: G already defined above (DNA guanine); protein logos use it as glycine
+N #B3B3B3
+D #B3B3B3
+S #B3B3B3
+P #B3B3B3

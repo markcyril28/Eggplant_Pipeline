@@ -1,0 +1,22 @@
+# ============================================================================
+# HAP2 — Gene-Specific MEME Motif Inputs
+# ============================================================================
+# Only MEME input arrays are unique per gene group.
+# Shared defaults (MEME modes, databases, threading) are in
+# f_motif_analysisCONFIG.toml (project root).
+# ============================================================================
+
+[pipeline]
+operations = [
+    "RUN_READY_DATABASE",
+    "RUN_MEME_SUITE_Analysis",
+]
+
+[meme.inputs]
+labels         = []
+fasta_files    = []
+output_subdirs = []
+# Populate with HAP2-specific FASTA inputs, e.g.:
+# labels         = ["HAP2_upstream"]
+# fasta_files    = ["III_RESULT/HAP2/06_Motif_Analysis/.../upstream.fa"]
+# output_subdirs = ["HAP2_upstream"]

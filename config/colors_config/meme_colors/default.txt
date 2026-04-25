@@ -1,0 +1,7 @@
+# MEME Suite default DNA color scheme
+# Used with: ceqlogo -c default.txt  OR  meme2images --color default.txt
+# Format: LETTER <hex_color>
+A #00A558
+C #0000FF
+G #E9A501
+T #FF0000

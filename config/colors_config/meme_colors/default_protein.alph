@@ -1,0 +1,36 @@
+# MEME Suite custom alphabet: Default protein colors
+# Standard amino acid colors based on physicochemical properties.
+# Red = hydrophobic, Blue = positively charged, Magenta = negatively charged,
+# Green = polar, Orange/Gold = aromatic, Teal = special (Cys, Pro, Gly).
+# Usage:  meme --alph default_protein.alph <sequences> ...
+ALPHABET "Protein Default" PROTEIN-LIKE
+# Nonpolar / Hydrophobic
+A "Alanine" 1E88E5
+V "Valine" D32F2F
+L "Leucine" D32F2F
+I "Isoleucine" D32F2F
+M "Methionine" D32F2F
+F "Phenylalanine" E65100
+W "Tryptophan" E65100
+# Polar / Uncharged
+S "Serine" 388E3C
+T "Threonine" 388E3C
+N "Asparagine" 388E3C
+Q "Glutamine" 388E3C
+Y "Tyrosine" E65100
+# Positively charged
+K "Lysine" 1565C0
+R "Arginine" 1565C0
+H "Histidine" 1565C0
+# Negatively charged
+D "Aspartate" AB47BC
+E "Glutamate" AB47BC
+# Special
+C "Cysteine" 00897B
+G "Glycine" 757575
+P "Proline" 00897B
+# Ambiguous symbols
+B = DN
+Z = EQ
+J = IL
+X = ACDEFGHIKLMNPQRSTVWY

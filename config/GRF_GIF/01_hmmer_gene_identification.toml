@@ -1,0 +1,10 @@
+# ============================================================================
+# GRF_GIF — Gene-Specific HMMER Identification Inputs
+# ============================================================================
+# Shared defaults (method, db_type, targets, hmmer_params) are in
+# a_hmmer_identifyCONFIG.toml (project root).
+# Per-gene HMM profile mapping (logical AND across required Pfam domains) is in
+# a_hmmer_identifyCONFIG.toml under [identification.gene_groups.GRF_GIF.genes]:
+#   GRF = QLQ + WRC   (both domains required)
+#   GIF = SSXT/SNH    (single domain)
+# ============================================================================

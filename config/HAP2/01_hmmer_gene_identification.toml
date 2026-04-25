@@ -1,0 +1,8 @@
+# ============================================================================
+# HAP2 — Gene-Specific HMMER Identification Inputs
+# ============================================================================
+# Shared defaults (method, db_type, targets, hmmer_params) are in
+# a_hmmer_identifyCONFIG.toml (project root).
+# hmm_profiles and seed_alignments now live in
+# a_hmmer_identifyCONFIG.toml under [identification.gene_groups.HAP2].
+# ============================================================================

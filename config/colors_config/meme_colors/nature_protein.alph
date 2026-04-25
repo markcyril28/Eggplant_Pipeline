@@ -1,0 +1,45 @@
+# MEME Suite custom alphabet: Nature publication protein palette
+# Muted, high-contrast colors optimized for print and digital publication.
+# Adapted from nature_dna.alph color philosophy to amino acid properties.
+#
+# Color mapping (physicochemical grouping):
+#   Green  (009B55) = Nonpolar / hydrophobic core
+#   Blue   (0059A3) = Positively charged
+#   Red    (D62728) = Negatively charged
+#   Gold   (E69F00) = Polar uncharged
+#   Teal   (2A9D8F) = Aromatic
+#   Grey   (757575) = Special (Gly, Pro, Cys)
+#
+# Usage:  meme --alph nature_protein.alph <sequences> ...
+ALPHABET "Protein Nature" PROTEIN-LIKE
+# Nonpolar / Hydrophobic
+A "Alanine" 009B55
+V "Valine" 009B55
+L "Leucine" 009B55
+I "Isoleucine" 009B55
+M "Methionine" 009B55
+# Aromatic
+F "Phenylalanine" 2A9D8F
+W "Tryptophan" 2A9D8F
+Y "Tyrosine" 2A9D8F
+# Polar / Uncharged
+S "Serine" E69F00
+T "Threonine" E69F00
+N "Asparagine" E69F00
+Q "Glutamine" E69F00
+# Positively charged
+K "Lysine" 0059A3
+R "Arginine" 0059A3
+H "Histidine" 0059A3
+# Negatively charged
+D "Aspartate" D62728
+E "Glutamate" D62728
+# Special
+C "Cysteine" 757575
+G "Glycine" 757575
+P "Proline" 757575
+# Ambiguous symbols
+B = DN
+Z = EQ
+J = IL
+X = ACDEFGHIKLMNPQRSTVWY

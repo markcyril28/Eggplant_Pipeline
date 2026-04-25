@@ -3,19 +3,30 @@
 # Stage 0: Reference Sequence Setup and Download
 # ============================================================================
 # Bootstrap stage for a fresh machine. Creates the I_RefSeqs/ output tree and
-# downloads:
-#   - DMP query FASTAs from NCBI (At, Zm, Ip + 12 species from the DMP HIR table)
-#   - Solanum melongena Unito Genomics genomes + annotations
-#   - Various crop species genomes
+# populates DMP query FASTAs and reference genomes via these operations:
 #
-# All behaviour driven by 0_RefSeq_setup_and_downloadCONFIG.toml
+#   SETUP_DIRS            Create the I_RefSeqs/ output tree
+#   EXTRACT_DMP_LOCAL     Pull DMP records from already-downloaded genomes
+#                          per II_INPUTS/DMP_HI_registry.tsv (source_mode=local)
+#   DOWNLOAD_DMP_QUERIES  NCBI eutils download for the 14 verified DMP HI
+#                          species (skipped where local extract exists)
+#   MERGE_DMP_QUERIES     Concatenate per-species *.fasta into one .fa
+#   DOWNLOAD_SMEL_UNITO   Mirror Solanum melongena Unito Genomics
+#   EXTRACT_TRANSCRIPTS   gffread CDS/transcript/protein extraction
+#   DOWNLOAD_CROP_GENOMES Various crop species genomes
+#
+# All behaviour driven by 0_RefSeq_setup_and_downloadCONFIG.toml.
 #
 # Usage:
-#   bash 0_RefSeq_setup_and_download.sh                  # run all enabled ops
+#   bash 0_RefSeq_setup_and_download.sh                  # run enabled ops
 #   bash 0_RefSeq_setup_and_download.sh --list           # list operations
 #   bash 0_RefSeq_setup_and_download.sh --dry-run        # show planned actions
 #   bash 0_RefSeq_setup_and_download.sh --only OP[,OP]   # run subset
-#   bash 0_RefSeq_setup_and_download.sh --overwrite      # re-download
+#   bash 0_RefSeq_setup_and_download.sh --overwrite      # force re-download
+#   bash 0_RefSeq_setup_and_download.sh --parallel N     # override MAX_PARALLEL
+#                                                        # (CPU-bound jobs only;
+#                                                        # NCBI concurrency is
+#                                                        # set in the TOML)
 # ============================================================================
 
 set -euo pipefail
@@ -125,7 +136,7 @@ while [[ $# -gt 0 ]]; do
         --only)        ONLY_OPS="$2"; shift 2 ;;
         --overwrite)   OVERWRITE=true; export OVERWRITE; shift ;;
         --parallel)    MAX_PARALLEL="$2"; shift 2 ;;
-        -h|--help)     sed -n '2,21p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done

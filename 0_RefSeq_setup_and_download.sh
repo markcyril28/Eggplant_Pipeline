@@ -106,10 +106,34 @@ wait_for_slot() {
     while (( $(jobs -rp | wc -l) >= limit )); do sleep 0.5; done
 }
 
+# Skip vs. overwrite policy
+# OVERWRITE=true  -> always re-run (re-download / re-merge / re-extract)
+# OVERWRITE=false -> skip when expected outputs already exist
+# Returns 0 (skip) or 1 (proceed). Args: <work_dir> [pattern]
+should_skip_dir() {
+    local dir="$1" pattern="${2:-*.fasta}"
+    [[ "$OVERWRITE" == "true" ]] && return 1
+    [[ -d "$dir" ]] || return 1
+    # Find any non-empty file matching pattern
+    local existing
+    existing=$(find "$dir" -maxdepth 1 -type f -name "$pattern" -size +0c 2>/dev/null | head -1)
+    [[ -n "$existing" ]]
+}
+
+should_skip_file() {
+    local path="$1"
+    [[ "$OVERWRITE" == "true" ]] && return 1
+    [[ -s "$path" ]]
+}
+
 run_module() {
     local module="$1" work_dir="$2"
     if [[ ! -f "$module" ]]; then
-        log_warn "Module not found: $module (skipping)"
+        log_warn "  [SKIP-MISSING] Module not found: $(basename "$module")"
+        return 0
+    fi
+    if should_skip_dir "$work_dir" "*.fasta"; then
+        log_info "  [SKIP-EXISTS] $(basename "$work_dir")/ already has FASTA(s) — set overwrite=true to redownload"
         return 0
     fi
     mkdir -p "$work_dir"
@@ -123,7 +147,14 @@ run_module() {
 run_merge() {
     local out_filename="$1" work_dir="$2"
     local merger="$FASTA_DOWNLOAD_MODULES/merge_fasta_pwd.sh"
-    [[ -d "$work_dir" ]] || { log_warn "  Skipping merge — $work_dir missing"; return 0; }
+    if [[ ! -d "$work_dir" ]]; then
+        log_warn "  [SKIP-MISSING] merge target dir absent: $(basename "$work_dir")"
+        return 0
+    fi
+    if should_skip_file "$work_dir/$out_filename"; then
+        log_info "  [SKIP-EXISTS] $(basename "$work_dir")/$out_filename — set overwrite=true to regenerate"
+        return 0
+    fi
     if $DRY_RUN; then
         echo "[DRY-RUN] (cd $work_dir && bash $merger $out_filename)"
         return 0
@@ -223,7 +254,13 @@ if should_run "DOWNLOAD_SMEL_UNITO"; then
     log_step "[DOWNLOAD_SMEL_UNITO] Mirroring Solanum melongena Unito Genomics"
     UNITO_MODULE="$REFSEQ_OUT_DIR/$UNITO_REL"
     UNITO_DEST="$REFSEQ_OUT_DIR/$UNITO_DEST_REL"
-    if [[ -f "$UNITO_MODULE" ]]; then
+    # The downloader uses wget --continue --timestamping which is per-file safe.
+    # At the orchestrator level we still skip the whole stage when target subdirs
+    # already contain genome FASTAs and OVERWRITE=false.
+    if should_skip_dir "$UNITO_DEST/genomes" "*.fa.gz" \
+       || should_skip_dir "$UNITO_DEST/genomes" "*.fa"; then
+        log_info "  [SKIP-EXISTS] $UNITO_DEST/genomes already populated — set overwrite=true to refresh"
+    elif [[ -f "$UNITO_MODULE" ]]; then
         if $DRY_RUN; then
             echo "[DRY-RUN] bash $UNITO_MODULE $UNITO_DEST"
         else
@@ -231,7 +268,7 @@ if should_run "DOWNLOAD_SMEL_UNITO"; then
             bash "$UNITO_MODULE" "$UNITO_DEST"
         fi
     else
-        log_warn "Unito Genomics downloader not found at $UNITO_MODULE"
+        log_warn "  [SKIP-MISSING] Unito Genomics downloader not found at $UNITO_MODULE"
     fi
 fi
 
@@ -241,14 +278,20 @@ fi
 if should_run "EXTRACT_TRANSCRIPTS"; then
     log_step "[EXTRACT_TRANSCRIPTS] Extracting transcripts/CDS/proteins via gffread"
     EXTRACT_MODULE="$REFSEQ_OUT_DIR/$EXTRACT_REL"
-    if [[ -f "$EXTRACT_MODULE" ]]; then
+    # extract_transcripts.sh has its own per-genome OVERWRITE check; we export
+    # OVERWRITE so it honors the same toggle, and short-circuit the whole stage
+    # if the transcripts/ output dir is already populated.
+    EXTRACT_OUT_DIR="$(dirname "$EXTRACT_MODULE")/transcripts"
+    if should_skip_dir "$EXTRACT_OUT_DIR" "*_transcripts.fa"; then
+        log_info "  [SKIP-EXISTS] transcripts/ already populated — set overwrite=true to re-extract"
+    elif [[ -f "$EXTRACT_MODULE" ]]; then
         if $DRY_RUN; then
-            echo "[DRY-RUN] bash $EXTRACT_MODULE --parallel $MAX_PARALLEL"
+            echo "[DRY-RUN] OVERWRITE=$OVERWRITE bash $EXTRACT_MODULE --parallel $MAX_PARALLEL"
         else
-            bash "$EXTRACT_MODULE" --parallel "$MAX_PARALLEL"
+            OVERWRITE="$OVERWRITE" bash "$EXTRACT_MODULE" --parallel "$MAX_PARALLEL"
         fi
     else
-        log_warn "extract_transcripts.sh not found at $EXTRACT_MODULE"
+        log_warn "  [SKIP-MISSING] extract_transcripts.sh not found at $EXTRACT_MODULE"
     fi
 fi
 
@@ -258,14 +301,31 @@ fi
 if should_run "DOWNLOAD_CROP_GENOMES"; then
     log_step "[DOWNLOAD_CROP_GENOMES] Downloading crop species genomes"
     CROP_MODULE="$REFSEQ_OUT_DIR/$CROP_DOWNLOADER_REL"
+    # RefSeq_Downloader.sh already does per-file existence checks. We only
+    # short-circuit the entire stage when the crop output dir is fully empty
+    # of subdirs is unsafe (each species runs independently). If overwrite=true,
+    # we delete all *.fa/*.fa.gz in the crop dir so the downloader re-fetches.
     if [[ -f "$CROP_MODULE" ]]; then
+        if [[ "$OVERWRITE" == "true" ]]; then
         if $DRY_RUN; then
+                echo "[DRY-RUN] find $CROP_DIR -type f \( -name '*.fa' -o -name '*.fa.gz' \) -delete"
             echo "[DRY-RUN] bash $CROP_MODULE"
         else
+                log_info "  overwrite=true: clearing existing crop FASTA files"
+                find "$CROP_DIR" -type f \( -name '*.fa' -o -name '*.fa.gz' -o -name '*.fna' \
+                    -o -name '*.fna.gz' -o -name '*.faa' -o -name '*.faa.gz' \) -delete 2>/dev/null || true
+                bash "$CROP_MODULE"
+            fi
+        else
+            if $DRY_RUN; then
+                echo "[DRY-RUN] bash $CROP_MODULE  # per-file skip honored by module"
+            else
+                log_info "  overwrite=false: per-file skip is honored by RefSeq_Downloader.sh"
             bash "$CROP_MODULE"
         fi
+        fi
     else
-        log_warn "Crop genomes downloader not found at $CROP_MODULE"
+        log_warn "  [SKIP-MISSING] Crop genomes downloader not found at $CROP_MODULE"
     fi
 fi
 

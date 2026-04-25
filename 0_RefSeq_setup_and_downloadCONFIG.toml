@@ -22,7 +22,22 @@ operations = [
     "DOWNLOAD_CROP_GENOMES",
 ]
 max_parallel = 4
+
+# Skip vs. overwrite policy for already-downloaded files
+#   overwrite = false  ->  SKIP if outputs already present (default; safe re-runs)
+#   overwrite = true   ->  RE-DOWNLOAD / RE-EXTRACT / RE-MERGE everything
+#
+# Granularity of the skip check:
+#   DOWNLOAD_DMP_QUERIES    skip a species if its dir already has *.fasta
+#   MERGE_DMP_QUERIES       skip a merge if the merged .fa already exists (non-empty)
+#   DOWNLOAD_SMEL_UNITO     skip if unito_genomics_data/genomes/ already populated
+#   EXTRACT_TRANSCRIPTS     skip if transcripts/ already has *_transcripts.fa
+#                           (+ per-genome OVERWRITE honored by extract_transcripts.sh)
+#   DOWNLOAD_CROP_GENOMES   per-file skip handled inside RefSeq_Downloader.sh;
+#                           overwrite=true clears existing FASTAs before re-download
+# CLI flag: pass --overwrite to force overwrite for one run without editing TOML.
 overwrite    = false
+
 # Optional NCBI API key — raises eutils rate limit from 3 to 10 req/s.
 # Leave "" for anonymous. Get one at:
 #   https://www.ncbi.nlm.nih.gov/account/settings/

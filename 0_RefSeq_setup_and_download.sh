@@ -43,11 +43,42 @@ source "$MODULES/logging/logging_utils.sh"
 get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 should_run() { [[ " ${OPERATIONS[*]} " =~ " $1 " ]]; }
 
+# ----- Auto-detect cores ----------------------------------------------------
+detect_cores() {
+    if command -v nproc >/dev/null 2>&1; then nproc
+    elif [[ -n "${NUMBER_OF_PROCESSORS:-}" ]]; then echo "$NUMBER_OF_PROCESSORS"
+    else echo 4
+    fi
+}
+TOTAL_CORES=$(detect_cores)
+
 # ----- Load config ----------------------------------------------------------
 mapfile -t OPERATIONS    < <(get_toml pipeline operations)
-MAX_PARALLEL=$(get_toml pipeline max_parallel)
+MAX_PARALLEL_CFG=$(get_toml pipeline max_parallel 2>/dev/null || echo "auto")
+DOWNLOAD_CONC_CFG=$(get_toml pipeline download_concurrency 2>/dev/null || echo "auto")
 OVERWRITE=$(get_toml pipeline overwrite)
 NCBI_API_KEY_CFG=$(get_toml pipeline ncbi_api_key 2>/dev/null || echo "")
+
+# CPU-bound parallelism (gffread, merges) — saturate cores
+if [[ "$MAX_PARALLEL_CFG" == "auto" || -z "$MAX_PARALLEL_CFG" ]]; then
+    MAX_PARALLEL="$TOTAL_CORES"
+else
+    MAX_PARALLEL="$MAX_PARALLEL_CFG"
+fi
+
+# Network-bound DMP download concurrency — capped by NCBI rate-limit policy.
+# NCBI eutils caps: 3 req/s anonymous, 10 req/s with API key.
+# Each fetch_locus makes 2 HTTP calls (esearch + efetch) plus a sleep of
+# EUTILS_DELAY. With the lib's API-key-aware default delays (0.4s anon,
+# 0.12s with key) one worker stays comfortably under the cap. Running >1
+# worker would multiply the rate and trigger 429/IP ban, so we default to 1.
+# Override via [pipeline].download_concurrency once you have raised
+# EUTILS_DELAY to compensate (e.g., concurrency=2 + delay=1.0s for anon).
+if [[ "$DOWNLOAD_CONC_CFG" == "auto" || -z "$DOWNLOAD_CONC_CFG" ]]; then
+    DOWNLOAD_CONCURRENCY=1
+else
+    DOWNLOAD_CONCURRENCY="$DOWNLOAD_CONC_CFG"
+fi
 
 REFSEQ_ROOT_REL=$(get_toml output refseq_root)
 SMEL_REL=$(get_toml output smel_subdir)
@@ -177,14 +208,17 @@ run_merge() {
 
 setup_logging
 log_step "Stage 0: Reference Sequence Setup and Download"
-log_info "PIPELINE_DIR : $PIPELINE_DIR"
-log_info "CONFIG_FILE  : $CONFIG_FILE"
-log_info "REFSEQ_OUT   : $REFSEQ_OUT_DIR"
-log_info "OPERATIONS   : ${OPERATIONS[*]}"
-log_info "MAX_PARALLEL : $MAX_PARALLEL"
-log_info "OVERWRITE    : $OVERWRITE"
-log_info "DRY_RUN      : $DRY_RUN"
-log_info "DMP species  : ${#DMP_DIRS[@]}"
+log_info "PIPELINE_DIR        : $PIPELINE_DIR"
+log_info "CONFIG_FILE         : $CONFIG_FILE"
+log_info "REFSEQ_OUT          : $REFSEQ_OUT_DIR"
+log_info "OPERATIONS          : ${OPERATIONS[*]}"
+log_info "TOTAL_CORES         : $TOTAL_CORES (detected)"
+log_info "MAX_PARALLEL        : $MAX_PARALLEL (CPU-bound: gffread, merges)"
+log_info "DOWNLOAD_CONCURRENCY: $DOWNLOAD_CONCURRENCY (NCBI rate-limited)"
+log_info "NCBI_API_KEY        : $([[ -n "$NCBI_API_KEY_CFG" ]] && echo "set" || echo "anonymous")"
+log_info "OVERWRITE           : $OVERWRITE"
+log_info "DRY_RUN             : $DRY_RUN"
+log_info "DMP species         : ${#DMP_DIRS[@]}"
 
 trap 'teardown_logging 2>/dev/null || true' EXIT
 
@@ -217,14 +251,14 @@ fi
 # OP: DOWNLOAD_DMP_QUERIES
 # ============================================================================
 if should_run "DOWNLOAD_DMP_QUERIES"; then
-    log_step "[DOWNLOAD_DMP_QUERIES] Downloading DMP query FASTAs from NCBI"
+    log_step "[DOWNLOAD_DMP_QUERIES] Downloading DMP query FASTAs from NCBI (concurrency=$DOWNLOAD_CONCURRENCY)"
     for ((i=0; i<${#DMP_DIRS[@]}; i++)); do
         species_dir="${DMP_DIRS[i]}"
         download_module="${DMP_DOWNLOADS[i]}"
         [[ -z "$download_module" ]] && { log_info "  -> $species_dir: no download module (skip)"; continue; }
         out_dir="$DMP_QUERY_DIR/$species_dir"
         module_path="$FASTA_DOWNLOAD_MODULES/$download_module"
-        wait_for_slot "$MAX_PARALLEL"
+        wait_for_slot "$DOWNLOAD_CONCURRENCY"
         log_info "  -> $species_dir via $download_module"
         run_module "$module_path" "$out_dir" &
     done
@@ -236,15 +270,18 @@ fi
 # OP: MERGE_DMP_QUERIES
 # ============================================================================
 if should_run "MERGE_DMP_QUERIES"; then
-    log_step "[MERGE_DMP_QUERIES] Merging per-species FASTAs"
+    log_step "[MERGE_DMP_QUERIES] Merging per-species FASTAs (parallel=$MAX_PARALLEL)"
     for ((i=0; i<${#DMP_DIRS[@]}; i++)); do
         species_dir="${DMP_DIRS[i]}"
         merge_out="${DMP_MERGES[i]}"
         [[ -z "$merge_out" ]] && continue
         out_dir="$DMP_QUERY_DIR/$species_dir"
+        wait_for_slot "$MAX_PARALLEL"
         log_info "  -> $species_dir -> $merge_out"
-        run_merge "$merge_out" "$out_dir"
+        run_merge "$merge_out" "$out_dir" &
     done
+    wait
+    log_info "[MERGE_DMP_QUERIES] All merges complete"
 fi
 
 # ============================================================================

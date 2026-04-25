@@ -1,18 +1,8 @@
-# ============================================================================
-# Configuration for: 0_RefSeq_setup_and_download.sh
-# ============================================================================
-# Drives the bootstrap stage that creates I_RefSeqs/ and downloads:
-#   - DMP query FASTAs (per species, from NCBI E-utilities)
-#   - Solanum melongena Unito Genomics genomes + annotations
-#   - Various crop species genomes (RefSeq_Downloader.sh)
-#
-# Parsed by modules/utils/parse_toml.py (flat-section parser; array-of-tables
-# not supported, so DMP species are stored as parallel arrays — index i across
-# dirs/downloads/merges describes the same species).
-# ============================================================================
+# Config for: 0_RefSeq_setup_and_download.sh
+# Parsed by modules/utils/parse_toml.py (flat parser; arrays are index-aligned).
 
 [pipeline]
-# Operations to run (in order). Comment out to skip.
+# Operations run in order; comment out to skip.
 operations = [
     "SETUP_DIRS",
     "DOWNLOAD_DMP_QUERIES",
@@ -21,52 +11,23 @@ operations = [
     "EXTRACT_TRANSCRIPTS",
     "DOWNLOAD_CROP_GENOMES",
 ]
-max_parallel = 4
 
-# Skip vs. overwrite policy for already-downloaded files
-#   overwrite = false  ->  SKIP if outputs already present (default; safe re-runs)
-#   overwrite = true   ->  RE-DOWNLOAD / RE-EXTRACT / RE-MERGE everything
-#
-# Granularity of the skip check:
-#   DOWNLOAD_DMP_QUERIES    skip a species if its dir already has *.fasta
-#   MERGE_DMP_QUERIES       skip a merge if the merged .fa already exists (non-empty)
-#   DOWNLOAD_SMEL_UNITO     skip if unito_genomics_data/genomes/ already populated
-#   EXTRACT_TRANSCRIPTS     skip if transcripts/ already has *_transcripts.fa
-#                           (+ per-genome OVERWRITE honored by extract_transcripts.sh)
-#   DOWNLOAD_CROP_GENOMES   per-file skip handled inside RefSeq_Downloader.sh;
-#                           overwrite=true clears existing FASTAs before re-download
-# CLI flag: pass --overwrite to force overwrite for one run without editing TOML.
-overwrite    = false
+max_parallel         = "auto"   # CPU-bound jobs (gffread, merges); "auto" = $(nproc)
+download_concurrency = "auto"   # NCBI eutils workers; "auto" = 1 (rate-limit safe)
+overwrite            = false    # false = skip existing; true = re-download all
+ncbi_api_key         = ""       # raises NCBI rate cap 3 -> 10 req/s
 
-# Optional NCBI API key — raises eutils rate limit from 3 to 10 req/s.
-# Leave "" for anonymous. Get one at:
-#   https://www.ncbi.nlm.nih.gov/account/settings/
-ncbi_api_key = ""
-
-# ============================================================================
-# Output directory layout under I_RefSeqs/
-# ============================================================================
 [output]
-refseq_root             = "I_RefSeqs"
-smel_subdir             = "a_Smel_RefSeqs"
-crop_genomes_subdir     = "b_Various_Crop_Species_Genomes"
-extra_genomes_subdir    = "c_Extra_Genomes"
-dmp_query_subdir        = "d_DMP_Query_Fasta"
+refseq_root          = "I_RefSeqs"
+smel_subdir          = "a_Smel_RefSeqs"
+crop_genomes_subdir  = "b_Various_Crop_Species_Genomes"
+extra_genomes_subdir = "c_Extra_Genomes"
+dmp_query_subdir     = "d_DMP_Query_Fasta"
 
-# ============================================================================
-# DMP query FASTA downloads — parallel arrays (index-aligned)
-# ============================================================================
-# dirs[i]          : subdirectory under output.dmp_query_subdir/
-# downloads[i]     : module file in modules/00_refseq/fasta_download/
-#                    (set to "" to skip download for this species)
-# merge_outputs[i] : merged .fa filename produced by merge_fasta_pwd.sh
-#                    (set to "" to skip merge for this species)
-#
-# Citations: Zhong et al. 2019/2020/2022b/2024; J./X. Zhang et al. 2022;
-#            Y. Li et al. 2022; Zhao et al. 2022; Chu et al. 2025;
-#            Chen et al. 2023; Yin et al. 2024; N. Wang et al. 2022;
-#            Long et al. 2024; Liang et al. 2025.
-# ============================================================================
+# DMP query FASTA downloads. Arrays are index-aligned per species.
+#   dirs[i]          subdir under output.dmp_query_subdir/
+#   downloads[i]     module under modules/00_refseq/fasta_download/ ("" = skip)
+#   merge_outputs[i] merged .fa filename ("" = skip merge)
 [dmp_queries]
 dirs = [
     "Arabidopsis_thaliana",
@@ -123,17 +84,11 @@ merge_outputs = [
     "OtherDMPs_merged_fasta.fa",
 ]
 
-# ============================================================================
-# Solanum melongena Unito Genomics mirror
-# Source: https://solgenomics.net/ftp/unito_genomics/
-# ============================================================================
+# Solanum melongena Unito Genomics mirror (https://solgenomics.net/ftp/unito_genomics/)
 [smel_unito]
 downloader_path          = "a_Smel_RefSeqs/unito_genomics/download_unito_genomics.sh"
 dest_subdir              = "a_Smel_RefSeqs/unito_genomics/unito_genomics_data"
 extract_transcripts_path = "a_Smel_RefSeqs/unito_genomics/extract_transcripts.sh"
 
-# ============================================================================
-# Crop genomes downloader (existing I_RefSeqs/RefSeq_Downloader.sh)
-# ============================================================================
 [crop_genomes]
 downloader_path = "RefSeq_Downloader.sh"

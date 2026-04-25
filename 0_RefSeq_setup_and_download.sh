@@ -101,6 +101,9 @@ UNITO_DEST_REL=$(get_toml smel_unito dest_subdir)
 EXTRACT_REL=$(get_toml smel_unito extract_transcripts_path)
 CROP_DOWNLOADER_REL=$(get_toml crop_genomes downloader_path)
 
+DMP_REGISTRY_REL=$(get_toml dmp_registry path 2>/dev/null || echo "II_INPUTS/DMP_HI_registry.tsv")
+DMP_REGISTRY="$PIPELINE_DIR/$DMP_REGISTRY_REL"
+
 # Export NCBI API key so sourced library scripts pick it up
 if [[ -n "$NCBI_API_KEY_CFG" ]]; then
     export NCBI_API_KEY="$NCBI_API_KEY_CFG"
@@ -163,8 +166,14 @@ run_module() {
         log_warn "  [SKIP-MISSING] Module not found: $(basename "$module")"
         return 0
     fi
+    # Honor local extraction output: if EXTRACT_DMP_LOCAL produced a *_local_extract.fasta
+    # for this species, skip the NCBI download regardless of OVERWRITE.
+    if compgen -G "$work_dir/*_local_extract.fasta" >/dev/null 2>&1; then
+        log_info "  [SKIP-LOCAL]  $(basename "$work_dir")/ has local extract; skipping NCBI download"
+        return 0
+    fi
     if should_skip_dir "$work_dir" "*.fasta"; then
-        log_info "  [SKIP-EXISTS] $(basename "$work_dir")/ already has FASTA(s) — set overwrite=true to redownload"
+        log_info "  [SKIP-EXISTS] $(basename "$work_dir")/ already has FASTA(s); set overwrite=true to redownload"
         return 0
     fi
     mkdir -p "$work_dir"
@@ -244,6 +253,25 @@ if should_run "SETUP_DIRS"; then
         printf '[DRY-RUN] mkdir -p %s\n' "${target_dirs[@]}"
     else
         mkdir -p "${target_dirs[@]}"
+    fi
+fi
+
+# ============================================================================
+# OP: EXTRACT_DMP_LOCAL
+# Pull matching DMP records from already-downloaded genomes per the registry.
+# Runs before DOWNLOAD_DMP_QUERIES so NCBI is only hit for unmatched species.
+# ============================================================================
+if should_run "EXTRACT_DMP_LOCAL"; then
+    log_step "[EXTRACT_DMP_LOCAL] Extracting DMP query FASTAs from local genomes"
+    EXTRACTOR_SH="$FASTA_DOWNLOAD_MODULES/extract_dmp_from_local.sh"
+    if [[ ! -f "$DMP_REGISTRY" ]]; then
+        log_warn "  [SKIP-MISSING] registry: $DMP_REGISTRY"
+    elif [[ ! -f "$EXTRACTOR_SH" ]]; then
+        log_warn "  [SKIP-MISSING] extractor: $EXTRACTOR_SH"
+    elif $DRY_RUN; then
+        echo "[DRY-RUN] OVERWRITE=$OVERWRITE bash $EXTRACTOR_SH $DMP_REGISTRY $DMP_QUERY_DIR"
+    else
+        OVERWRITE="$OVERWRITE" bash "$EXTRACTOR_SH" "$DMP_REGISTRY" "$DMP_QUERY_DIR"
     fi
 fi
 

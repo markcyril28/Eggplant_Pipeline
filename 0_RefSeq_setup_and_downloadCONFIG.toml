@@ -5,6 +5,7 @@
 # Operations run in order; comment out to skip.
 operations = [
     "SETUP_DIRS",
+    "EXTRACT_DMP_LOCAL",
     "DOWNLOAD_DMP_QUERIES",
     "MERGE_DMP_QUERIES",
     "DOWNLOAD_SMEL_UNITO",
@@ -84,11 +85,18 @@ merge_outputs = [
     "OtherDMPs_merged_fasta.fa",
 ]
 
+# Verified DMP HI registry. Drives EXTRACT_DMP_LOCAL: rows with
+# source_mode=local are extracted from the named local genome; rows with
+# source_mode=ncbi fall through to DOWNLOAD_DMP_QUERIES.
+[dmp_registry]
+path = "II_INPUTS/DMP_HI_registry.tsv"
+
 # Solanum melongena Unito Genomics mirror (https://solgenomics.net/ftp/unito_genomics/)
 [smel_unito]
 downloader_path          = "a_Smel_RefSeqs/unito_genomics/download_unito_genomics.sh"
 dest_subdir              = "a_Smel_RefSeqs/unito_genomics/unito_genomics_data"
 extract_transcripts_path = "a_Smel_RefSeqs/unito_genomics/extract_transcripts.sh"
 
+# Existing crop-species genome downloader (in I_RefSeqs/)
 [crop_genomes]
 downloader_path = "RefSeq_Downloader.sh"

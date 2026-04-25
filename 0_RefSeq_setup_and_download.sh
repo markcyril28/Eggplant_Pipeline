@@ -228,6 +228,7 @@ log_info "NCBI_API_KEY        : $([[ -n "$NCBI_API_KEY_CFG" ]] && echo "set" || 
 log_info "OVERWRITE           : $OVERWRITE"
 log_info "DRY_RUN             : $DRY_RUN"
 log_info "DMP species         : ${#DMP_DIRS[@]}"
+log_info "DMP HI registry     : $DMP_REGISTRY_REL"
 
 trap 'teardown_logging 2>/dev/null || true' EXIT
 

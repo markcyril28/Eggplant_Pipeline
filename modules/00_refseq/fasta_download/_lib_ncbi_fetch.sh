@@ -18,7 +18,19 @@ LIB_NCBI_FETCH_SOURCED="true"
 EUTILS_BASE="https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 EUTILS_DB="${EUTILS_DB:-nuccore}"
 EUTILS_RETMAX="${EUTILS_RETMAX:-10}"
-EUTILS_DELAY="${EUTILS_DELAY:-0.4}"   # seconds between requests; >=0.34 keeps under 3 req/s
+EUTILS_TIMEOUT="${EUTILS_TIMEOUT:-30}"   # wget --timeout in seconds (per-attempt)
+EUTILS_TRIES="${EUTILS_TRIES:-3}"        # wget --tries
+# Rate-limit-aware default delay between requests within ONE worker:
+#   anonymous NCBI limit = 3 req/s -> safe single-worker delay = 0.4s
+#   API-key NCBI limit   = 10 req/s -> safe single-worker delay = 0.12s
+# Caller may override EUTILS_DELAY explicitly; otherwise we pick from API key.
+if [[ -z "${EUTILS_DELAY:-}" ]]; then
+    if [[ -n "${NCBI_API_KEY:-}" ]]; then
+        EUTILS_DELAY="0.12"
+    else
+        EUTILS_DELAY="0.4"
+    fi
+fi
 
 _urlenc() {
     python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$1"
@@ -43,7 +55,8 @@ _fetch_query() {
     local q_enc ids esearch_url efetch_url
     q_enc=$(_urlenc "$query")
     esearch_url=$(_eutils_url esearch.fcgi "db=${EUTILS_DB}&term=${q_enc}&retmax=${EUTILS_RETMAX}&retmode=json")
-    ids=$(wget -qO- "$esearch_url" | _extract_ids 2>/dev/null) || ids=""
+    ids=$(wget -qO- --timeout="$EUTILS_TIMEOUT" --tries="$EUTILS_TRIES" "$esearch_url" \
+        | _extract_ids 2>/dev/null) || ids=""
 
     if [[ -z "$ids" ]]; then
         echo "    [WARN] No NCBI ${EUTILS_DB} hits for: $query" >&2
@@ -51,7 +64,8 @@ _fetch_query() {
     fi
 
     efetch_url=$(_eutils_url efetch.fcgi "db=${EUTILS_DB}&id=${ids}&rettype=fasta&retmode=text")
-    if wget -qO "$out_file" "$efetch_url" && [[ -s "$out_file" ]]; then
+    if wget -qO "$out_file" --timeout="$EUTILS_TIMEOUT" --tries="$EUTILS_TRIES" "$efetch_url" \
+       && [[ -s "$out_file" ]]; then
         echo "    -> $out_file"
     else
         echo "    [ERROR] efetch failed for: $query" >&2

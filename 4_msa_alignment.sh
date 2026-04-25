@@ -41,7 +41,7 @@ GENE_GROUPS=(
 )
 
 # All other settings (overwrite, threads, parallelism) are loaded from
-# d_msa_alignmentCONFIG.toml [pipeline.compute.$MACHINE] section.
+# 4_msa_alignmentCONFIG.toml [pipeline.compute.$MACHINE] section.
 # ===============================================================
 
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -128,7 +128,7 @@ CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
 if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_msa_cfg_XXXXXX.toml")
     TEMP_FILES+=("$CONFIG_FILE")
-    cat "$PIPELINE_DIR/d_msa_alignmentCONFIG.toml" \
+    cat "$PIPELINE_DIR/4_msa_alignmentCONFIG.toml" \
         "$CONFIG_DIR/00_common.toml" \
         "$CONFIG_DIR/04_multiple_sequence_alignment.toml" \
         "$CONFIG_DIR/02_blast_ortholog_alignment.toml" > "$CONFIG_FILE"

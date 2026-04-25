@@ -2,7 +2,7 @@
 # ============================================================================
 # Program 2: BLAST Identification & Ortholog Alignment
 # ============================================================================
-# Edit gene_groups in b_blast_alignmentCONFIG.toml, then run:
+# Edit gene_groups in 2_blast_alignmentCONFIG.toml, then run:
 #   bash b_blast_alignment.sh
 # ============================================================================
 
@@ -12,13 +12,13 @@ PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES="$PIPELINE_DIR/modules"
 
 # ===================== IMPORTANT VARIABLES =====================
-# Gene groups: edit [pipeline].gene_groups in b_blast_alignmentCONFIG.toml
+# Gene groups: edit [pipeline].gene_groups in 2_blast_alignmentCONFIG.toml
 # ===============================================================
-SHARED_CONFIG="$PIPELINE_DIR/b_blast_alignmentCONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/2_blast_alignmentCONFIG.toml"
 mapfile -t GENE_GROUPS < <(
     python3 "$MODULES/utils/parse_toml.py" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null
 )
-[[ ${#GENE_GROUPS[@]} -eq 0 ]] && { echo "ERROR: No gene_groups in b_blast_alignmentCONFIG.toml [pipeline].gene_groups" >&2; exit 1; }
+[[ ${#GENE_GROUPS[@]} -eq 0 ]] && { echo "ERROR: No gene_groups in 2_blast_alignmentCONFIG.toml [pipeline].gene_groups" >&2; exit 1; }
 
 # Set PROJECT_ROOT before sourcing logging utility so log paths are absolute
 PROJECT_ROOT="$PIPELINE_DIR"
@@ -182,7 +182,7 @@ for GENE_GROUP in "${GENE_GROUPS[@]}"; do
         CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_blast_cfg_XXXXXX.toml")
         TEMP_FILES+=("$CONFIG_FILE")
         python3 "$MODULES/utils/merge_toml.py" \
-            "$PIPELINE_DIR/b_blast_alignmentCONFIG.toml" \
+            "$PIPELINE_DIR/2_blast_alignmentCONFIG.toml" \
             "$CONFIG_DIR/00_common.toml" \
             "$CONFIG_DIR/01_hmmer_gene_identification.toml" \
             "$CONFIG_DIR/02_blast_ortholog_alignment.toml" > "$CONFIG_FILE"

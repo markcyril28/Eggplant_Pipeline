@@ -35,14 +35,14 @@
 #                                                   stage 1 = raw v1 input)
 #       09_CRISPR_v2/{genome}/comparison/       ← compare_tools.py report
 #
-# Edit i_crispr_v2CONFIG.toml then run:
+# Edit 9_crispr_v2CONFIG.toml then run:
 #   bash i_crispr_v2_pipeline.sh
 # ============================================================================
 
 set -euo pipefail
 
 # ===================== IMPORTANT VARIABLES =====================
-# All settings loaded from i_crispr_v2CONFIG.toml — edit there.
+# All settings loaded from 9_crispr_v2CONFIG.toml — edit there.
 # ===============================================================
 
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -72,10 +72,10 @@ TOML_PARSER="$MODULES/utils/parse_toml.py"
 get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 
 # ─── Load GENE_GROUPS from shared config ─────────────────────────────────────
-SHARED_CONFIG="$PIPELINE_DIR/i_crispr_v2CONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/9_crispr_v2CONFIG.toml"
 mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null)
 if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
-    echo "ERROR: pipeline.gene_groups is empty in i_crispr_v2CONFIG.toml" >&2
+    echo "ERROR: pipeline.gene_groups is empty in 9_crispr_v2CONFIG.toml" >&2
     exit 1
 fi
 
@@ -559,7 +559,7 @@ CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
 if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_crispr_v2_cfg_XXXXXX.toml")
     python3 "$MERGE_TOML" \
-        "$PIPELINE_DIR/i_crispr_v2CONFIG.toml" \
+        "$PIPELINE_DIR/9_crispr_v2CONFIG.toml" \
         "$CONFIG_DIR/00_common.toml" \
         "$CONFIG_DIR/09_crispr_analysis_v2.toml" \
         > "$CONFIG_FILE"

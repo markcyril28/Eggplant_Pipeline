@@ -2,14 +2,14 @@
 # ============================================================================
 # Program 8: Protein Structure Analysis
 # ============================================================================
-# Edit [protein_structure].gene_groups in h_protein_structureCONFIG.toml, then run:
+# Edit [protein_structure].gene_groups in 8_protein_structureCONFIG.toml, then run:
 #   bash h_protein_structure.sh
 # ============================================================================
 
 set -euo pipefail
 
 # ===================== IMPORTANT VARIABLES =====================
-# All settings including gene_groups are loaded from h_protein_structureCONFIG.toml.
+# All settings including gene_groups are loaded from 8_protein_structureCONFIG.toml.
 # Edit [protein_structure].gene_groups there to select which groups to process.
 # ===============================================================
 
@@ -25,10 +25,10 @@ TOML_PARSER="$MODULES/utils/parse_toml.py"
 get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 
 # Load GENE_GROUPS from shared config (before the per-group loop)
-SHARED_CONFIG="$PIPELINE_DIR/h_protein_structureCONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/8_protein_structureCONFIG.toml"
 mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" protein_structure gene_groups 2>/dev/null)
 if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
-    echo "ERROR: protein_structure.gene_groups is empty in h_protein_structureCONFIG.toml" >&2
+    echo "ERROR: protein_structure.gene_groups is empty in 8_protein_structureCONFIG.toml" >&2
     exit 1
 fi
 
@@ -47,7 +47,7 @@ if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_protstruct_cfg_XXXXXX.toml")
     TEMP_FILES+=("$CONFIG_FILE")
     python3 "$MODULES/utils/merge_toml.py" \
-        "$PIPELINE_DIR/h_protein_structureCONFIG.toml" \
+        "$PIPELINE_DIR/8_protein_structureCONFIG.toml" \
         "$CONFIG_DIR/00_common.toml" \
         "$CONFIG_DIR/h_protein_structure_analysis.toml" > "$CONFIG_FILE"
 else

@@ -6,11 +6,11 @@
 operations = [
     "SETUP_DIRS",
     "EXTRACT_DMP_LOCAL",
-    "DOWNLOAD_DMP_QUERIES",
-    "MERGE_DMP_QUERIES",
-    "DOWNLOAD_SMEL_UNITO",
+    #"DOWNLOAD_DMP_QUERIES",
+    #"MERGE_DMP_QUERIES",
+    #"DOWNLOAD_SMEL_UNITO",
     "EXTRACT_TRANSCRIPTS",
-    "DOWNLOAD_CROP_GENOMES",
+    #"DOWNLOAD_CROP_GENOMES",
 ]
 
 max_parallel         = "auto"   # CPU-bound jobs (gffread, merges); "auto" = $(nproc)

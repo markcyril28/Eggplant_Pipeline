@@ -1,0 +1,123 @@
+# ============================================================================
+# Shared Pipeline Configuration — 02_BLAST_Alignment Defaults
+# ============================================================================
+# E-values, word sizes, target genomes shared across all gene groups.
+# Gene-group overrides (query_fastas, query_protein_fastas) live in
+# config/{GROUP}/02_blast_ortholog_alignment.toml.
+# ============================================================================
+
+[pipeline]
+gene_groups = [
+    #"DMP",
+    #"HAP2",
+    "GRF_GIF",
+    # "PLA",
+]
+
+machine            = "Local"   # "Local" or "HPC" — selects compute profile below
+overwrite          = true      # true = re-run all; false = skip sections with existing results
+clear_output       = false    # true = delete all output under III_RESULT/{GROUP}/02_BLAST_Alignment before running (never touches 01_Identification)
+
+[pipeline.compute.Local]
+threads            = 12        # Total CPU threads available
+blast_optimal_threads = 4      # Threads per BLAST job (~4 efficient; diminishing returns beyond 8)
+max_parallel       = 12         # Concurrent BLAST jobs (threads / blast_optimal_threads)
+
+[pipeline.compute.HPC]
+threads            = 64        # Total CPU threads on HPC node
+blast_optimal_threads = 4      # Threads per BLAST job
+max_parallel       = 16        # Concurrent BLAST jobs
+
+[ortholog_blast]
+enabled = true
+force_reindex = false        # Force rebuild of BLAST databases (skip cache check)
+
+# ── Operations ────────────────────────────────────────────────────────────────
+# Comment in/out to select which stages run.  All run by default when this
+# key is absent.
+operations = [
+    #"blastn",               # BLASTn: nucleotide query vs nucleotide DB (identification + ortholog)
+    #"blastx",              # BLASTx: nucleotide query vs protein DB (translated ortholog)
+    #"blastp",               # BLASTp: protein query vs protein DB (ortholog alignment)
+    "visualize_heatmap",        # Fig 1  — cross-species % identity heatmap
+    "visualize_heatmap_evalue", # Fig 1b — % identity + E-value overlay heatmap
+    "visualize_lollipop",       # Fig 3  — per-gene top-hits lollipop (Bit Score)
+]
+
+# BLASTn Identification
+blastn_e_value = "1e-10"
+blastn_word_size = 11
+blastn_max_target_seqs = 500    # Max aligned sequences to keep per query (BLAST default: 500)
+blastn_max_hsps = 1             # Max HSPs per subject-query pair (0 = no limit)
+blastn_perc_identity = 0        # Min percent identity filter (0 = disabled)
+blastn_qcov_hsp_perc = 0        # Min query coverage per HSP in % (0 = disabled)
+blastn_task = "blastn"          # Task type: megablast (fast), dc-megablast, blastn (sensitive)
+blastn_dust = "yes"             # Low-complexity filter for nucleotide (yes/no)
+
+# BLASTx Ortholog Alignment (translated nucleotide query vs protein DB)
+blastx_e_value = "1e-15"
+blastx_word_size = 3
+blastx_max_target_seqs = 500    # Max aligned sequences to keep per query
+blastx_max_hsps = 1             # Max HSPs per subject-query pair (0 = no limit)
+blastx_qcov_hsp_perc = 0        # Min query coverage per HSP in % (0 = disabled)
+blastx_matrix = "BLOSUM62"      # Scoring matrix: BLOSUM45, BLOSUM62, BLOSUM80, BLOSUM90
+blastx_seg = "yes"              # Low-complexity filter for translated queries (yes/no)
+
+# BLASTp Search (protein query vs protein DB)
+blastp_e_value = "1e-15"
+blastp_word_size = 2
+blastp_max_target_seqs = 500    # Max aligned sequences to keep per query
+blastp_max_hsps = 1             # Max HSPs per subject-query pair (0 = no limit)
+blastp_qcov_hsp_perc = 0        # Min query coverage per HSP in % (0 = disabled)
+blastp_matrix = "BLOSUM62"      # Scoring matrix: BLOSUM45, BLOSUM62, BLOSUM80, BLOSUM90
+blastp_seg = "yes"              # Low-complexity filter for protein queries (yes/no)
+
+# Target genomes — comment in/out matching quadruplets (label, genome, protein, transcript)
+target_labels = [
+    "Solanum_melongena_v4.1",
+    #"Solanum_melongena_V3",
+    "GPE001970_SMEL5",
+]
+
+target_genomes = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970",
+]
+
+target_proteins = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_protein.function.fa",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.protein.putative_function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_proteins.fa",
+]
+
+target_transcripts = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
+]
+
+use_hmmer_output = true      # Use HMMER-identified proteins as BLASTp subject database
+
+# ──────────────────────────────────────────────────────────────────
+[blast_visualize]
+lollipop_top_n        = 15          # Top-N hits shown per gene in Fig 3 (haploid-inducer genes always included)
+
+# ── Common ──────────────────────────────────────────────────────────────────
+colormap              = "RdYlGn"   # Matplotlib colormap for heatmaps and lollipop colorbar
+figure_dpi            = 300        # Screen/preview DPI (affects display quality; PNG always uses save_dpi)
+save_dpi              = 300        # Export DPI for PNG output
+
+# ── Heatmap (Fig 1 and Fig 1b) ───────────────────────────────────────────────
+heatmap_vmin          = 65         # Lower bound of % identity color scale
+heatmap_vmax          = 100        # Upper bound of % identity color scale
+heatmap_w_scale       = 1.20       # Figure width per species column (inches)
+heatmap_h_scale       = 0.92       # Figure height per gene row (inches); Fig 1b uses ×1.20 automatically
+
+# ── Lollipop (Fig 3) ──────────────────────────────────────────────────────────
+lollipop_ncols        = 2          # Number of gene panel columns in Figure 3
+lollipop_x_pad        = 1.60       # X-axis limit = max_bit_score × this factor
+lollipop_dot_size     = 100        # Dot marker area (pt²) for regular hits
+lollipop_dot_size_hi  = 150        # Dot marker area for haploid-inducer hits
+hi_stem_color         = "#c7920a"  # Gold stem color for haploid-inducer hits
+stem_color            = "#d1d5db"  # Gray stem color for regular hits

@@ -1,0 +1,148 @@
+#!/bin/bash
+# Module: BLASTn Search
+# Usage: bash blastn.sh --query <fasta> --db <db_path> --evalue <val> --word-size <ws> --outdir <dir> [--threads N] [--genome-name <genome_name>]
+#        bash blastn.sh --config <config.toml> --query <fasta> --db <db_path> --evalue <val> --word-size <ws> --outdir <dir> [--threads N] [--genome-name <genome_name>]
+#        Additional flags: --max-target-seqs N --max-hsps N --perc-identity N --qcov-hsp-perc N --task <task> --dust <yes|no>
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../utils/logging.sh"
+
+# Defaults
+NUM_THREADS=4
+E_VALUE="1e-10"
+WORD_SIZE=11
+MAX_TARGET_SEQS=500
+MAX_HSPS=1
+PERC_IDENTITY=0
+QCOV_HSP_PERC=0
+TASK="blastn"
+DUST="yes"
+OUTPUT_DIR="."
+QUERY_FASTA=""
+DB_PATH=""
+GENOME_NAME=""
+CONFIG_FILE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config)           CONFIG_FILE="$2"; shift 2 ;;
+        --query)            QUERY_FASTA="$2"; shift 2 ;;
+        --db)               DB_PATH="$2"; shift 2 ;;
+        --evalue)           E_VALUE="$2"; shift 2 ;;
+        --word-size)        WORD_SIZE="$2"; shift 2 ;;
+        --max-target-seqs)  MAX_TARGET_SEQS="$2"; shift 2 ;;
+        --max-hsps)         MAX_HSPS="$2"; shift 2 ;;
+        --perc-identity)    PERC_IDENTITY="$2"; shift 2 ;;
+        --qcov-hsp-perc)    QCOV_HSP_PERC="$2"; shift 2 ;;
+        --task)             TASK="$2"; shift 2 ;;
+        --dust)             DUST="$2"; shift 2 ;;
+        --outdir)           OUTPUT_DIR="$2"; shift 2 ;;
+        --threads)          NUM_THREADS="$2"; shift 2 ;;
+        --genome-name)      GENOME_NAME="$2"; shift 2 ;;
+        *) echo "Unknown arg: $1"; exit 1 ;;
+    esac
+done
+
+# Load configuration from TOML if provided
+if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
+    # Import the TOML parser function
+    TOML_PARSER="$SCRIPT_DIR/../utils/parse_toml.py"
+    
+    # Override defaults with config values if not set via command line
+    if [[ -z "$NUM_THREADS" || "$NUM_THREADS" == "4" ]]; then
+        NUM_THREADS=$(python3 "$TOML_PARSER" "$CONFIG_FILE" "ortholog_blast" "blastn_params" "threads" 2>/dev/null || echo "$NUM_THREADS")
+    fi
+    
+    if [[ -z "$E_VALUE" || "$E_VALUE" == "1e-10" ]]; then
+        E_VALUE=$(python3 "$TOML_PARSER" "$CONFIG_FILE" "ortholog_blast" "blastn_params" "e_value" 2>/dev/null || echo "$E_VALUE")
+    fi
+    
+    if [[ -z "$WORD_SIZE" || "$WORD_SIZE" == "11" ]]; then
+        WORD_SIZE=$(python3 "$TOML_PARSER" "$CONFIG_FILE" "ortholog_blast" "blastn_params" "word_size" 2>/dev/null || echo "$WORD_SIZE")
+    fi
+
+    if [[ "$MAX_TARGET_SEQS" == "500" ]]; then
+        MAX_TARGET_SEQS=$(python3 "$TOML_PARSER" "$CONFIG_FILE" "ortholog_blast" "blastn_params" "max_target_seqs" 2>/dev/null || echo "$MAX_TARGET_SEQS")
+    fi
+
+    if [[ "$MAX_HSPS" == "1" ]]; then
+        MAX_HSPS=$(python3 "$TOML_PARSER" "$CONFIG_FILE" "ortholog_blast" "blastn_params" "max_hsps" 2>/dev/null || echo "$MAX_HSPS")
+    fi
+
+    if [[ "$PERC_IDENTITY" == "0" ]]; then
+        PERC_IDENTITY=$(python3 "$TOML_PARSER" "$CONFIG_FILE" "ortholog_blast" "blastn_params" "perc_identity" 2>/dev/null || echo "$PERC_IDENTITY")
+    fi
+
+    if [[ "$QCOV_HSP_PERC" == "0" ]]; then
+        QCOV_HSP_PERC=$(python3 "$TOML_PARSER" "$CONFIG_FILE" "ortholog_blast" "blastn_params" "qcov_hsp_perc" 2>/dev/null || echo "$QCOV_HSP_PERC")
+    fi
+
+    if [[ "$TASK" == "blastn" ]]; then
+        TASK=$(python3 "$TOML_PARSER" "$CONFIG_FILE" "ortholog_blast" "blastn_params" "task" 2>/dev/null || echo "$TASK")
+    fi
+
+    if [[ "$DUST" == "yes" ]]; then
+        DUST=$(python3 "$TOML_PARSER" "$CONFIG_FILE" "ortholog_blast" "blastn_params" "dust" 2>/dev/null || echo "$DUST")
+    fi
+fi
+
+[[ -z "$QUERY_FASTA" ]] && { log_error "Missing --query"; exit 1; }
+[[ -z "$DB_PATH" ]]     && { log_error "Missing --db"; exit 1; }
+
+DB_BASENAME=$(basename "$DB_PATH")
+QUERY_BASENAME=$(basename "$QUERY_FASTA" .fasta)
+QUERY_BASENAME=$(basename "$QUERY_BASENAME" .fa)
+TIMESTAMP=$(date +%F_%H-%M)
+
+# Determine genome-specific output directory
+if [[ -n "$GENOME_NAME" ]]; then
+    RESULT_DIR="$OUTPUT_DIR/$GENOME_NAME/blastn_results/ev_${E_VALUE}_ws_${WORD_SIZE}_${DB_BASENAME}_${TIMESTAMP}"
+else
+    # Fallback to original structure if no genome name provided
+    RESULT_DIR="$OUTPUT_DIR/blastn_results/ev_${E_VALUE}_ws_${WORD_SIZE}_${DB_BASENAME}_${TIMESTAMP}"
+fi
+
+mkdir -p "$RESULT_DIR"
+
+ARCHIVE="$RESULT_DIR/blastn_${DB_BASENAME}_VS_${QUERY_BASENAME}_${E_VALUE}_${WORD_SIZE}.asn"
+CSV_OUT="$RESULT_DIR/blastn_${DB_BASENAME}_VS_${QUERY_BASENAME}_${E_VALUE}_${WORD_SIZE}.csv"
+TXT_OUT="$RESULT_DIR/blastn_${DB_BASENAME}_VS_${QUERY_BASENAME}_${E_VALUE}_${WORD_SIZE}.txt"
+
+log_info "BLASTn: $QUERY_BASENAME vs $DB_BASENAME (e=$E_VALUE, ws=$WORD_SIZE, task=$TASK, genome=$GENOME_NAME)"
+
+# Build optional flags
+OPTIONAL_FLAGS=()
+if [[ "$MAX_TARGET_SEQS" -gt 0 ]]; then
+    OPTIONAL_FLAGS+=(-max_target_seqs "$MAX_TARGET_SEQS")
+fi
+if [[ "$MAX_HSPS" -gt 0 ]]; then
+    OPTIONAL_FLAGS+=(-max_hsps "$MAX_HSPS")
+fi
+if [[ "$PERC_IDENTITY" -gt 0 ]]; then
+    OPTIONAL_FLAGS+=(-perc_identity "$PERC_IDENTITY")
+fi
+if [[ "$QCOV_HSP_PERC" -gt 0 ]]; then
+    OPTIONAL_FLAGS+=(-qcov_hsp_perc "$QCOV_HSP_PERC")
+fi
+
+# Single BLAST run — save as archive, then derive CSV and TXT
+blastn -db "$DB_PATH" \
+    -query "$QUERY_FASTA" \
+    -evalue "$E_VALUE" \
+    -word_size "$WORD_SIZE" \
+    -task "$TASK" \
+    -dust "$DUST" \
+    -num_threads "$NUM_THREADS" \
+    "${OPTIONAL_FLAGS[@]}" \
+    -outfmt 11 -out "$ARCHIVE"
+
+echo "Subject ID,Query ID,E-value,Percent Identity,Alignment Length,Query Length,Target Length,Query Coverage,Mismatches,Gaps,Bit Score,Score" > "$CSV_OUT"
+blast_formatter -archive "$ARCHIVE" \
+    -outfmt "10 sseqid qseqid evalue pident length qlen slen qcovs mismatch gaps bitscore score" >> "$CSV_OUT"
+
+blast_formatter -archive "$ARCHIVE" -outfmt 0 > "$TXT_OUT"
+
+rm -f "$ARCHIVE"
+
+log_info "BLASTn complete -> $RESULT_DIR"

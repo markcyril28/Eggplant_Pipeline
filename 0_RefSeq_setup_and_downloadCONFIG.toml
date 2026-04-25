@@ -1,0 +1,124 @@
+# ============================================================================
+# Configuration for: 0_RefSeq_setup_and_download.sh
+# ============================================================================
+# Drives the bootstrap stage that creates I_RefSeqs/ and downloads:
+#   - DMP query FASTAs (per species, from NCBI E-utilities)
+#   - Solanum melongena Unito Genomics genomes + annotations
+#   - Various crop species genomes (RefSeq_Downloader.sh)
+#
+# Parsed by modules/utils/parse_toml.py (flat-section parser; array-of-tables
+# not supported, so DMP species are stored as parallel arrays — index i across
+# dirs/downloads/merges describes the same species).
+# ============================================================================
+
+[pipeline]
+# Operations to run (in order). Comment out to skip.
+operations = [
+    "SETUP_DIRS",
+    "DOWNLOAD_DMP_QUERIES",
+    "MERGE_DMP_QUERIES",
+    "DOWNLOAD_SMEL_UNITO",
+    "EXTRACT_TRANSCRIPTS",
+    "DOWNLOAD_CROP_GENOMES",
+]
+max_parallel = 4
+overwrite    = false
+# Optional NCBI API key — raises eutils rate limit from 3 to 10 req/s.
+# Leave "" for anonymous. Get one at:
+#   https://www.ncbi.nlm.nih.gov/account/settings/
+ncbi_api_key = ""
+
+# ============================================================================
+# Output directory layout under I_RefSeqs/
+# ============================================================================
+[output]
+refseq_root             = "I_RefSeqs"
+smel_subdir             = "a_Smel_RefSeqs"
+crop_genomes_subdir     = "b_Various_Crop_Species_Genomes"
+extra_genomes_subdir    = "c_Extra_Genomes"
+dmp_query_subdir        = "d_DMP_Query_Fasta"
+
+# ============================================================================
+# DMP query FASTA downloads — parallel arrays (index-aligned)
+# ============================================================================
+# dirs[i]          : subdirectory under output.dmp_query_subdir/
+# downloads[i]     : module file in modules/00_refseq/fasta_download/
+#                    (set to "" to skip download for this species)
+# merge_outputs[i] : merged .fa filename produced by merge_fasta_pwd.sh
+#                    (set to "" to skip merge for this species)
+#
+# Citations: Zhong et al. 2019/2020/2022b/2024; J./X. Zhang et al. 2022;
+#            Y. Li et al. 2022; Zhao et al. 2022; Chu et al. 2025;
+#            Chen et al. 2023; Yin et al. 2024; N. Wang et al. 2022;
+#            Long et al. 2024; Liang et al. 2025.
+# ============================================================================
+[dmp_queries]
+dirs = [
+    "Arabidopsis_thaliana",
+    "Zea_mays",
+    "Ipomoea_batatas",
+    "Solanum_lycopersicum",
+    "Solanum_tuberosum",
+    "Nicotiana_tabacum",
+    "Brassica_napus",
+    "Brassica_oleracea",
+    "Brassica_juncea",
+    "Citrullus_lanatus",
+    "Cucumis_sativus",
+    "Medicago_truncatula",
+    "Glycine_max",
+    "Gossypium_hirsutum",
+    "Oryza_sativa",
+    "Other_DMPs",
+]
+downloads = [
+    "download_AtDMP_fasta.sh",
+    "download_ZmDMPs_fasta.sh",
+    "download_IpDMPs_fasta.sh",
+    "download_SlDMP_fasta.sh",
+    "download_StDMP_fasta.sh",
+    "download_NtDMP_fasta.sh",
+    "download_BnaDMP_fasta.sh",
+    "download_BoDMP_fasta.sh",
+    "download_BjuDMP_fasta.sh",
+    "download_ClDMP_fasta.sh",
+    "download_CsDMP_fasta.sh",
+    "download_MtDMP_fasta.sh",
+    "download_GmDMP_fasta.sh",
+    "download_GhDMP_fasta.sh",
+    "download_OsDMP_fasta.sh",
+    "",
+]
+merge_outputs = [
+    "AtDMPs_merged_fasta.fa",
+    "ZmDMPs_merged_fasta.fa",
+    "IpDMPs_merged_fasta.fa",
+    "SlDMPs_merged_fasta.fa",
+    "StDMPs_merged_fasta.fa",
+    "NtDMPs_merged_fasta.fa",
+    "BnaDMPs_merged_fasta.fa",
+    "BoDMPs_merged_fasta.fa",
+    "BjuDMPs_merged_fasta.fa",
+    "ClDMPs_merged_fasta.fa",
+    "CsDMPs_merged_fasta.fa",
+    "MtDMPs_merged_fasta.fa",
+    "GmDMPs_merged_fasta.fa",
+    "GhDMPs_merged_fasta.fa",
+    "OsDMPs_merged_fasta.fa",
+    "OtherDMPs_merged_fasta.fa",
+]
+
+# ============================================================================
+# Solanum melongena Unito Genomics mirror
+# Source: https://solgenomics.net/ftp/unito_genomics/
+# ============================================================================
+[smel_unito]
+downloader_path          = "a_Smel_RefSeqs/unito_genomics/download_unito_genomics.sh"
+dest_subdir              = "a_Smel_RefSeqs/unito_genomics/unito_genomics_data"
+extract_transcripts_path = "a_Smel_RefSeqs/unito_genomics/extract_transcripts.sh"
+
+# ============================================================================
+# Crop genomes downloader (existing I_RefSeqs/RefSeq_Downloader.sh)
+# ============================================================================
+[crop_genomes]
+downloader_path = "RefSeq_Downloader.sh"

@@ -1,0 +1,126 @@
+# ============================================================================
+# Shared Pipeline Configuration — 09_CRISPR Analysis Defaults
+# ============================================================================
+# Default CRISPR parameters shared across all gene groups.
+# Gene-group overrides (grna_fastas) live in
+# config/{GROUP}/09_crispr_analysis.toml.
+# ============================================================================
+
+[pipeline]
+# Gene groups to process. Available: "DMP", "HAP2", "GRF_GIF", "PLA"
+gene_groups  = ["DMP"]
+
+machine      = "Local"   # "Local" or "HPC" — selects compute profile below
+overwrite    = true
+
+[pipeline.compute.Local]
+threads               = 12        # Total CPU threads available
+blast_optimal_threads = 4         # Threads per BLAST/Cas-OFFinder job (~4 is efficient)
+max_parallel          = 3         # Concurrent jobs (threads / blast_optimal_threads)
+
+[pipeline.compute.HPC]
+threads               = 64        # Total CPU threads on HPC node
+blast_optimal_threads = 4         # Threads per BLAST/Cas-OFFinder job
+max_parallel          = 16        # Concurrent jobs
+
+# ============================================================================
+
+[crispr]
+enabled = true
+
+# Operations to run (comment out to skip)
+operations = [
+    #"score_filter",
+    #"blast_offtarget",
+    #"cas_offinder",
+    "report",
+]
+
+# ---------- On-target score filtering ----------
+# Each threshold produces a separate numbered output dir
+# Tier assignments:  High >= 0.7,  Moderate >= 0.4
+score_thresholds = [0.4, 0.7]
+
+# ---------- Substage directory names ----------
+[crispr.dirs]
+raw_results      = "01_Raw_Scoring_Results_from_CRISPR-P_V2_0"
+filtered_prefix  = "0{n}_Filtered_Score_{t}"   # {n}=substage number, {t}=threshold
+blast_offtarget  = "04_Off_Target_BLAST"
+cas_offinder     = "05_Off_Target_Cas-OFFinder"
+summary_report   = "06_Summary_Report"
+
+# ---------- Genome subdirectories to process ----------
+[crispr.genomes]
+names = ["GPE001970_SMEL5"]
+
+# ---------- gRNA FASTA files for off-target analysis ----------
+# One subsection per gene group: [crispr.offtarget.{GROUP}]
+# Paths are relative to PIPELINE_DIR.
+[crispr.offtarget.DMP]
+grna_fastas = [
+    "II_INPUTS/DMP/gRNAs/SmelDMP_10_200_guide_RNAs.fasta",
+    "II_INPUTS/DMP/gRNAs/SmelDMP_01_990_guide_RNAs.fasta",
+    "II_INPUTS/DMP/gRNAs/SmelDMP_02_guide_RNAs.fasta",
+]
+
+[crispr.offtarget.HAP2]
+grna_fastas = [
+    "II_INPUTS/HAP2/gRNAs/SmelHAP2_guide_RNAs.fasta",
+]
+
+[crispr.offtarget.DMP-HAP2]
+grna_fastas = [
+    "II_INPUTS/DMP-HAP2/gRNAs/SmelDMP-HAP2_guide_RNAs.fasta",
+]
+
+# ---------- BLAST off-target parameters (most accurate) ----------
+# Tuned for SpCas9 gRNA off-target detection in plant genomes.
+[crispr.blast]
+word_size        = 7       # short word size — critical for 20-23 nt guide queries
+evalue           = 10000   # very permissive — short queries produce high e-values even
+                           # for true off-targets; post-filter by mismatch count instead
+dust             = false   # do NOT mask low-complexity regions in short guides
+ungapped         = true    # CRISPR off-targets are mismatches, never indels —
+                           # gapped alignments create false positives
+reward           = 1       # equal reward/penalty gives uniform mismatch sensitivity
+penalty          = -1      # across all positions (seed + non-seed)
+max_target_seqs  = 10000   # capture all potential off-target loci genome-wide
+                           # (default 500 truncates results in large genomes)
+qcov_hsp_perc    = 80      # require >= 80% of guide aligned (e.g., 18/23 nt minimum);
+                           # rejects short partial matches that are not true off-targets
+max_mismatches   = 4       # allow up to 4 mismatches — SpCas9 can cleave with 3-4 mm
+                           # at PAM-distal positions (Hsu et al. 2013, Nat Biotech)
+
+# ---------- Cas-OFFinder settings (most accurate) ----------
+[crispr.cas_offinder]
+enabled         = true
+pam             = "NNNNNNNNNNNNNNNNNNNNNGG"   # SpCas9 canonical NGG PAM
+device          = "C"         # C = CPU-only (WSL2: OpenCL GPU is unreliable; module auto-falls back anyway)
+max_mismatches  = 4           # exhaustive enumeration finds ALL sites up to this threshold
+                              # with no heuristic loss (unlike BLAST); 4 captures the long
+                              # tail of PAM-distal-tolerant off-targets.
+
+# ---------- Report & visualization settings ----------
+[crispr.report]
+dpi    = 600      # plot resolution (600 = publication quality)
+format = "png"    # png | svg | pdf
+
+# ── Scatter plot y-axis configuration ─────────────────────────────────────
+# Upper bound for off-target count (y-axis). Set to 0 for auto-scale (max × 1.15).
+# Positive values clamp the axis — guides above the cap render at the top edge
+# with "(>cap)" appended, improving readability when a few outliers exist.
+y_max_cap = 25
+
+# ── Filtered guide_comparison_table thresholds ────────────────────────────
+# Two table variants are written next to the scatter:
+#   guide_comparison_table.{png,csv,tsv}           : strict   (publication shortlist)
+#   guide_comparison_table_moderate.{png,csv,tsv}  : moderate (includes near-miss
+#                                                              candidates)
+# A guide passes a tier when score >= score_threshold AND off-targets <= offtarget_threshold.
+#
+# Score thresholds are NOT redeclared here. They derive from
+# [crispr].score_thresholds (above) so the score_filter operation, the scatter
+# plot threshold lines, and the filtered tables all stay in sync.
+# Convention: smallest value = moderate (orange line), largest = strict (green line).
+offtarget_strict   = 0      # strict off-target cap. 0 = auto (max(5, 25th-percentile))
+offtarget_moderate = 7      # moderate off-target cap (fixed)

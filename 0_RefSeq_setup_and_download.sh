@@ -241,7 +241,30 @@ log_info "DRY_RUN             : $DRY_RUN"
 log_info "DMP species         : ${#DMP_DIRS[@]}"
 log_info "DMP HI registry     : $DMP_REGISTRY_REL"
 
-trap 'teardown_logging 2>/dev/null || true' EXIT
+# Robust EXIT teardown.
+# 1) Close our stdout/stderr explicitly so any `tee` in a process substitution
+#    sees EOF immediately and exits (without this, the `wait` inside
+#    teardown_logging can stall on WSL2).
+# 2) Run teardown_logging in the background and bound it with a 3s deadline.
+# 3) Force-kill any logging children still attached to this shell.
+_stage0_cleanup() {
+    exec 1>&- 2>&- 2>/dev/null || true
+    ( teardown_logging 2>/dev/null ) &
+    local td_pid=$!
+    local i
+    for ((i=0; i<10; i++)); do
+        kill -0 "$td_pid" 2>/dev/null || break
+        sleep 0.1
+    done
+    kill -KILL "$td_pid" 2>/dev/null || true
+    # Reap any leftover child shells/tees that belong to this script
+    local cpid
+    for cpid in $(jobs -p) $(pgrep -P $$ 2>/dev/null); do
+        kill -TERM "$cpid" 2>/dev/null || true
+    done
+    return 0
+}
+trap _stage0_cleanup EXIT
 
 # ============================================================================
 # OP: SETUP_DIRS

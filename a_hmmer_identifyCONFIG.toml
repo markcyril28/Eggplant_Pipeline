@@ -1,0 +1,434 @@
+# ============================================================================
+# Shared Pipeline Configuration — 01_Identification (HMMER) Defaults
+# ============================================================================
+# Tool parameters and target genomes shared across all gene groups.
+# Per-group HMM profiles and seed alignments are defined below under
+# [identification.gene_groups.{GROUP}] — one subsection per gene group.
+#
+# Consumers:
+#   a_hmmer_identify.sh  — primary (reads all keys)
+#   b_blast_alignment.sh — reads identification.method only
+#   g_plant_care_analysis.sh — merges this file but only uses output_dirs
+# ============================================================================
+
+[pipeline]
+# Gene groups to process. Available: "DMP", "HAP2", "GRF_GIF", "PLA"
+gene_groups   = [
+    "DMP",
+    #"HAP2",
+    #"GRF_GIF"
+]
+
+machine       = "Local"  # "Local" or "HPC" — selects compute profile below
+overwrite     = true     # true = overwrite existing results; false = skip completed genomes
+operations = [
+    "BUILD_PROFILES",          # hmmbuild + hmmpress HMM profiles
+    "SEARCH_GENOMES",          # hmmsearch (protein) + nhmmer (nucleotide) per genome
+    "EXTRACT_GENE_STRUCTURES", # Parse GFF annotation → per-gene structure files (inc. structure.gb)
+    "GENERATE_GENBANK",        # Rebuild structure.gb from existing structure.gff3 + structure.fa
+    "GENERATE_REPORT",         # summary tables, figures, Markdown report
+]
+
+[pipeline.compute.Local]
+threads       = 12       # Total CPU threads available
+max_parallel  = 12        # Max genome searches to run in parallel
+
+[pipeline.compute.HPC]
+threads       = 32       # Total CPU threads available on HPC node
+max_parallel  = 4        # Max genome searches to run in parallel
+
+
+[identification]
+method  = "hmmer"
+db_type = "prot"                # "prot", "nucl", or "both" (prot + nucl searches)
+
+# ---------- Protein HMMER search parameters (hmmsearch) ----------
+[identification.hmmer_params]
+e_value       = "1e-5"         # Post-search E-value filter (awk on domtblout col 7)
+threads       = 8              # --cpu  (overridden by orchestrator --threads in production)
+
+# Pfam gathering thresholds (recommended for Pfam HMM profiles)
+use_ga        = true            # --cut_ga  Use Pfam per-family GA thresholds (overrides incE/incdomE)
+
+# hmmsearch reporting thresholds (used only when use_ga = false)
+incE          = "1e-10"         # --incE   inclusion E-value threshold (per-sequence)
+incdomE       = "1e-10"         # --incdomE inclusion E-value threshold (per-domain)
+reportE       = ""              # -E       reporting E-value threshold (per-sequence)
+domE          = ""              # --domE   reporting E-value threshold (per-domain)
+
+# hmmsearch score thresholds (mutually exclusive with E-value thresholds above)
+incT          = ""              # --incT   inclusion bit-score threshold
+incdomT       = ""              # --incdomT
+reportT       = ""              # -T       reporting bit-score threshold
+domT          = ""              # --domT
+
+# hmmsearch misc
+Z             = ""              # -Z   database size (sequences) for E-value calc
+domZ          = ""              # --domZ domain database size
+seed          = 42              # --seed  RNG seed for reproducibility
+noali         = true            # --noali  omit alignment section in output
+acc           = true            # --acc    prefer accessions over names (reliable ID matching)
+notextw       = true            # --notextw  unlimit ASCII text output width
+
+# ---------- Nucleotide HMMER search parameters (nhmmer) ----------
+[identification.nhmmer_params]
+e_value       = "1e-5"          # Post-search E-value filter for nucleotide hits
+threads       = 8              # --cpu  (overridden by orchestrator --threads in production)
+incE          = "1e-5"          # --incE   inclusion E-value threshold
+seed          = 42              # --seed  RNG seed for reproducibility
+noali         = true            # --noali  omit alignment section in output
+notextw       = true            # --notextw  unlimit ASCII text output width
+auto_build    = true            # Auto-build nucleotide HMM from protein-search transcript hits
+min_hits_for_build = 3          # Minimum extracted transcripts needed to build nucleotide HMM
+
+# ---------- CD-HIT PROTEIN clustering parameters ----------
+[identification.cdhit_params]
+identity      = 0.9             # -c   sequence identity threshold (0.0–1.0)
+word_size     = 5               # -n   word size (2 for <0.5, 3 for 0.5–0.6, 4 for 0.6–0.7, 5 for 0.7–1.0)
+memory        = 16000           # -M   memory limit in MB (0 = unlimited)
+threads       = 8              # -T   threads (overridden by orchestrator --threads in production)
+description   = 0               # -d   description length in .clstr file (0 = full)
+aL            = 0.8             # -aL  alignment coverage for longer seq (80% minimum)
+aS            = 0.8             # -aS  alignment coverage for shorter seq (80% minimum)
+global_mode   = 1               # -G   1 = global, 0 = local
+cluster_algo  = 1               # -g   0 = fast, 1 = accurate (slower)
+min_length    = 10              # -l   minimum sequence length
+
+# ---------- Gene-structure extraction + GenBank output ----------
+# Controls EXTRACT_GENE_STRUCTURES and GENERATE_GENBANK operations.
+# Outputs written to {genome}/e-value_*/e_GENE_Structures/{GENE}/{mRNA_ID}/
+# including structure.gff3, structure.fa, and Benchling-ready structure.gb.
+[identification.gene_structures]
+flank_bp      = 1000              # 5'/3' flanking bp to include in structure.gb
+                                  # (clamped at chromosome boundaries; 0 disables)
+organism      = "Solanum melongena"  # Written to GenBank SOURCE/ORGANISM/source.organism
+
+# ---------- CD-HIT-EST NUCLEOTIDE clustering parameters ----------
+[identification.cdhit_est_params]
+identity      = 0.9             # -c   sequence identity threshold (0.0–1.0)
+word_size     = 8               # -n   word size (8-10 for >=0.9 identity)
+memory        = 16000           # -M   memory limit in MB (0 = unlimited)
+threads       = 8              # -T   threads (overridden by orchestrator --threads in production)
+description   = 0               # -d   description length in .clstr file (0 = full)
+aL            = 0.8             # -aL  alignment coverage for longer seq (80% minimum)
+aS            = 0.8             # -aS  alignment coverage for shorter seq (80% minimum)
+global_mode   = 1               # -G   1 = global, 0 = local
+cluster_algo  = 1               # -g   0 = fast, 1 = accurate (slower)
+min_length    = 30              # -l   minimum nucleotide sequence length
+strand        = 0               # -r   0 = +/- strands, 1 = + strand only
+
+# ============================================================================
+# Target genomes — comment in/out matching triplets (label, protein, transcript)
+# SOURCES
+#   Eggplant Genome V4.1:              https://solgenomics.net/ftp/genomes/Solanum_melongena_V4.1/
+#   GPE001970 genome (Unito Genomics): https://solgenomics.net/ftp/unito_genomics/
+# ============================================================================
+[identification.targets]
+labels = [
+    "Solanum_melongena_v4.1",
+    "Solanum_melongena_V3",
+    "GPE001970_SMEL5",
+    # --- Additional Unito Genomics accessions ---
+    "GPE000430",
+    "GPE000450",
+    "GPE000460",
+    "GPE000520",
+    "GPE001490",
+    "GPE001530",
+    "GPE001580",
+    "GPE001610",
+    "GPE001860",
+    "GPE002090",
+    "GPE002800",
+    "GPE003000",
+    "GPE003520",
+    "GPE004910",
+    "GPE005000",
+    "GPE005660",
+    "GPE006230",
+    "GPE008290",
+    "GPE008350",
+    "GPE008370",
+    "GPE008470",
+    "GPE008640",
+    "GPE012230",
+    "GPE013000",
+    "GPE013320",
+    "GPE013330",
+    "GPE016100",
+    "GPE019620",
+    "GPE019650",
+    "GPE020720",
+    "GPE021320",
+    "GPE021490",
+    "GPE022640",
+    "GPE032610",
+    "GPE033100",
+    "GPE038220",
+    "GPE038940",
+    "GPE046410",
+    "GPE059520",
+]
+
+proteins = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_protein.function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.protein.putative_function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_proteins.fa",
+    # --- Additional Unito Genomics accessions ---
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000430_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000450_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000460_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000520_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001490_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001530_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001580_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001610_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001860_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE002090_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE002800_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE003000_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE003520_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE004910_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE005000_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE005660_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE006230_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008290_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008350_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008370_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008470_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008640_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE012230_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE013000_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE013320_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE013330_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE016100_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE019620_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE019650_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE020720_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE021320_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE021490_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE022640_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE032610_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE033100_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE038220_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE038940_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE046410_proteins.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE059520_proteins.fa",
+]
+
+transcripts = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
+    # --- Additional Unito Genomics accessions ---
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000430_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000450_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000460_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000520_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001490_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001530_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001580_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001610_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001860_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE002090_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE002800_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE003000_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE003520_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE004910_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE005000_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE005660_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE006230_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008290_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008350_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008370_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008470_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008640_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE012230_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE013000_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE013320_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE013330_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE016100_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE019620_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE019650_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE020720_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE021320_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE021490_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE022640_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE032610_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE033100_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE038220_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE038940_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE046410_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE059520_transcripts.fa",
+]
+
+# CDS FASTA files — parallel to labels/proteins/transcripts arrays.
+# Smel v4.1 has no separate CDS file (use empty string to skip extraction).
+cds = [
+    "",                                                                                    # Solanum_melongena_v4.1 — no CDS file available
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_cds.fa",
+    # --- Additional Unito Genomics accessions ---
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000430_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000450_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000460_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000520_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001490_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001530_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001580_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001610_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001860_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE002090_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE002800_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE003000_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE003520_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE004910_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE005000_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE005660_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE006230_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008290_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008350_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008370_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008470_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE008640_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE012230_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE013000_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE013320_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE013330_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE016100_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE019620_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE019650_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE020720_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE021320_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE021490_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE022640_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE032610_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE033100_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE038220_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE038940_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE046410_cds.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE059520_cds.fa",
+]
+
+# GFF/GFF3 annotation files — parallel to labels array (Helixer gene models).
+# Used by EXTRACT_GENE_STRUCTURES to extract per-gene feature files.
+# Use "" for genomes without an annotation file.
+annotations = [
+    "",                                                                                    # Solanum_melongena_v4.1 — no Helixer GFF available
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001970.gff",
+    # --- Additional Unito Genomics accessions ---
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE000430.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE000450.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE000460.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE000520.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001490.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001530.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001580.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001610.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001860.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE002090.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE002800.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE003000.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE003520.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE004910.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE005000.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE005660.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE006230.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE008290.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE008350.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE008370.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE008470.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE008640.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE012230.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE013000.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE013320.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE013330.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE016100.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE019620.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE019650.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE020720.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE021320.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE021490.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE022640.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE032610.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE033100.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE038220.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE038940.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE046410.gff",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE059520.gff",
+]
+# Genomic FASTA files — parallel to labels array. Each file should have a
+# sibling .fai (samtools faidx). Used by EXTRACT_GENE_STRUCTURES to fetch
+# per-feature DNA sequences into structure.fa. Use "" to skip FASTA output.
+genomes = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970.fa",
+    # --- Additional Unito Genomics accessions ---
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE000430.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE000450.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE000460.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE000520.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001490.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001530.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001580.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001610.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001860.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE002090.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE002800.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE003000.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE003520.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE004910.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE005000.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE005660.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE006230.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE008290.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE008350.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE008370.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE008470.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE008640.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE012230.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE013000.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE013320.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE013330.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE016100.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE019620.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE019650.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE020720.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE021320.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE021490.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE022640.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE032610.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE033100.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE038220.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE038940.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE046410.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE059520.fa",
+]
+
+# ============================================================================
+# Per-gene-group HMM profile mapping
+# ----------------------------------------------------------------------------
+# Each gene group declares a [.genes] table mapping gene name -> the list of
+# HMM profiles that gene must hit. The orchestrator:
+#   1. Auto-derives the flat profile set as the union of all gene entries.
+#   2. Runs hmmsearch/nhmmer once per unique profile per genome.
+#   3. For each gene, intersects per-profile hit IDs (logical AND across the
+#      profiles listed) and emits gene-level FASTAs under d_GENES/<gene>/.
+# A gene with a single profile passes through unchanged (no intersection).
+# ============================================================================
+
+[identification.gene_groups.DMP.genes]
+DMP = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05078_DMP.hmm"]
+
+[identification.gene_groups.HAP2.genes]
+HAP2 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF10699_HAP2.hmm"]
+
+[identification.gene_groups.GRF_GIF.genes]
+# GRF must carry BOTH QLQ + WRC domains; GIF carries SSXT/SNH alone.
+GRF = [
+    "II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF08880_QLQ_Profile.hmm",  # QLQ domain
+    "II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF08879_WRC_Profile.hmm",  # WRC domain
+]
+
+GIF = [
+    "II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05030_SSXT_Profile.hmm", # SSXT/SNH domain
+]

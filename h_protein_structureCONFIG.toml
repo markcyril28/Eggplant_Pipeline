@@ -1,0 +1,90 @@
+# ============================================================================
+# Shared Defaults: h_Protein_Structure_Analysis
+# ============================================================================
+# Gene-group-specific overrides (e.g. input_nucleotide_fasta) live in
+# config/{GROUP}/h_protein_structure_analysis.toml.
+
+[protein_structure]
+# Gene groups to process. Comment out entries to skip them.
+gene_groups = [
+    #"DMP",
+    "DMP-HAP2",
+    # "HAP2",
+    # "GRF_GIF",
+    # "PLA",
+]
+
+color_config = "config/colors_config/protein_structure_colors.toml"
+
+# ── Compute ──────────────────────────────────────────────────────────────────
+machine      = "Local"   # "Local" or "HPC" — selects compute profile below
+
+[protein_structure.compute.Local]
+threads      = 12        # Total CPU threads available
+max_parallel = 1         # Max concurrent run directories (GPU memory-limited)
+
+[protein_structure.compute.HPC]
+threads      = 64        # Total CPU threads on HPC node
+max_parallel = 4         # Max concurrent run directories
+
+# ── Overwrite / skip ─────────────────────────────────────────────────────────
+overwrite    = true  # true = re-run steps even if outputs already exist; false = skip
+
+# ── Rendering quality settings ───────────────────────────────────────────────
+# Image dimensions, DPI, JPEG quality, ray-tracing, and zoom are controlled
+# exclusively via config/colors_config/protein_structure_colors.toml [rendering].
+# Do NOT duplicate those keys here — they would be silently ignored by all renderers.
+
+# Background colours to render (passed via --backgrounds to all renderer scripts;
+# overrides [rendering].backgrounds in the colors config).
+backgrounds    = [
+    "black",
+    #"white"
+]  # Render both background colors
+
+color_versions = [
+    #"original",
+    #"contrast",
+    "interaction",
+    "confidence",
+]  # Render only the listed color versions (comment out to skip)
+
+# Genes that should have additional models processed alongside model_0.
+# Matching is by substring: any gene folder whose name contains a listed entry
+# will get each extra model copied to a separate <gene>_model_N/ directory.
+multi_model_genes = [
+    "smel5_04g005390_1",
+]
+# Which additional model numbers to process for the genes above (default: [1]).
+multi_model_numbers = [1, 2, 3, 4]
+
+operation_1_5 = [
+    #"1. Extract AlphaFold3 zip files         (DO_EXTRACT)",
+    #"2. Copy model 0 to AlphaFold3_Results   (DO_COPY_MODEL0)",
+    #"3. Convert .cif to .pdb via gemmi        (DO_CIF_TO_PDB)",
+    #"4. Update PDB HEADER with gene name      (DO_UPDATE_HEADER)",
+    "5. Generate publication images (PyMOL)   (DO_RENDER)",
+]
+
+operation_6_9 = [
+    #"6. Extract AF3/SWISS quality metrics     (DO_EXTRACT_METRICS)",
+    #"7. Structural alignment AF3 vs SWISS     (DO_STRUCT_ALIGN)",
+    "8. Comparative renders (overlay/conf/dev)(DO_COMPARE_RENDER)",
+    #"9. Summary comparison report + figures   (DO_COMPARE_REPORT)",
+]
+
+# ── Op 8 sub-types: comment out any type to skip it ─────────────────────────
+operation_8_types = [
+    "overlay",      # AF3 + SWISS superposed, coloured distinctly
+    #"confidence",   # AF3 coloured by pLDDT (B-factor column)
+    #"deviation",   # AF3 coloured by per-residue CA distance vs SWISS
+]
+
+# ── Confidence + Interaction composite ───────────────────────────────────────
+# Produces side-by-side figures: pLDDT confidence (left) | interaction domain (right).
+# Invokes compose_confidence_interaction.py after the main render step.
+[protein_structure.compose]
+enabled             = true          # run the composite step
+background          = "black"       # must match a rendered background in [backgrounds]
+interaction_version = "interaction" # color version used for the right panel
+output_subdir       = "Combined_Confidence_Interaction"  # relative to AlphaFold3_Results/

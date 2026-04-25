@@ -1,0 +1,78 @@
+# ============================================================================
+# Shared Pipeline Configuration — 04_MSA Defaults
+# ============================================================================
+# Alignment tool parameters shared across all gene groups.
+# Gene-group overrides (active_input_sets, input_sets) live in
+# config/{GROUP}/04_multiple_sequence_alignment.toml.
+#
+# Threading rule:
+#   parallel_jobs    = threads / optimal_threads   (min 1; per-method optimal_threads below)
+#   threads_per_job  = optimal_threads             (or threads when optimal >= threads)
+#   total_cpu_used   = threads_per_job × parallel_jobs
+# ============================================================================
+
+[pipeline]
+machine      = "Local"   # "Local" or "HPC" — selects compute profile below
+overwrite    = true
+
+[pipeline.compute.Local]
+threads      = 12        # Total CPU threads available
+max_parallel = 12        # Ceiling for concurrent alignment jobs (auto-scaled per method via optimal_threads)
+
+[pipeline.compute.HPC]
+threads      = 64        # Total CPU threads on HPC node
+max_parallel = 64        # Ceiling for concurrent alignment jobs
+
+[alignment]
+methods = [
+    #"CLUSTALO",
+    "MAFFT",
+    #"MUSCLE",
+    #"PROBCONS",
+    #"CLUSTALW"
+]
+
+sequence_types = [
+    "nucleotide",
+    "amino_acid",
+]
+
+# --- HMMER-identified source FASTAs (paths relative to base_dir) ----------
+[alignment.sources]
+hmmer_nucleotide = "02_BLAST_Alignment/hmmer_identified_transcripts.fa"
+hmmer_amino_acid = "02_BLAST_Alignment/hmmer_identified_proteins.fa"
+
+# --- Method-specific parameters -------------------------------------------
+
+[alignment.clustalo]
+optimal_threads          = 12      # Multi-threaded — runs 1 job at full CPU
+outfmt                   = "fasta"
+full                     = true     # Full distance matrix (not mBed heuristic)
+full_iter                = true     # Full distance matrix on each iteration
+iterations               = 10       # --iter: combined guide-tree + HMM iterations
+max_guidetree_iterations = 10       # Refine guide tree up to 10 times per iter
+max_hmm_iterations       = 10       # Refine HMM up to 10 times per iter
+
+[alignment.mafft]
+optimal_threads = 12               # Multi-threaded — runs 1 job at full CPU
+algorithm       = "--localpair"    # L-INS-i (most accurate); alt: --genafpair, --auto
+maxiterate      = 1000             # Iterate until convergence (capped at 1000)
+ep              = 0.0              # No offset; more sensitive to weakly conserved regions
+anysymbol       = true             # Allow non-standard characters (e.g. 'z') instead of crashing
+
+[alignment.muscle]
+optimal_threads = 1                # MUSCLE v3 is single-threaded — runs CPU parallel jobs (12 at once)
+                                   # Change to 12 if using MUSCLE v5 (multi-threaded)
+maxiters        = 100              # v3: refinement iterations (default 16; 100 is near-maximum accuracy)
+
+[alignment.probcons]
+optimal_threads = 1                # Single-threaded — runs CPU parallel jobs (12 at once)
+consistency     = 5                # -c: consistency transform passes (default 2)
+iterative_ref   = 1000             # -ir: iterative refinement rounds (default 100)
+pre_training    = 20               # -pre: EM pre-training rounds (default 0)
+
+[alignment.clustalw]
+optimal_threads = 1                # Single-threaded — runs CPU parallel jobs (12 at once)
+output          = "FASTA"
+iteration       = "TREE"           # Iterative refinement guided by tree topology
+numiter         = 100              # Number of refinement iterations

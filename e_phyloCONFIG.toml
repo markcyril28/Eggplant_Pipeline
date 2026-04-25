@@ -1,0 +1,156 @@
+# ============================================================================
+# Shared Pipeline Configuration — 05_Phylogenetics Defaults
+# ============================================================================
+# Software configurations shared across all gene groups.
+# Gene-group overrides (input_files) live in
+# config/{GROUP}/05_phylogenetic_analysis.toml.
+# ============================================================================
+
+[pipeline]
+machine   = "Local"  # "Local" or "HPC" — selects compute profile below
+overwrite = true
+operations = [
+    #"build_tree",          # Already built from the HPC. 
+    #"visualize_tree",
+    #"compare_trees",   # IQ-TREE2 vs RAxML tanglegram; exits gracefully if only one software was run   
+    "combined_bootstrap_tree"
+]
+
+[pipeline.compute.Local]
+threads      = 12  # Total CPU threads
+max_parallel = 12   # Max concurrent phylo software programs
+
+[pipeline.compute.HPC]
+threads      = 32  # Total CPU threads on HPC node
+max_parallel = 2   # Max concurrent phylo software programs
+
+[phylogenetics]
+# Supported values: megacc, iqtree2, raxml
+software = ["iqtree2", "raxml"]
+#input_pattern = "*.fas"
+
+# Per-software optimal thread counts (drives dynamic parallelization)
+# optimal_threads >= CPU  → 1 job at full CPU
+# optimal_threads  < CPU  → CPU/optimal_threads parallel jobs
+
+[phylogenetics.megacc]
+config_file_nucleotide = "config/1_CONFIG_FILES_Phylo/infer_ML_nucleotide.mao"
+config_file_protein    = "config/1_CONFIG_FILES_Phylo/infer_ML_amino_acid.mao"
+config_file = "config/1_CONFIG_FILES_Phylo/infer_ML_amino_acid.mao"
+optimal_threads = 4
+
+[phylogenetics.iqtree2]
+optimal_threads = 30
+bootstrap = 5000
+alrt = 5000
+model = "MFP+MERGE"
+nucleotide_model = "GTR+F+R4"
+protein_model    = "LG+F+R4"
+allnni = true
+polytomy = false
+safe = true
+bnni = true
+redo = true
+fast = false
+pers = 0.05
+
+[phylogenetics.raxml]
+optimal_threads = 30
+binary = "raxml-ng"
+seed = 12345
+mode = "all"
+bs_trees = 5000
+search_replicates = 50
+redo = true
+
+[phylogenetics.raxml.nucleotide]
+model = "GTR+FC+R4"
+
+[phylogenetics.raxml.protein]
+model = "LG+FC+R4"
+
+# ============================================================================
+# Tree Visualization (ggtree) — shared config
+# ============================================================================
+# Everything in [visualization] is SHARED across all three phylo rendering
+# operations: visualize_tree, compare_trees, combined_bootstrap_tree.
+# Per-operation overrides (canvas dimensions, operation-specific keys) live
+# in the subsections at the bottom.
+# ============================================================================
+[visualization]
+
+# --- General ---
+enabled              = true        # false = skip rendering without removing "visualize_tree" from OPERATIONS
+layout               = "rectangular"  # rectangular | circular | fan | daylight | equal_angle
+open_angle           = 15          # fan/equal_angle only: open gap in degrees at top of circle
+
+# --- Bootstrap ---
+show_bootstrap       = true        # show support values on internal nodes
+bootstrap_threshold  = 70          # only display values >= this (0–100)
+bootstrap_style      = "text"      # text = numeric labels (publication); dots = colored circles (large trees)
+bootstrap_label_size = 3.0         # font size for numeric labels (text mode only)
+bootstrap_color      = "#D32F2F"   # label color (text mode only)
+node_color_high      = "#B71C1C"   # dot color for BS >= 95 (dots mode only)
+node_color_medium    = "#E65100"   # dot color for BS >= threshold and < 95 (dots mode only)
+node_size_high       = 3.7         # dot size for BS >= 95 (dots mode only)
+node_size_medium     = 2.0         # dot size for moderate support (dots mode only)
+
+# --- Tip labels ---
+label_style          = "replace"   # replace = clean gene names; append = original + [SmelDMP] bracket
+tip_label_size       = 3.7         # font size; auto-scales down for trees with > 30 tips
+tip_label_offset     = 0.04       # horizontal gap between tip point and label; negative = left, positive = right
+tip_point_size       = 2.5         # shape symbol size at each tip (requires highlight_eggplant = true)
+
+# --- Category colors ---
+highlight_eggplant   = true        # color and shape tips by gene category; drives legend
+color_smeldmp        = "#4527A0"   # deep purple — eggplant SmelDMP genes
+color_haploid        = "#B71C1C"   # deep red — functionally validated haploid inducers
+color_ortholog       = "#37474F"   # blue-gray — other DMP orthologs
+color_outgroup       = "#78909C"   # light gray — outgroup taxa
+
+# --- Taxon patterns (regex) ---
+eggplant_pattern     = "^SMEL5_|^Smel_|^SMELG"  # matches raw eggplant sequence IDs
+
+# --- Outgroup ---
+# Universal outgroup for both amino acid and nucleotide phylogenetic trees:
+#   PpDMP5-like  (Physcomitrella patens, moss — distant land plant)
+#   SiDMP10      (Setaria italica, foxtail millet — monocot)
+outgroup_pattern     = "PpDMP5-like" #|SiDMP10"       # regex matching universal outgroup tip labels
+exclude_tips         = "BdDMP2.*Outgroup,GrDMP10.*Outgroup"  # remove AA-only species absent from NT trees
+root_outgroup        = true       # root tree on outgroup MRCA before rendering
+
+# --- Branch ---
+branch_color         = "grey20"    # line color; grey20 is softer than black at print resolution
+branch_width         = 0.8         # line width (ggplot2 linewidth units)
+
+# --- Scale bar ---
+treescale_fontsize   = 3.0         # font size of the substitutions-per-site label
+treescale_offset     = 0.3         # vertical gap between bar and label
+treescale_color      = "grey35"    # color of bar and label text
+
+# --- Default canvas (used by visualize_tree; overridden per-operation below) ---
+width                = 14          # figure width in inches
+height               = 10          # figure height in inches; auto-scales up for trees with > 30 tips
+dpi                  = 600         # resolution; 300 for drafts, 600 for publication
+
+# ============================================================================
+# Per-operation overrides
+# ============================================================================
+# Canvas dimensions and operation-specific keys only.
+# All visual config above is inherited automatically.
+# ============================================================================
+
+[visualization.compare_trees]
+width  = 24          # wider: side-by-side IQ-TREE2 vs RAxML panels (~12 in/panel)
+height = 10          # auto-scaled up by compare_trees.R for large tip counts
+dpi    = 600
+
+[visualization.combined_bootstrap_tree]
+width  = 15          # single-tree figure with dual-method bootstrap labels
+height = 12          # auto-scaled up for large tip counts
+dpi    = 600
+
+# Node label format (unique to this operation — overlays IQ-TREE2 + RAxML values)
+combined_style = "fraction"  # fraction = "UFBoot/RAX-BS" (e.g. "98/95"); dual = "IQ:98 RAX:95"
+combined_sep   = "/"         # separator between IQ-TREE2 and RAxML values
+xlim_expand    = 0.3         # x-axis expansion multiplier: >1 stretches tree wider, <1 tightens

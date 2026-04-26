@@ -405,7 +405,19 @@ run_meme_analysis() {
         for i in "${!meme_input_labels[@]}"; do
             local dataset_label="${meme_input_labels[$i]}"
             local fasta_file="$PIPELINE_DIR/${meme_input_fastas[$i]}"
-            local out_dir="$gene_seq_dir/$dataset_label/$MEME_STAGE_DIR"
+            # Output folder = label with alphabet suffix stripped, so AA + NT
+            # variants share one folder (e.g. selected_GPE001970_{amino_acid,nucleotide}
+            # both write into selected_GPE001970/04_MEME_Analysis/). Per-label file
+            # prefixes inside the module keep AA/NT outputs from colliding.
+            local output_label="$dataset_label"
+            output_label="${output_label%_amino_acid}"
+            output_label="${output_label%_nucleotide_fixed}"
+            output_label="${output_label%_nucleotide}"
+            output_label="${output_label%_protein}"
+            output_label="${output_label%_aa}"
+            output_label="${output_label%_nt}"
+            output_label="${output_label%_dna}"
+            local out_dir="$gene_seq_dir/$output_label/$MEME_STAGE_DIR"
             local phylo_order_file=""
             if [[ $i -lt ${#meme_input_phylo_orders[@]} ]]; then
                 local _raw_phylo="${meme_input_phylo_orders[$i]}"

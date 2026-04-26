@@ -10,8 +10,8 @@
 machine      = "Local"   # "Local" or "HPC" — selects compute profile below
 overwrite    = true
 operations = [
-    #"RUN_READY_DATABASE",
-    #"RUN_MEME_SUITE_Analysis",
+    "RUN_READY_DATABASE",
+    "RUN_MEME_SUITE_Analysis",
     "RUN_JPEG_Export",
 ]
 

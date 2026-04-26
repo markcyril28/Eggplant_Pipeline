@@ -3,7 +3,7 @@
 # Program 2: BLAST Identification & Ortholog Alignment
 # ============================================================================
 # Edit gene_groups in 02_blast_alignmentCONFIG.toml, then run:
-#   bash b_blast_alignment.sh
+#   bash 02_blast_alignment.sh
 # ============================================================================
 
 set -euo pipefail
@@ -24,7 +24,7 @@ mapfile -t GENE_GROUPS < <(
 PROJECT_ROOT="$PIPELINE_DIR"
 mkdir -p "$PROJECT_ROOT/logs"
 
-# Source the logging utility — setup_logging() creates all subdirectories
+# Source the logging utility; setup_logging() creates all subdirectories
 source "$MODULES/logging/logging_utils.sh"
 
 
@@ -54,7 +54,7 @@ read_toml_list() {
 }
 
 # Wait until a parallel slot opens before launching the next job
-# Parameterized form (preferred) — pass the concurrency limit explicitly.
+# Parameterized form (preferred): pass the concurrency limit explicitly.
 wait_for_slot() { local limit="$1"; while (( $(jobs -rp | wc -l) >= limit )); do sleep 0.5; done; }
 
 # ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ BLAST_DIR="$BASE_DIR/02_BLAST_Alignment"
 
 # ── Clear output directories ──────────────────────────────────────────────────
 if [[ "$CLEAR_OUTPUT" == "true" || "$CLEAR_OUTPUT" == "True" ]]; then
-    log_warn "clear_output=true — deleting all existing BLAST output for $GENE_GROUP"
+    log_warn "clear_output=true: deleting all existing BLAST output for $GENE_GROUP"
     if [[ -d "$BLAST_DIR" ]]; then
         rm -rf "$BLAST_DIR"
         log_info "  Cleared: $BLAST_DIR"
@@ -294,7 +294,7 @@ else
 fi
 DO_VISUALIZE=false
 [[ "$DO_VIZ_HEATMAP" == "true" || "$DO_VIZ_HEATMAP_EVALUE" == "true" || "$DO_VIZ_LOLLIPOP" == "true" ]] && DO_VISUALIZE=true
-log_info "Operations — BLASTn: $DO_BLASTN | BLASTx: $DO_BLASTX | BLASTp: $DO_BLASTP | visualize_heatmap: $DO_VIZ_HEATMAP | visualize_heatmap_evalue: $DO_VIZ_HEATMAP_EVALUE | visualize_lollipop: $DO_VIZ_LOLLIPOP"
+log_info "Operations: BLASTn=$DO_BLASTN BLASTx=$DO_BLASTX BLASTp=$DO_BLASTP visualize_heatmap=$DO_VIZ_HEATMAP visualize_heatmap_evalue=$DO_VIZ_HEATMAP_EVALUE visualize_lollipop=$DO_VIZ_LOLLIPOP"
 
 # ---- BLASTn Identification ----
 METHOD=$(get_toml identification method 2>/dev/null || echo "")
@@ -538,7 +538,7 @@ fi
     done
 
     if (( MISSING_BLASTX_QUERIES > 0 && ${#RESOLVED_BLASTX_QUERIES[@]} > 0 )); then
-        log_warn "Skipped $MISSING_BLASTX_QUERIES configured BLASTx query FASTA(s) that were not found; check config/${GENE_GROUP}/02_blast_alignment.toml"
+        log_warn "Skipped $MISSING_BLASTX_QUERIES configured BLASTx query FASTA(s) that were not found; check config/${GENE_GROUP}/02_blast_ortholog_alignment.toml"
     fi
 
     if [[ ${#RESOLVED_BLASTX_QUERIES[@]} -eq 0 ]]; then
@@ -739,7 +739,7 @@ else
     done
 
     if (( MISSING_BLASTN_QUERIES > 0 && ${#BLASTN_QUERIES[@]} > 0 )); then
-        log_warn "Skipped $MISSING_BLASTN_QUERIES configured BLASTn query FASTA(s) that were not found; check config/${GENE_GROUP}/02_blast_alignment.toml"
+        log_warn "Skipped $MISSING_BLASTN_QUERIES configured BLASTn query FASTA(s) that were not found; check config/${GENE_GROUP}/02_blast_ortholog_alignment.toml"
     fi
 
     if [[ ${#BLASTN_QUERIES[@]} -eq 0 ]]; then
@@ -1003,7 +1003,7 @@ fi  # end DO_BLASTP
 if [[ "$DO_VISUALIZE" == "true" ]]; then
     LOLLIPOP_TOP_N=$(get_toml blast_visualize lollipop_top_n 2>/dev/null || echo "10")
     VIZ_COLORMAP=$(get_toml blast_visualize colormap 2>/dev/null || echo "RdYlGn")
-    VIZ_FIGURE_DPI=$(get_toml blast_visualize figure_dpi 2>/dev/null || echo "150")
+    VIZ_FIGURE_DPI=$(get_toml blast_visualize figure_dpi 2>/dev/null || echo "300")
     VIZ_SAVE_DPI=$(get_toml blast_visualize save_dpi 2>/dev/null || echo "300")
     VIZ_HEATMAP_VMIN=$(get_toml blast_visualize heatmap_vmin 2>/dev/null || echo "65.0")
     VIZ_HEATMAP_VMAX=$(get_toml blast_visualize heatmap_vmax 2>/dev/null || echo "100.0")

@@ -1,5 +1,5 @@
 # ============================================================================
-# Shared Pipeline Configuration — 02_BLAST_Alignment Defaults
+# Shared Pipeline Configuration: 02_BLAST_Alignment Defaults
 # ============================================================================
 # E-values, word sizes, target genomes shared across all gene groups.
 # Gene-group overrides (query_fastas, query_protein_fastas) live in
@@ -14,7 +14,7 @@ gene_groups = [
     #"PLA",
 ]
 
-machine            = "Local"   # "Local" or "HPC" — selects compute profile below
+machine            = "Local"   # "Local" or "HPC"; selects compute profile below
 overwrite          = true      # true = re-run all; false = skip sections with existing results
 clear_output       = false    # true = delete all output under III_RESULT/{GROUP}/02_BLAST_Alignment before running (never touches 01_Identification)
 
@@ -39,9 +39,9 @@ operations = [
     "blastn",               # BLASTn: nucleotide query vs nucleotide DB (identification + ortholog)
     #"blastx",              # BLASTx: nucleotide query vs protein DB (translated ortholog)
     "blastp",               # BLASTp: protein query vs protein DB (ortholog alignment)
-    #"visualize_heatmap",        # Fig 1  — cross-species % identity heatmap
-    #"visualize_heatmap_evalue", # Fig 1b — % identity + E-value overlay heatmap
-    "visualize_lollipop",       # Fig 3  — per-gene top-hits lollipop (Bit Score)
+    #"visualize_heatmap",        # Fig 1  - cross-species % identity heatmap
+    #"visualize_heatmap_evalue", # Fig 1b - % identity + E-value overlay heatmap
+    "visualize_lollipop",       # Fig 3  - per-gene top-hits lollipop (Bit Score)
 ]
 
 # BLASTn Identification
@@ -72,7 +72,7 @@ blastp_qcov_hsp_perc = 0        # Min query coverage per HSP in % (0 = disabled)
 blastp_matrix = "BLOSUM62"      # Scoring matrix: BLOSUM45, BLOSUM62, BLOSUM80, BLOSUM90
 blastp_seg = "yes"              # Low-complexity filter for protein queries (yes/no)
 
-# Target genomes — comment in/out matching quadruplets (label, genome, protein, transcript)
+# Target genomes: comment in/out matching quadruplets (label, genome, protein, transcript)
 target_labels = [
     "Solanum_melongena_v4.1",
     #"Solanum_melongena_V3",
@@ -91,7 +91,7 @@ target_proteins = [
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_proteins.fa",
 ]
 
-# Transcripts (full mRNA with UTRs) — disabled in favor of target_cds below.
+# Transcripts (full mRNA with UTRs): disabled in favor of target_cds below.
 # Transcripts and CDS describe the same locus set; using both produces duplicate
 # BLAST hits per gene, so we use CDS only (coding regions, no UTRs).
 target_transcripts = []

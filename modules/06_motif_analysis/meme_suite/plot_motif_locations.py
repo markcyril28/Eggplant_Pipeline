@@ -63,6 +63,18 @@ def parse_args():
                         "defines the top-to-bottom order of rows in the figure. "
                         "Sequences not present in the file are appended at the "
                         "bottom in their original MEME order.")
+    p.add_argument("--ref-seq-ids", default="",
+                   help="Comma-separated reference sequence IDs (sequence names "
+                        "as they appear in meme.xml). When set together with "
+                        "--domain-ranges-json, motif colors are derived from "
+                        "where each motif best matches on this reference, "
+                        "overriding any --domain-colors / --domain-labels.")
+    p.add_argument("--domain-ranges-json", default="",
+                   help="JSON describing protein domain ranges on the reference "
+                        "sequence: '{\"ranges\":[{\"start\":N,\"end\":M,"
+                        "\"color\":\"#hex\",\"label\":\"...\"},...],"
+                        "\"default_color\":\"#hex\",\"default_label\":\"...\"}'. "
+                        "Positions are 0-based and inclusive on the reference.")
     return p.parse_args()
 
 
@@ -219,6 +231,91 @@ def resolve_palette(palette_arg: str) -> list:
 
     # Single color (unlikely but safe)
     return [palette_arg]
+
+
+def derive_domains_from_reference(xml_path: str, ref_seq_ids: list,
+                                  ranges_spec: dict) -> tuple:
+    """Map each motif to a structural domain by where it best matches on a
+    reference sequence in the meme.xml.
+
+    Parameters
+    ----------
+    xml_path : path to meme.xml
+    ref_seq_ids : ordered list of candidate sequence names; first one present
+        in the file wins.
+    ranges_spec : dict with keys "ranges" (list of {start, end, color, label}),
+        "default_color", "default_label".
+
+    Returns
+    -------
+    (domain_colors, domain_labels, ref_used) where domain_colors maps int
+    motif number → hex color and domain_labels maps hex color → label string.
+    Returns (None, None, None) when no candidate reference is in the file.
+    """
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+
+    # Resolve the reference: name → sequence_id
+    name_to_sid = {s.get("name"): s.get("id") for s in root.findall(".//sequence")}
+    ref_sid, ref_name = None, None
+    for cand in ref_seq_ids:
+        if cand in name_to_sid:
+            ref_sid = name_to_sid[cand]
+            ref_name = cand
+            break
+    if ref_sid is None:
+        return None, None, None
+
+    # Best (lowest p-value) site per motif on the reference sequence
+    best_pos = {}  # motif_id (str) -> (position, pvalue)
+    for ss in root.findall(".//scanned_sites"):
+        if ss.get("sequence_id") != ref_sid:
+            continue
+        for site in ss.findall("scanned_site"):
+            mid = site.get("motif_id")
+            pos = int(site.get("position"))
+            try:
+                pv = float(site.get("pvalue"))
+            except (TypeError, ValueError):
+                pv = 1.0
+            if mid not in best_pos or pv < best_pos[mid][1]:
+                best_pos[mid] = (pos, pv)
+
+    ranges = ranges_spec.get("ranges", [])
+    default_color = ranges_spec.get("default_color", "#B3B3B3")
+    default_label = ranges_spec.get("default_label", "Loops")
+
+    def domain_at(pos: int):
+        # Use the motif's center for assignment so a 21-aa motif anchored at
+        # pos 65 (which spans 65–85) lands in the beta-sheet, not in TM2.
+        for r in ranges:
+            if r["start"] <= pos <= r["end"]:
+                return r["color"], r["label"]
+        return default_color, default_label
+
+    domain_colors = {}      # int motif num -> hex color
+    domain_labels = {}      # hex color -> label
+    for m in root.findall(".//motif"):
+        mid = m.get("id")
+        name = m.get("name", mid)
+        try:
+            num = int(name.split("-")[-1])
+        except ValueError:
+            try:
+                num = int(mid.split("_")[-1])
+            except ValueError:
+                continue
+        width = int(m.get("width", 0))
+        bp = best_pos.get(mid)
+        if bp is None:
+            color, label = default_color, default_label
+        else:
+            center = bp[0] + width // 2
+            color, label = domain_at(center)
+        domain_colors[num] = color
+        domain_labels.setdefault(color, label)
+
+    return domain_colors, domain_labels, ref_name
 
 
 def _luminance(hex_color: str) -> float:
@@ -480,6 +577,29 @@ def main():
         except (json.JSONDecodeError, ValueError) as exc:
             print(f"ERROR: --domain-labels is not valid JSON: {exc}", file=sys.stderr)
             sys.exit(1)
+
+    # Position-based override: derive per-motif colors from the reference
+    # sequence's scanned-sites positions. When usable, this replaces any
+    # static --domain-colors / --domain-labels above.
+    if args.ref_seq_ids and args.domain_ranges_json:
+        try:
+            ranges_spec = json.loads(args.domain_ranges_json)
+        except (json.JSONDecodeError, ValueError) as exc:
+            print(f"ERROR: --domain-ranges-json is not valid JSON: {exc}",
+                  file=sys.stderr)
+            sys.exit(1)
+        ref_ids = [s.strip() for s in args.ref_seq_ids.split(",") if s.strip()]
+        auto_dc, auto_dl, ref_name = derive_domains_from_reference(
+            str(xml_path), ref_ids, ranges_spec)
+        if auto_dc:
+            domain_colors = auto_dc
+            domain_labels = auto_dl
+            print(f"Position-based domain colors: mapped {len(auto_dc)} motifs "
+                  f"via reference {ref_name!r}")
+        else:
+            print(f"WARNING: no reference sequence in {ref_ids} found in "
+                  f"{xml_path}; falling back to static domain mapping",
+                  file=sys.stderr)
 
     bar_color      = args.bar_color      if args.bar_color      else ""
     bar_edge_color = args.bar_edge_color if args.bar_edge_color else ""

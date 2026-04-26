@@ -238,14 +238,32 @@ fi
 # the plain palette (--palette) is used instead.
 DOMAIN_COLORS=""
 DOMAIN_LABELS=""
+REF_SEQ_IDS=""
+DOMAIN_RANGES_JSON=""
 if [[ "$MOTIF_LOCATION_PALETTE" == "dmp_interaction" ]] && \
    [[ "$EFFECTIVE_ALPH" == "protein" ]] && \
    [[ -f "$MOTIF_COLORS_TOML" ]]; then
     _dc=$(python3 "$TOML_PARSER" "$MOTIF_COLORS_TOML" dmp_interaction domain_colors_json 2>/dev/null) || true
     _dl=$(python3 "$TOML_PARSER" "$MOTIF_COLORS_TOML" dmp_interaction domain_labels_json 2>/dev/null) || true
-    [[ -n "$_dc" ]] && DOMAIN_COLORS="$_dc" && log_info "Domain colors: structural mapping loaded (dmp_interaction)"
+    [[ -n "$_dc" ]] && DOMAIN_COLORS="$_dc"
     [[ -n "$_dl" ]] && DOMAIN_LABELS="$_dl"
-    unset _dc _dl
+
+    # Position-based override (preferred): plot_motif_locations.py uses these
+    # to assign each motif a color by where it best matches on the reference
+    # SmelDMP sequence, instead of by MEME's discovery rank.  Falls back to
+    # the static motif-number mapping above when the reference sequence is
+    # absent from the dataset.
+    _rids_raw=$(python3 "$TOML_PARSER" "$MOTIF_COLORS_TOML" dmp_interaction reference_seq_ids 2>/dev/null) || true
+    _ranges=$(python3 "$TOML_PARSER" "$MOTIF_COLORS_TOML" dmp_interaction domain_ranges_json 2>/dev/null) || true
+    if [[ -n "$_rids_raw" && -n "$_ranges" ]]; then
+        # parse_toml.py prints list items one-per-line; join with commas
+        REF_SEQ_IDS="${_rids_raw//$'\n'/,}"
+        DOMAIN_RANGES_JSON="$_ranges"
+        log_info "Domain colors: position-based mapping enabled (refs=$REF_SEQ_IDS)"
+    elif [[ -n "$DOMAIN_COLORS" ]]; then
+        log_info "Domain colors: static mapping loaded (dmp_interaction)"
+    fi
+    unset _dc _dl _rids_raw _ranges
 fi
 
 # ---------------------------------------------------------------------------
@@ -693,11 +711,13 @@ if should_run "jpeg"; then
                 thumb_h=$(( JPEG_DPI * 200 / 72 ))
 
                 if command -v montage &>/dev/null; then
+                    # Note: omit -label entirely; passing an empty -label still
+                    # triggers FreeType, which fails on hosts whose ImageMagick
+                    # has no fontconfig fonts on disk.
                     montage "${logo_files[@]}" \
                         -geometry "${thumb_w}x${thumb_h}+${JPEG_LOGO_PADDING}+${JPEG_LOGO_PADDING}" \
                         -tile "${JPEG_COLUMNS}x" \
                         -background white \
-                        -label '' \
                         -density "$JPEG_DPI" \
                         -quality "$JPEG_QUALITY" \
                         "$JPEG_OUT" 2>&1 | tee "$JPEG_DIR/${LABEL}_montage.log" || true
@@ -818,11 +838,13 @@ if should_run "jpeg"; then
             --label    "$LABEL"
             --dpi      "$JPEG_DPI"
         )
-        [[ -n "$RESOLVED_MOTIF_PALETTE" ]] && _plot_cmd+=(--palette       "$RESOLVED_MOTIF_PALETTE")
-        [[ -n "$RESOLVED_MOTIF_BG"      ]] && _plot_cmd+=(--bg-color      "$RESOLVED_MOTIF_BG")
-        [[ -n "$PHYLO_ORDER_FILE"       ]] && _plot_cmd+=(--phylo-order   "$PHYLO_ORDER_FILE")
-        [[ -n "$DOMAIN_COLORS"          ]] && _plot_cmd+=(--domain-colors "$DOMAIN_COLORS")
-        [[ -n "$DOMAIN_LABELS"          ]] && _plot_cmd+=(--domain-labels "$DOMAIN_LABELS")
+        [[ -n "$RESOLVED_MOTIF_PALETTE" ]] && _plot_cmd+=(--palette            "$RESOLVED_MOTIF_PALETTE")
+        [[ -n "$RESOLVED_MOTIF_BG"      ]] && _plot_cmd+=(--bg-color           "$RESOLVED_MOTIF_BG")
+        [[ -n "$PHYLO_ORDER_FILE"       ]] && _plot_cmd+=(--phylo-order        "$PHYLO_ORDER_FILE")
+        [[ -n "$DOMAIN_COLORS"          ]] && _plot_cmd+=(--domain-colors      "$DOMAIN_COLORS")
+        [[ -n "$DOMAIN_LABELS"          ]] && _plot_cmd+=(--domain-labels      "$DOMAIN_LABELS")
+        [[ -n "$REF_SEQ_IDS"            ]] && _plot_cmd+=(--ref-seq-ids        "$REF_SEQ_IDS")
+        [[ -n "$DOMAIN_RANGES_JSON"     ]] && _plot_cmd+=(--domain-ranges-json "$DOMAIN_RANGES_JSON")
 
         log_info "Generating motif locations PNG → $FULLVIEW_PNG (bg=${RESOLVED_MOTIF_BG:-white})"
         "${_plot_cmd[@]}" \

@@ -3,10 +3,13 @@
 # NCBI E-utilities fetch library
 # ============================================================================
 # Sourced by per-species DMP download modules. Provides:
-#   ncbi_fetch_by_locus  <locus> <gene_name> <organism>
-#   ncbi_fetch_by_symbol <gene_symbol> <gene_name> <organism>
+#   ncbi_fetch_by_locus    <locus> <gene_name> <organism>
+#   ncbi_fetch_by_symbol   <gene_symbol> <gene_name> <organism>
+#   ncbi_fetch_via_gene_db <id> <gene_name> <organism>
 #
-# Both resolve a query to nuccore UIDs via esearch, then pull FASTA via efetch.
+# ncbi_fetch_by_locus / ncbi_fetch_by_symbol resolve directly in nuccore.
+# ncbi_fetch_via_gene_db routes through db=gene + elink for cross-database IDs
+# (Phytozome, CottonGen, RAP-DB, CucurBit) not indexed directly in nuccore.
 # Output: <gene_name>_<locus_or_symbol>.fasta in PWD.
 # Requires: wget, python3 (no extra bioinformatics tooling).
 # Set NCBI_API_KEY in env to raise the eutils rate limit.
@@ -97,4 +100,88 @@ ncbi_fetch_by_symbol() {
     fi
     echo ">>> $gene_name  ($symbol)  in  $organism"
     _fetch_query "${symbol}[Gene Name] AND \"${organism}\"[ORGN]" "$out_file" || return 0
+}
+
+# Internal: given comma-separated NCBI Gene IDs, return linked nuccore IDs (up to 10)
+_elink_gene_to_nuccore() {
+    local gene_ids="$1"
+    local nuccore_ids="" elink_url
+
+    # Prefer RefSeq RNA links (fewer off-target records)
+    elink_url=$(_eutils_url elink.fcgi \
+        "dbfrom=gene&db=nuccore&id=${gene_ids}&linkname=gene_nuccore_refseqrna&retmode=json")
+    nuccore_ids=$(wget -qO- --timeout="$EUTILS_TIMEOUT" --tries="$EUTILS_TRIES" \
+        "$elink_url" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+ids=[]
+for ls in d.get("linksets",[]):
+    for ld in ls.get("linksetdbs",[]):
+        for l in ld.get("links",[]):
+            ids.append(str(l["id"]) if isinstance(l,dict) else str(l))
+print(",".join(ids[:10]))
+' 2>/dev/null) || nuccore_ids=""
+
+    if [[ -z "$nuccore_ids" ]]; then
+        # Fallback: all mRNA links (broader but may include genomic)
+        elink_url=$(_eutils_url elink.fcgi \
+            "dbfrom=gene&db=nuccore&id=${gene_ids}&linkname=gene_nuccore&retmode=json")
+        nuccore_ids=$(wget -qO- --timeout="$EUTILS_TIMEOUT" --tries="$EUTILS_TRIES" \
+            "$elink_url" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+ids=[]
+for ls in d.get("linksets",[]):
+    for ld in ls.get("linksetdbs",[]):
+        for l in ld.get("links",[]):
+            ids.append(str(l["id"]) if isinstance(l,dict) else str(l))
+print(",".join(ids[:10]))
+' 2>/dev/null) || nuccore_ids=""
+    fi
+
+    echo "$nuccore_ids"
+    sleep "$EUTILS_DELAY"
+}
+
+# Public: search NCBI Gene DB then elink to nuccore.
+# Use for cross-database locus IDs (Phytozome, CottonGen, RAP-DB, CucurBit, etc.)
+# where the identifier is indexed in the gene DB but not directly in nuccore.
+ncbi_fetch_via_gene_db() {
+    local id="$1" gene_name="$2" organism="$3"
+    local out_file="${gene_name}_${id}.fasta"
+    if [[ -s "$out_file" && "${OVERWRITE:-false}" != "true" ]]; then
+        echo "    [SKIP] $out_file exists"
+        return 0
+    fi
+    echo ">>> $gene_name  ($id)  in  $organism  [via gene DB + elink]"
+
+    local gene_ids nuccore_ids q_enc esearch_url efetch_url
+    q_enc=$(_urlenc "\"${id}\"[All Fields] AND \"${organism}\"[ORGN]")
+    esearch_url=$(_eutils_url esearch.fcgi "db=gene&term=${q_enc}&retmax=5&retmode=json")
+    gene_ids=$(wget -qO- --timeout="$EUTILS_TIMEOUT" --tries="$EUTILS_TRIES" "$esearch_url" \
+        | _extract_ids 2>/dev/null) || gene_ids=""
+    sleep "$EUTILS_DELAY"
+
+    if [[ -z "$gene_ids" ]]; then
+        echo "    [WARN] No NCBI gene hits for: $id ($organism)" >&2
+        return 1
+    fi
+
+    nuccore_ids=$(_elink_gene_to_nuccore "$gene_ids")
+
+    if [[ -z "$nuccore_ids" ]]; then
+        echo "    [WARN] No nuccore records linked from gene entry: $id ($organism)" >&2
+        return 1
+    fi
+
+    efetch_url=$(_eutils_url efetch.fcgi "db=nuccore&id=${nuccore_ids}&rettype=fasta&retmode=text")
+    if wget -qO "$out_file" --timeout="$EUTILS_TIMEOUT" --tries="$EUTILS_TRIES" "$efetch_url" \
+       && [[ -s "$out_file" ]]; then
+        echo "    -> $out_file"
+    else
+        echo "    [ERROR] efetch failed for: $id" >&2
+        rm -f "$out_file"
+        return 1
+    fi
+    sleep "$EUTILS_DELAY"
 }

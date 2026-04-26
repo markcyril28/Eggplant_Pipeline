@@ -277,6 +277,37 @@ teardown_logging() {
 	_LOG_DIR_VERIFIED=""
 }
 
+safe_teardown_logging() {
+	# Bounded, hang-proof variant for use in EXIT traps.
+	#
+	# Purpose: prevent the "pipeline hangs after 'finished successfully'" bug,
+	# where bash `wait` inside teardown_logging stalls because the `tee` in a
+	# process substitution never sees EOF on its pipe (observed on WSL2).
+	#
+	# Strategy:
+	#   1) Close stdout/stderr explicitly so any tee waiting on a pipe write-end
+	#      gets EOF immediately.
+	#   2) Run teardown_logging in the background with a 1 s deadline; SIGKILL
+	#      if it stalls.
+	#   3) Best-effort SIGTERM any leftover children (logging tees, parallel
+	#      job shells) still attached to this shell.
+	#
+	# Always returns 0 so it's safe to chain in `trap '...; safe_teardown_logging' EXIT`.
+	exec 1>&- 2>&- 2>/dev/null || true
+	( teardown_logging 2>/dev/null ) &
+	local _td_pid=$! _i
+	for ((_i=0; _i<10; _i++)); do
+		kill -0 "$_td_pid" 2>/dev/null || break
+		sleep 0.1
+	done
+	kill -KILL "$_td_pid" 2>/dev/null || true
+	local _cpid
+	for _cpid in $(jobs -p) $(pgrep -P $$ 2>/dev/null); do
+		kill -TERM "$_cpid" 2>/dev/null || true
+	done
+	return 0
+}
+
 # ==============================================================================
 # STAGE-BASED LOG ROUTING
 # ==============================================================================

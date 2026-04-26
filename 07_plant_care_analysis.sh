@@ -101,13 +101,13 @@ resolve_group_config() {
         local -a toml_sources=(
             "$shared_dir/00_common.toml"
             "$PIPELINE_DIR/07_plant_care_analysisCONFIG.toml"
-            "$config_dir/00_common.toml"
-            "$config_dir/07_plantcare_analysis.toml"
+            "$config_dir/00_common_${group}.toml"
+            "$config_dir/07_plantcare_analysis_${group}.toml"
         )
         [[ -f "$PIPELINE_DIR/01_hmmer_identifyCONFIG.toml" ]] && \
             toml_sources+=("$PIPELINE_DIR/01_hmmer_identifyCONFIG.toml")
-        [[ -f "$config_dir/01_hmmer_gene_identification.toml" ]] && \
-            toml_sources+=("$config_dir/01_hmmer_gene_identification.toml")
+        [[ -f "$config_dir/01_hmmer_gene_identification_${group}.toml" ]] && \
+            toml_sources+=("$config_dir/01_hmmer_gene_identification_${group}.toml")
 
         python3 "$TOML_MERGER" "${toml_sources[@]}" > "$CONFIG_FILE"
     else

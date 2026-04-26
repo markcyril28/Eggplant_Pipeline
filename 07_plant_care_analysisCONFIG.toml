@@ -3,7 +3,7 @@
 # ============================================================================
 # Promoter extraction parameters and GTF annotation paths shared across
 # all gene groups.  Gene-group overrides (raw_results_dir, etc.) live in
-# config/{GROUP}/07_plantcare_analysis.toml.
+# config/{GROUP}/07_plantcare_analysis_{GROUP}.toml.
 # ============================================================================
 
 [pipeline]

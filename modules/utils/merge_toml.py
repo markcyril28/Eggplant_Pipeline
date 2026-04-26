@@ -90,8 +90,9 @@ def main() -> None:
     for path_str in sys.argv[1:]:
         path = Path(path_str)
         if not path.exists():
-            # Silently skip — allows listing shared + group files even when
-            # a gene group hasn't defined a stage-specific override file yet.
+            # Skip missing files but log to stderr so a misnamed/relocated
+            # config doesn't silently cause downstream "key not found" errors.
+            print(f"merge_toml: skip (missing): {path_str}", file=sys.stderr)
             continue
         with open(path, "rb") as f:
             data = tomllib.load(f)

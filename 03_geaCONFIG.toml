@@ -1,0 +1,309 @@
+# ============================================================================
+# Shared Pipeline Configuration — 03_Gene_Expression_Analysis (GEA)
+# ============================================================================
+# This stage delegates to the RNA-SeqMAP pipeline (sibling workspace) and
+# mirrors STAR-Salmon (Method 3) outputs into III_RESULT/{GROUP}/.
+#
+# Per author decision (2026-04-23), STAR-Salmon is the single expression
+# quantification method reported in the manuscript; other methods are
+# preserved here for cross-method concordance verification only.
+#
+# Consumers:
+#   03_gea.sh              — primary (reads all keys)
+# ============================================================================
+
+[pipeline]
+# Gene groups for OUTPUT DIRECTORY NAMING ONLY — these strings determine the
+# III_RESULT/{GROUP}/03_Gene_Expression_Analysis/ destination subdirectory.
+# They do NOT control which genes are quantified; the actual gene set is
+# defined in each RNA-SeqMAP local_*.toml under `gene_groups` (e.g.
+# "SmelDMPs_v5_with_18s_and_HAP2"). Keep these aligned with the broader
+# Eggplant_Pipeline convention. Available: "DMP", "HAP2", "DMP-HAP2"
+gene_groups   = [
+    "DMP",
+    #"HAP2",
+    #"DMP-HAP2",
+]
+
+machine       = "Local"   # "Local" or "HPC" — selects compute profile below
+conda_env     = "gea"     # conda env created by RNA-SeqMAP/setup_conda_gea.sh
+dry_run       = false     # true = patch & diff only; do not execute RNA-SeqMAP
+
+# Regeneration toggle:
+#   true  -> run RNA-SeqMAP runners listed in [pipeline].operations to
+#            (re)generate outputs under RNA-SeqMAP/II_RESULTS, then mirror.
+#   false -> skip the RNA-SeqMAP runners entirely; mirror whatever is already
+#            in RNA-SeqMAP/II_RESULTS into III_RESULT/{GROUP}/. Use this when
+#            II_RESULTS has been copied in from another machine or a prior run
+#            and you only want to refresh the Eggplant_Pipeline output folder.
+regenerate    = false
+
+# Pipeline operations — comment out to skip a stage. Order is honoured.
+# Ignored when regenerate = false.
+#   Alignment           -> RNA-SeqMAP/run_alignment_script.sh        (STAR/M3)
+#   Post-Processing     -> RNA-SeqMAP/run_post_processing.sh         (TPM, counts, matrices)
+#   Concordance_Analysis -> RNA-SeqMAP/run_concordance_analysis.sh   (cross-method/cross-genome)
+operations = [
+    #"Alignment",
+    "Post-Processing",
+    "Concordance_Analysis",
+]
+
+[pipeline.compute.Local]
+threads       = 12
+max_parallel  = 2         # STAR is RAM-heavy; keep ≤2 concurrent jobs on 12-core box
+
+[pipeline.compute.HPC]
+threads       = 64
+max_parallel  = 4
+
+
+# ---------- RNA-SeqMAP delegation ----------
+[rnaseq_map]
+rnaseq_dir    = "RNA-SeqMAP"   # sibling pipeline workspace (under PIPELINE_DIR)
+
+
+# ---------- Operation: Alignment ----------
+# Runner:    RNA-SeqMAP/run_alignment_script.sh
+# Patches:   CONFIG_FILES=(...) array
+#
+# The orchestrator only consumes `runner`, `config_array`, and `configs` from
+# this section. The `methods` key below is DOCUMENTATION ONLY — the actual
+# enabled methods are defined inside the file pointed to by `configs`
+# (local_star_smeldmp.toml -> pipeline_stages = ["METHOD_3_STAR_ALIGNMENT"]).
+# Editing `methods` here has no runtime effect.
+#
+# Available methods inside RNA-SeqMAP — STAR (M3) is canonical for SmelDMP:
+#   M1 — HISAT2 reference-guided
+#   M2 — HISAT2 de novo
+#   M3 — STAR splice-aware (PRIMARY)
+#   M4 — Salmon SAF
+#   M5 — Bowtie2 + RSEM
+[alignment]
+runner        = "run_alignment_script.sh"
+config_array  = "CONFIG_FILES"
+configs       = [
+    "config/2_alignment/local_star_smeldmp.toml",
+]
+methods       = ["METHOD_3_STAR_ALIGNMENT"]   # documentation only (see above)
+
+
+# ---------- Operation: Post-Processing ----------
+# Runner:    RNA-SeqMAP/run_post_processing.sh
+# Patches:   PIPELINE_CONFIGS=(...) array
+#
+# Focused scope (manuscript): Heatmap_with_CV on the SmelDMP family for both
+# eggplant assemblies, M3 (STAR) only. Tximport_STAR + Matrix_Creation are
+# kept as prerequisites that build the TPM/count matrices the heatmap reads;
+# Basic_Heatmap and Differential_Expression are intentionally omitted.
+#
+# The two configs below are local narrowed copies of the upstream HPC_full
+# variants:
+#   gene_groups -> SmelDMPs_v5_with_18s_and_HAP2 (v5)
+#                  SmelDMPs_with_1_18s_rRNA      (v4.1 ortholog)
+#   analyses    -> Tximport_STAR, Matrix_Creation, Heatmap_with_CV
+[post_processing]
+runner        = "run_post_processing.sh"
+config_array  = "PIPELINE_CONFIGS"
+configs       = [
+    "config/3_post_proc_configs/local_M3_GPE001970.toml",
+    "config/3_post_proc_configs/local_M3_Eggplant_V4.1.toml",
+]
+
+
+# ---------- Operation: Concordance_Analysis ----------
+# Runner:    RNA-SeqMAP/run_concordance_analysis.sh
+# Patches:   CONCORDANCE_CONFIGS=(...) array
+#
+# Focused scope (manuscript): the equivalent-gene cross is the only one whose
+# outputs are mirrored into III_RESULT/ — it produces the per-gene cross-
+# genome heatmap referenced in the manuscript. The genomes-vs-genomes cross
+# is also RUN (so the data is available in RNA-SeqMAP/II_RESULTS/ for ad-hoc
+# inspection) but its outputs are excluded from the mirror via
+# [output].mirror_include_patterns. Methods-vs-methods and within-gene-group
+# crosses are disabled entirely (commented out below).
+#
+# Cross modes (concordance_mode in each TOML):
+#   cross_equivalent_gene — per-gene cross-genome correlation (RUN + MIRRORED)
+#   cross_genome          — fix one method, compare reference genomes (RUN ONLY, mirror excluded)
+#   cross_method          — fix one genome, compare M1..M5 TPMs (DISABLED)
+#   cross_gene_group      — fix method+genome, compare gene groups (DISABLED)
+#
+# Outputs land in:
+#   RNA-SeqMAP/II_RESULTS/4_CONCORDANCE_ANALYSIS/<cross_mode>_concordance/...
+# and are mirrored into III_RESULT/{GROUP}/03_Gene_Expression_Analysis/
+# RNA-SeqMAP/ subject to [output].mirror_extensions and the include/exclude
+# pattern filters in [output].
+[concordance_analysis]
+runner        = "run_concordance_analysis.sh"
+config_array  = "CONCORDANCE_CONFIGS"
+
+# Active concordance crosses — order is preserved; comment out to skip.
+# Both entries below point at LOCAL narrowed copies of the upstream cross_*
+# files; the local copies restrict gene_groups to the SmelDMP family and
+# (for genomes-vs-genomes) fix the method to M3_STAR_Align.
+configs       = [
+    #"config/4_concordance_combination/local_cross_methods_vs_methods.toml",
+    "config/4_concordance_combination/local_cross_genomes_vs_genomes.toml",
+    "config/4_concordance_combination/local_cross_equivalent_gene_between_genomes.toml",
+    #"config/4_concordance_combination/cross_within_gene_group_vs_within_gene_group.toml",
+]
+
+
+# ============================================================================
+# !!! IMPORTANT — concordance sub-blocks below are DOCUMENTATION ONLY !!!
+# ============================================================================
+# The orchestrator (03_gea.sh) does NOT read keys from these sub-blocks. They
+# exist for traceability — to make the active configuration (mode, gene
+# groups, fixed method, ortholog map) visible at a glance without having to
+# open every RNA-SeqMAP/config/4_concordance_combination/local_cross_*.toml
+# file. Changes to keys below have NO runtime effect.
+#
+# To actually change a concordance cross's behaviour, edit the corresponding
+# file in RNA-SeqMAP/config/4_concordance_combination/. If you do, also
+# update the matching sub-block here so the documentation stays in sync.
+# ============================================================================
+
+# ---- Cross 1: Genomes vs Genomes (PRIMARY — ACTIVE) --------------------------
+# Fix the alignment method to M3 (STAR); compare TPMs across the v5 and v4.1
+# eggplant assemblies. Produces a genome-vs-genome Spearman correlation
+# heatmap. The genome_gene_groups_map below threads the v4.1 ortholog name
+# (SmelDMPs_with_1_18s_rRNA) through positional CSV order so each row pairs
+# correctly across assemblies.
+#   File: config/4_concordance_combination/local_cross_genomes_vs_genomes.toml
+[concordance_analysis.genomes_vs_genomes]
+mode               = "cross_genome"
+fixed_method       = "M3_STAR_Align"
+genomes            = ["GPE001970_genome", "Eggplant_V4.1"]
+gene_groups        = ["SmelDMPs_v5_with_18s_and_HAP2"]
+
+# Positional orthology map. Same comma-position = orthologous row across genomes.
+# Format: "genome1=csv1;genome2=csv2"
+genome_gene_groups_map = "GPE001970_genome=SmelDMPs_v5_with_18s_and_HAP2;Eggplant_V4.1=SmelDMPs_with_1_18s_rRNA"
+
+
+# ---- Cross 2: Methods vs Methods (commented out — kept for traceability) -----
+# Fix the reference genome; compare TPMs from all five quantification methods.
+# Disabled per author decision: STAR-Salmon is the single reported method, so
+# cross-method agreement is not part of the focused output. Re-enable by
+# uncommenting the corresponding entry in [concordance_analysis].configs.
+#   File: config/4_concordance_combination/local_cross_methods_vs_methods.toml
+[concordance_analysis.methods_vs_methods]
+mode             = "cross_method"
+master_reference = "GPE001970"
+methods          = ["M1_HISAT2_RefGuided", "M2_HISAT2_DeNovo", "M3_STAR_Align", "M4_Salmon_Saf", "M5_RSEM_Bowtie2"]
+gene_groups      = ["SmelDMPs_v5_with_18s_and_HAP2"]
+
+
+# ---- Cross 3: Equivalent Gene Between Genomes (PRIMARY — ACTIVE) -------------
+# Per-gene cross-genome correlation. For each ortholog pair, computes a
+# Spearman correlation across samples between the v5 and v4.1 assemblies and
+# emits a side-by-side expression heatmap. Manuscript-referenced output:
+#   4_CONCORDANCE_ANALYSIS/cross_equivalent_gene_between_genomes_concordance/
+#       figures/equivalent_gene_heatmap_SmelDMPs_v5_with_18s_and_HAP2.png
+#   File: config/4_concordance_combination/local_cross_equivalent_gene_between_genomes.toml
+[concordance_analysis.equivalent_gene]
+mode               = "cross_equivalent_gene"
+fixed_method       = "M3_STAR_Align"
+genomes            = ["GPE001970_genome", "Eggplant_V4.1"]
+gene_groups        = ["SmelDMPs_v5_with_18s_and_HAP2"]
+genome_gene_groups_map = "GPE001970_genome=SmelDMPs_v5_with_18s_and_HAP2;Eggplant_V4.1=SmelDMPs_with_1_18s_rRNA"
+
+
+# ---- Cross 4: Within Gene Group vs Within Gene Group (optional) --------------
+# Fix method + genome; compare expression patterns across gene groups.
+#   File: config/4_concordance_combination/cross_within_gene_group_vs_within_gene_group.toml
+[concordance_analysis.within_gene_group]
+mode             = "cross_gene_group"
+fixed_method     = "M3_STAR_Align"
+master_reference = "GPE001970_genome"
+gene_groups      = ["SmelDMPs_v5_with_18s_and_HAP2"]
+
+
+# ---------- Output mirroring ----------
+# Only output figures and tabular files are copied from the RNA-SeqMAP
+# workspace into the Eggplant_Pipeline output folder. Heavy intermediates
+# (BAMs, BAM indexes, _STARtmp/, FASTQ, genome indexes, .log files) stay
+# in RNA-SeqMAP/ and are NOT mirrored.
+[output]
+# Final destination (relative to PIPELINE_DIR):
+#   {result_root}/{GROUP}/{subdir}/<relative-path-under-mirror_source>/...
+result_root   = "III_RESULT"
+subdir        = "03_Gene_Expression_Analysis/RNA-SeqMAP"
+
+# Source tree to scan (relative to RNA-SeqMAP/). Walks recursively and
+# preserves relative paths so files from different stages don't collide.
+mirror_source = "II_RESULTS"
+
+# File extensions to mirror (figures + tabular outputs only).
+# Matched case-insensitively. Add/remove as needed.
+mirror_extensions = [
+    "png",   # raster figures
+    "svg",   # vector figures
+    "pdf",   # vector reports
+    "csv",   # tables
+    "tsv",   # tables (ReadsPerGene, TPM matrices)
+    "html",  # interactive viewers (Expression_Analysis_Report etc.)
+    "md",    # markdown summaries
+]
+
+# Path filters applied to the path RELATIVE to mirror_source. Both arrays use
+# bash extended regex (anchored where shown). A file is mirrored ONLY when:
+#   1. it matches at least one mirror_include_patterns entry, AND
+#   2. it matches NO mirror_exclude_patterns entry
+# Empty mirror_include_patterns = match everything (then excludes still apply).
+# Empty mirror_exclude_patterns = no exclusions.
+mirror_include_patterns = [
+    # 2_ALIGNMENT_RESULTs: only the M3 (STAR) alignment subtree
+    "^2_ALIGNMENT_RESULTs/M3_STAR_Align(/|$)",
+    # 3_POST_PROC: only SmelDMP gene groups, only their M3_STAR_Align subtree
+    "^3_POST_PROC/SmelDMPs_[^/]+/M3_STAR_Align(/|$)",
+    # 4_CONCORDANCE_ANALYSIS: only the equivalent-gene cross (the only
+    # concordance output the manuscript references). All other cross_*
+    # subdirectories — including any left over in II_RESULTS from prior runs
+    # of the methods-vs-methods, genomes-vs-genomes, within-gene-group, and
+    # cross_genome_gene_expression_divergence outputs — are intentionally
+    # not matched by any include pattern and are therefore skipped.
+    "^4_CONCORDANCE_ANALYSIS/cross_equivalent_gene_between_genomes_concordance(/|$)",
+]
+
+mirror_exclude_patterns = [
+    # Block any GRF-GIF artefacts that slip through the include patterns.
+    # RNA-SeqMAP uses both spellings — `GRF_GIF` (underscore) for the v4.1
+    # group, `GRF-GIF` (hyphen) for the v5 group — so the regex `GRF[-_]GIF`
+    # covers both. This catches nested figure-output dirs whose path matches
+    # an include pattern at the top but contains GRF-GIF deeper down, e.g.:
+    #   3_POST_PROC/SmelDMPs_with_1_18s_rRNA/M3_STAR_Align/Figure_Outputs/
+    #     II_Heatmap_with_CV/Eggplant_V4.1/SmelGRF-GIF_with_1_18s_rRNA_in_*/
+    "GRF[-_]GIF",
+]
+
+# Copy strategy:
+#   copy = full duplicate via `cp -p` (preserves mode + mtime). The mirrored
+#          tree is fully independent of RNA-SeqMAP/II_RESULTS — safe to delete
+#          either side, safe to archive III_RESULT/ on its own, safe across
+#          filesystems. Costs disk space proportional to mirrored data.
+#   link = hardlink via `cp -l`. Zero disk-space cost — both paths point at
+#          the same inode. RNA-SeqMAP must live on the same filesystem as
+#          III_RESULT/ for hardlinking to work; otherwise falls back to a
+#          full copy with `cp -p`. Note: when RNA-SeqMAP is re-run, most
+#          tools write atomically (unlink+rename), which BREAKS the link;
+#          the III_RESULT/ side then sees the old content until the next
+#          `bash 03_gea.sh` invocation refreshes the mirror.
+copy_mode     = "copy"
+
+
+# ---------- References ----------
+# !!! DOCUMENTATION ONLY — not consumed by 03_gea.sh !!!
+# The actual genome/GTF paths are set inside RNA-SeqMAP's TOMLs (under
+# RNA-SeqMAP/I_INPUTS/) so that RNA-SeqMAP runs standalone without this
+# codebase. The keys below are reproduced here purely for traceability;
+# editing them has no runtime effect.
+[reference]
+genome_v5     = "I_INPUTS/inputs/2_alignment_input/reference_genome/GPE001970.fa"
+gtf_v5        = "I_INPUTS/inputs/2_alignment_input/reference/GPE001970_genome.gtf"
+genome_v4_1   = "I_INPUTS/inputs/2_alignment_input/reference_genome/Eggplant_V4.1.fa"
+gtf_v4_1      = "I_INPUTS/inputs/2_alignment_input/reference/Eggplant_V4.1_function_IPR_final_stringtie.gtf"
+
+# SRR project — PRJNA328564 (eggplant tissue-specific RNA-seq, 89 bp reads)
+srr_project   = "PRJNA328564"

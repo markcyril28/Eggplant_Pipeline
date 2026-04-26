@@ -102,14 +102,17 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
     # Default ymax (used by combined fig + table layout) is the capped variant
     ymax = ymax_capped
 
-    # Top 3 per gene by score descending
+    # Candidate pool for the comparison tables: ALL guides, grouped by gene
+    # and sorted by on-target score descending. Inclusion in the strict and
+    # moderate tables is controlled solely by the score/off-target thresholds
+    # declared in the TOML config (no hidden top-N cap).
     from collections import defaultdict as _dd
     _per_gene = _dd(list)
     for d in sorted(data, key=lambda d: d["score"], reverse=True):
         _per_gene[d["gene"]].append(d)
     best = []
     for _gene in sorted(_per_gene.keys()):
-        best.extend(_per_gene[_gene][:3])
+        best.extend(_per_gene[_gene])
     has_table = bool(best)
 
     gene_set       = sorted(set(d["gene"] for d in data))
@@ -217,7 +220,27 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
         ax.legend(handles=gene_patches + tier_handles + thresh_handles,
                   fontsize=7, loc="upper left", ncol=2, framealpha=0.92)
 
-    def _draw_table(fig, ax_t):
+    # Threshold-tier palette (matches scatter line colors)
+    STRICT_COLOR   = "#2ca02c"   # green: passes strict thresholds
+    MODERATE_COLOR = "#ff7f0e"   # orange: passes moderate but not strict
+
+    def _row_tier_color(row_d):
+        """Return hex color for a row based on which threshold tier it satisfies.
+
+        Strict = score >= SCORE_HIGH AND off-targets <= offtarget_thresh.
+        Otherwise the row is rendered with the moderate-tier color.
+        """
+        passes_strict = (row_d["score"] >= SCORE_HIGH
+                         and row_d["offtargets"] <= offtarget_thresh)
+        return STRICT_COLOR if passes_strict else MODERATE_COLOR
+
+    def _draw_table(fig, ax_t, variant="strict"):
+        # variant: "strict" -> green header/title; "moderate" -> orange.
+        header_color = STRICT_COLOR if variant == "strict" else MODERATE_COLOR
+        title = ("Guides Passing Strict Thresholds  (ranked by on-target score)"
+                 if variant == "strict"
+                 else "Guides Passing Moderate Thresholds  (ranked by on-target score)")
+
         col_labels = ["Gene", "Guide", "Score", "Off-targets", "Strand", "%GC",
                       "Sequence  (5'→3')"]
         table_rows = [
@@ -244,27 +267,57 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
         tbl.set_fontsize(8.5)
         tbl.auto_set_column_width(list(range(len(col_labels))))
 
-        # Header row
+        # Header row: no fill, bold text only
         for j in range(len(col_labels)):
             cell = tbl[0, j]
-            cell.set_facecolor("#2ca02c")
-            cell.set_text_props(color="white", fontweight="bold")
+            cell.set_facecolor("white")
+            cell.set_text_props(fontweight="bold")
 
-        # Data rows: gene-color tinted, monospace sequence column
+        # Data rows: leave most cells unfilled; tint only the Score (col 2)
+        # and Off-targets (col 3) cells by which threshold tier the row passes.
+        SCORE_COL_IDX     = 2
+        OFFTARGET_COL_IDX = 3
         for i, row_d in enumerate(best, start=1):
-            gene_hex  = gene_color_map.get(row_d["gene"], "#888888")
-            row_color = _lighten(gene_hex, alpha=0.22)
+            tier_hex  = _row_tier_color(row_d)
+            cell_tint = _lighten(tier_hex, alpha=0.22)
             for j in range(len(col_labels)):
-                tbl[i, j].set_facecolor(row_color)
+                tbl[i, j].set_facecolor("white")
+            tbl[i, SCORE_COL_IDX].set_facecolor(cell_tint)
+            tbl[i, OFFTARGET_COL_IDX].set_facecolor(cell_tint)
             tbl[i, 6].set_text_props(family="monospace")
-            tbl[i, 0].set_facecolor(_lighten(gene_hex, alpha=0.40))
-            tbl[i, 0].set_text_props(color=gene_hex, fontweight="bold")
 
-        # Section title above table axes
+        # Section title above table axes (color matches header)
         fig.text(0.5, ax_t.get_position().y1 + 0.008,
-                 "Top 3 Guide Sequences per Gene  (ranked by on-target score)",
+                 title,
                  ha="center", va="bottom", fontsize=9,
-                 fontweight="bold", color="#2ca02c")
+                 fontweight="bold", color=header_color)
+
+        # Tier legend: explains the Score / Off-targets cell tints
+        legend_handles = [
+            mpatches.Patch(
+                facecolor=_lighten(STRICT_COLOR, alpha=0.22),
+                edgecolor="#666666", linewidth=0.6,
+                label=f"Strict: score ≥ {SCORE_HIGH:g}, "
+                      f"off-targets ≤ {offtarget_thresh:g}",
+            ),
+            mpatches.Patch(
+                facecolor=_lighten(MODERATE_COLOR, alpha=0.22),
+                edgecolor="#666666", linewidth=0.6,
+                label=f"Moderate: score ≥ {SCORE_MOD:g}, "
+                      f"off-targets ≤ {int(offtarget_moderate):g}",
+            ),
+        ]
+        ax_t.legend(
+            handles=legend_handles,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 1.0),
+            ncol=2,
+            fontsize=7.5,
+            frameon=False,
+            handlelength=1.4,
+            handleheight=1.0,
+            columnspacing=1.4,
+        )
 
     # ── Output directory layout ───────────────────────────────────────────
     #   <output_dir>/
@@ -281,13 +334,19 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
     os.makedirs(tables_dir,  exist_ok=True)
 
     # ── Combined (scatter + table) ─────────────────────────────────────────
+    # Embed only the strict-passing shortlist so the figure doesn't blow up.
+    _all_candidates = list(best)
+    strict_passing = [d for d in _all_candidates
+                      if d["score"] >= SCORE_HIGH and d["offtargets"] <= offtarget_thresh]
     fig_c, ax_c = plt.subplots(figsize=(11, 11))
     fig_c.subplots_adjust(bottom=0.50, top=0.94, left=0.10, right=0.95)
     _draw_scatter(fig_c, ax_c, ymax_capped)
-    if has_table:
+    if strict_passing:
+        best = strict_passing
         n_rows = len(best)
         ax_t_c = fig_c.add_axes([0.06, 0.10, 0.90, min(0.06 + n_rows * 0.055, 0.26)])
-        _draw_table(fig_c, ax_t_c)
+        _draw_table(fig_c, ax_t_c, variant="strict")
+        best = _all_candidates
     path_c = os.path.join(output_dir, f"guide_comparison.{fmt}")
     fig_c.savefig(path_c, dpi=dpi, bbox_inches="tight")
     plt.close(fig_c)
@@ -336,7 +395,7 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
               "Sequence_5to3", "Tier",
               "Score_threshold", "Offtarget_threshold"]
 
-    # Cache the unfiltered top-3 list so we can restore it between variants
+    # Cache the full candidate list so we can restore it between variants
     best_for_table = list(best)
 
     for variant in table_variants:
@@ -380,12 +439,12 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
             fig_height = max(3.0, 1.2 + n_rows * 0.42)
             fig_t, ax_t = plt.subplots(figsize=(11, fig_height))
             fig_t.subplots_adjust(top=0.82, bottom=0.01, left=0.005, right=0.995)
-            _draw_table(fig_t, ax_t)
+            _draw_table(fig_t, ax_t, variant=v_label)
             path_t = os.path.join(tables_dir, f"guide_comparison_table{v_suffix}.{fmt}")
             fig_t.savefig(path_t, dpi=dpi, bbox_inches="tight", pad_inches=0.02)
             plt.close(fig_t)
             print(f"  tables/guide_comparison_table{v_suffix}.{fmt} -> {path_t} "
-                  f"({len(passing)} of {len(best_for_table)} top-3 guides passed "
+                  f"({len(passing)} of {len(best_for_table)} guides passed "
                   f"{v_label} thresholds)")
             best = best_for_table
         else:

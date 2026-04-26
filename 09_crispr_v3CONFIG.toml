@@ -31,7 +31,7 @@
 #  ─── Reused modules (all under modules/09_crispr_analysis/v2/) ─────────────
 #    v3 does NOT fork the Python code; the v2 modules are the source of
 #    truth. v3 behaviour is expressed entirely through (a) this TOML,
-#    (b) the group override config/{GROUP}/09_crispr_analysis_v3.toml, and
+#    (b) the group override config/{GROUP}/09_crispr_analysis_v3_{GROUP}.toml, and
 #    (c) the orchestrator i_crispr_v3_pipeline.sh. Bug fixes in v2
 #    automatically propagate to v3.
 # ============================================================================
@@ -71,7 +71,7 @@ max_parallel  = 16
 #     [reference].<genome_name>_gtf
 #
 # So the shared TOML does NOT need to populate [reference] itself — the
-# values live in each gene group's config/{GROUP}/00_common.toml (which is
+# values live in each gene group's config/{GROUP}/00_common_{GROUP}.toml (which is
 # merged in by i_crispr_v3_pipeline.sh). The stub below documents the
 # expected shape and shows the current DMP reality; copy the active block
 # into any new 00_common.toml when onboarding a new gene group.

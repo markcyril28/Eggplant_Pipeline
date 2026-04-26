@@ -9,7 +9,7 @@
 # Module scripts under modules/09_crispr_analysis/v2/ are SHARED with v2 —
 # v3 expresses plant-first behaviour only through this orchestrator, the
 # TOML config 09_crispr_v3CONFIG.toml, and the group override
-# config/{GROUP}/09_crispr_analysis_v3.toml.
+# config/{GROUP}/09_crispr_analysis_v3_{GROUP}.toml.
 #
 # Mode:
 #   mode = "crisprp_only"   (only supported mode in v3)
@@ -462,17 +462,17 @@ for GENE_GROUP in "${GENE_GROUPS[@]}"; do
 # ── Config resolution ────────────────────────────────────────────────────────
 MERGE_TOML="$MODULES/utils/merge_toml.py"
 CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
-if [[ -d "$CONFIG_DIR" && -f "$CONFIG_DIR/09_crispr_analysis_v3.toml" ]]; then
+if [[ -d "$CONFIG_DIR" && -f "$CONFIG_DIR/09_crispr_analysis_v3_${GENE_GROUP}.toml" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_crispr_v3_cfg_XXXXXX.toml")
     python3 "$MERGE_TOML" \
         "$PIPELINE_DIR/09_crispr_v3CONFIG.toml" \
-        "$CONFIG_DIR/00_common.toml" \
-        "$CONFIG_DIR/09_crispr_analysis_v3.toml" \
+        "$CONFIG_DIR/00_common_${GENE_GROUP}.toml" \
+        "$CONFIG_DIR/09_crispr_analysis_v3_${GENE_GROUP}.toml" \
         > "$CONFIG_FILE"
     TMP_CONFIG_FILES+=("$CONFIG_FILE")
 else
     CONFIG_FILE="$SHARED_CONFIG"
-    log_warn "No group override config/${GENE_GROUP}/09_crispr_analysis_v3.toml — using shared config only."
+    log_warn "No group override config/${GENE_GROUP}/09_crispr_analysis_v3_${GENE_GROUP}.toml - using shared config only."
 fi
 
 # ── Compute settings ─────────────────────────────────────────────────────────

@@ -132,10 +132,9 @@ eggplant_pattern     = "^SMEL5_|^Smel_|^SMELG"  # matches raw eggplant sequence 
 # --- Outgroup ---
 # Universal outgroup for both amino acid and nucleotide phylogenetic trees:
 #   PpDMP5-like  (Physcomitrella patens, moss — distant land plant)
-#   SiDMP10      (Setaria italica, foxtail millet — monocot)
-outgroup_pattern     = "PpDMP5-like|SiDMP10"  # regex matching universal outgroup tip labels (moss + monocot); both must match present tips for MRCA rooting, else R falls back to single-tip rooting
-exclude_tips         = "BdDMP2.*Outgroup,GrDMP10.*Outgroup"  # remove AA-only outgroups absent from NT trees so AA/NT figures stay comparable
-root_outgroup        = true       # root tree on outgroup MRCA before rendering
+outgroup_pattern     = "PpDMP5-like"  # regex matching universal outgroup tip label; single-tip rooting on the moss DMP5-like sequence
+exclude_tips         = "BdDMP2.*Outgroup,GrDMP10.*Outgroup,SiDMP10.*"  # remove AA-only outgroups absent from NT trees so AA/NT figures stay comparable; SiDMP10 dropped (PpDMP5-like is sole outgroup)
+root_outgroup        = true       # root tree on PpDMP5-like before rendering
 
 # --- Branch ---
 branch_color         = "grey20"    # line color; grey20 is softer than black at print resolution

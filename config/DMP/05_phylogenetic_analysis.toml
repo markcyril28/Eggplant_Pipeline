@@ -3,7 +3,9 @@
 # ============================================================================
 
 [phylogenetics]
-software = ["MEGA_CC"]
+# Software list inherited from 05_phyloCONFIG.toml (["iqtree2", "raxml"]).
+# Uncomment and edit below to override for DMP only.
+# software = ["iqtree2", "raxml"]
 input_pattern = "*.fas"
 
 # Alignment files to include in phylogenetic analysis.
@@ -39,11 +41,35 @@ input_files = [
 
     # --- GPE001970 (unito) — selected_v1_full_* (standalone curated sets) --- v1 Full Selected
     # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_nucleotide/CLUSTALO_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
-    "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_nucleotide/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+    #"GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_nucleotide/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
     # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_nucleotide/MUSCLE_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
     # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_amino_acid/CLUSTALO_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
-    "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_amino_acid/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+    #"GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_amino_acid/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
     # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_amino_acid/MUSCLE_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+
+    # --- GPE001970 (unito) — selected_v1_full_HI_DMPs_* (HMMER hits + verified haploid-inducer panel) ---
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_HI_DMPs_nucleotide/CLUSTALO_aligned/per_genome_gpe001970_and_HI_DMPs_NUCLEOTIDE_Sequence.fas",
+    #"GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_HI_DMPs_nucleotide/MAFFT_aligned/per_genome_gpe001970_and_HI_DMPs_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_HI_DMPs_nucleotide/MUSCLE_aligned/per_genome_gpe001970_and_HI_DMPs_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_HI_DMPs_amino_acid/CLUSTALO_aligned/per_genome_gpe001970_and_HI_DMPs_AMINO_ACID_Sequence.fas",
+    #"GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_HI_DMPs_amino_acid/MAFFT_aligned/per_genome_gpe001970_and_HI_DMPs_AMINO_ACID_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_HI_DMPs_amino_acid/MUSCLE_aligned/per_genome_gpe001970_and_HI_DMPs_AMINO_ACID_Sequence.fas",
+
+    # --- GPE001970 (unito) — selected_v3_full_and_HI_DMPs_* (Selected Crop Species + HI panel, deduplicated) ---
+    # "GPE001970_SMEL5/Selected_Result/v3_Full_and_HI_DMPs/selected_v3_full_and_HI_DMPs_nucleotide/CLUSTALO_aligned/per_genome_gpe001970_Full_and_HI_DMPs_NUCLEOTIDE_Sequence.fas",
+    #"GPE001970_SMEL5/Selected_Result/v3_Full_and_HI_DMPs/selected_v3_full_and_HI_DMPs_nucleotide/MAFFT_aligned/per_genome_gpe001970_Full_and_HI_DMPs_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v3_Full_and_HI_DMPs/selected_v3_full_and_HI_DMPs_nucleotide/MUSCLE_aligned/per_genome_gpe001970_Full_and_HI_DMPs_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v3_Full_and_HI_DMPs/selected_v3_full_and_HI_DMPs_amino_acid/CLUSTALO_aligned/per_genome_gpe001970_Full_and_HI_DMPs_AMINO_ACID_Sequence.fas",
+    #"GPE001970_SMEL5/Selected_Result/v3_Full_and_HI_DMPs/selected_v3_full_and_HI_DMPs_amino_acid/MAFFT_aligned/per_genome_gpe001970_Full_and_HI_DMPs_AMINO_ACID_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v3_Full_and_HI_DMPs/selected_v3_full_and_HI_DMPs_amino_acid/MUSCLE_aligned/per_genome_gpe001970_Full_and_HI_DMPs_AMINO_ACID_Sequence.fas",
+
+    # --- GPE001970 (unito) — selected_v4_blast_groups_merged_* (union of 7 SmelDMP BLAST groups, anchor + Bit Score >= 200 hits, deduped by header) ---
+    # "GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_nucleotide/CLUSTALO_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_NUCLEOTIDE_Sequence.fas",
+    "GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_nucleotide/MAFFT_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_nucleotide/MUSCLE_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_NUCLEOTIDE_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_amino_acid/CLUSTALO_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_AMINO_ACID_Sequence.fas",
+    "GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_amino_acid/MAFFT_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_AMINO_ACID_Sequence.fas",
+    # "GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_amino_acid/MUSCLE_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_AMINO_ACID_Sequence.fas",
 
     # --- GPE001970 (unito) — selected_v2_reduced_nucleotide ---
     # "GPE001970_SMEL5/Selected_Result/v2_Reduced/selected_v2_reduced_nucleotide/CLUSTALO_aligned/v2_nucleotide.fas",

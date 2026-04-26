@@ -117,7 +117,7 @@ if [[ "$QCOV_HSP_PERC" -gt 0 ]]; then
     OPTIONAL_FLAGS+=(-qcov_hsp_perc "$QCOV_HSP_PERC")
 fi
 
-# Single BLAST run — save as archive, then derive CSV and TXT
+# Single BLAST run: save as archive, then derive CSV and TXT
 blastp -query "$QUERY_FASTA" -db "$DB_PATH" \
     -evalue "$E_VALUE" -word_size "$WORD_SIZE" \
     -matrix "$MATRIX" \

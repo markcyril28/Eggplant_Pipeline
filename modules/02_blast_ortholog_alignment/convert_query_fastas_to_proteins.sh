@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$CONFIG_FILE" ]]; then
-	CANDIDATE="$PIPELINE_DIR/config/$GENE_GROUP/02_blast_alignment.toml"
+	CANDIDATE="$PIPELINE_DIR/config/$GENE_GROUP/02_blast_ortholog_alignment.toml"
 	if [[ -f "$CANDIDATE" ]]; then
 		CONFIG_FILE="$CANDIDATE"
 	else
@@ -95,8 +95,9 @@ read_toml_list() {
 	raw=$(get_toml "$section" "$key" 2>/dev/null || true)
 	[[ -z "${raw// }" ]] && return 0
 
+	# parse_toml.py emits one item per line; mapfile preserves paths with spaces
 	local items=()
-	read -r -a items <<< "$raw"
+	mapfile -t items <<< "$raw"
 	printf '%s\n' "${items[@]}"
 }
 

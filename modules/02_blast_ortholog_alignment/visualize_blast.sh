@@ -3,7 +3,7 @@
 # Module: BLASTn Visualization
 # ============================================================================
 # Thin wrapper that invokes visualize_blast_results.py for one curated-results
-# directory.  Called by b_blast_alignment.sh after BLASTn CSVs are generated.
+# directory.  Called by 02_blast_alignment.sh after BLASTn CSVs are generated.
 #
 # Usage:
 #   bash visualize_blast.sh \
@@ -33,6 +33,7 @@ LOLLIPOP_DOT_SIZE="100"
 LOLLIPOP_DOT_SIZE_HI="150"
 HI_STEM_COLOR="#c7920a"
 STEM_COLOR="#d1d5db"
+HI_LABELS=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -53,6 +54,7 @@ while [[ $# -gt 0 ]]; do
         --lollipop-dot-size-hi) LOLLIPOP_DOT_SIZE_HI="$2"; shift 2 ;;
         --hi-stem-color)        HI_STEM_COLOR="$2";      shift 2 ;;
         --stem-color)           STEM_COLOR="$2";         shift 2 ;;
+        --hi-labels)            HI_LABELS="$2";          shift 2 ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
@@ -62,6 +64,9 @@ done
 
 _GENE_GROUP_ARG=()
 [[ -n "$GENE_GROUP" ]] && _GENE_GROUP_ARG=(--gene-group "$GENE_GROUP")
+
+_HI_LABELS_ARG=()
+[[ -n "$HI_LABELS" ]] && _HI_LABELS_ARG=(--hi-labels "$HI_LABELS")
 
 python3 "$SCRIPT_DIR/visualize_blast_results.py" \
     --results-dir "$RESULTS_DIR" \
@@ -80,4 +85,5 @@ python3 "$SCRIPT_DIR/visualize_blast_results.py" \
     --lollipop-dot-size "$LOLLIPOP_DOT_SIZE" \
     --lollipop-dot-size-hi "$LOLLIPOP_DOT_SIZE_HI" \
     --hi-stem-color "$HI_STEM_COLOR" \
-    --stem-color "$STEM_COLOR"
+    --stem-color "$STEM_COLOR" \
+    "${_HI_LABELS_ARG[@]}"

@@ -1,9 +1,9 @@
 #!/bin/bash
 # ============================================================================
-# Program 4: Phylogenetic Analysis
+# Stage 05: Phylogenetic Analysis
 # ============================================================================
 # Comment in/out the gene groups below, then run:
-#   bash e_phylo.sh
+#   bash 05_phylo.sh
 # ============================================================================
 
 set -euo pipefail
@@ -155,15 +155,13 @@ MSA_DIR_NAME=$(get_toml output_dirs msa 2>/dev/null || echo "04_MSA")
 ALIGN_DIR="$BASE_DIR/$MSA_DIR_NAME"
 PHYLO_INPUT_PATTERN=$(get_toml phylogenetics input_pattern 2>/dev/null || echo "*.fas")
 
-# Read input_subdirs array; fall back to legacy input_subdir scalar if absent
-_raw_subdirs=$(get_toml phylogenetics input_subdirs 2>/dev/null || echo "")
-if [[ -z "$_raw_subdirs" ]]; then
-    _legacy=$(get_toml phylogenetics input_subdir 2>/dev/null || echo "")
-    [[ -n "$_legacy" ]] && _raw_subdirs="$_legacy"
+# Read input_subdirs array; fall back to legacy input_subdir scalar if absent.
+# parse_toml.py emits one item per line, so use mapfile (read -ra would only
+# capture the first line and silently drop the rest).
+mapfile -t PHYLO_INPUT_SUBDIRS < <(get_toml phylogenetics input_subdirs 2>/dev/null || true)
+if (( ${#PHYLO_INPUT_SUBDIRS[@]} == 0 )); then
+    mapfile -t PHYLO_INPUT_SUBDIRS < <(get_toml phylogenetics input_subdir 2>/dev/null || true)
 fi
-
-IFS=' ' read -ra PHYLO_INPUT_SUBDIRS <<< "$_raw_subdirs"
-unset _raw_subdirs _legacy
 
 # Validate every configured subdir and build the list of real paths
 ALIGN_INPUT_DIRS=()
@@ -178,10 +176,10 @@ for _subdir in "${PHYLO_INPUT_SUBDIRS[@]:-}"; do
 done
 unset _subdir _dir
 
-# Read input_files array (direct .fas file references, relative to ALIGN_DIR)
-_raw_files=$(get_toml phylogenetics input_files 2>/dev/null || echo "")
+# Read input_files array (direct .fas file references, relative to ALIGN_DIR).
+# Use mapfile because parse_toml.py emits one entry per line.
+mapfile -t _file_list < <(get_toml phylogenetics input_files 2>/dev/null || true)
 ALIGN_INPUT_FILES=()
-IFS=' ' read -ra _file_list <<< "$_raw_files"
 for _f in "${_file_list[@]:-}"; do
     [[ -z "$_f" ]] && continue
     _fp="$ALIGN_DIR/$_f"
@@ -191,14 +189,14 @@ for _f in "${_file_list[@]:-}"; do
         log_warn "Phylo input file not found, skipping: $_fp"
     fi
 done
-unset _raw_files _file_list _f _fp
+unset _file_list _f _fp
 
 PHYLO_DIR_NAME=$(get_toml output_dirs phylogenetics 2>/dev/null || echo "05_Phylogenetics")
 PHYLO_DIR="$BASE_DIR/$PHYLO_DIR_NAME"
 mkdir -p "$PHYLO_DIR"
 
 if (( MAX_PARALLEL < 1 )); then
-    log_error "max_parallel_software must be >= 1 (current: $MAX_PARALLEL)"
+    log_error "pipeline.compute.${MACHINE}.max_parallel must be >= 1 (current: $MAX_PARALLEL)"
     exit 1
 fi
 
@@ -275,17 +273,18 @@ for software in "${PHYLO_SOFTWARE[@]}"; do
             fi
             wait_for_slot "$max_parallel"
 
-            # Derive genome name from the top-level subdirectory under ALIGN_DIR
+            # Mirror the full MSA folder layout under PHYLO_DIR. Pass the relative
+            # parent of the aligned file (relative to ALIGN_DIR, basename stripped)
+            # as --subpath so each tree lands beside its source alignment:
+            #   <ALIGN_DIR>/<genome>/<output_subdir>/<set>/<METHOD>_aligned/foo.fas
+            #     →  <PHYLO_DIR>/<genome>/<output_subdir>/<set>/<METHOD>_aligned/<software>/foo_<software>.<ext>
             _rel_path="${aligned#$ALIGN_DIR/}"
-            if [[ "$_rel_path" == *"/"* ]]; then
-                _genome_name="${_rel_path%%/*}"
-            else
-                _genome_name=""
-            fi
+            _subpath="$(dirname "$_rel_path")"
+            [[ "$_subpath" == "." ]] && _subpath=""
 
             extra_args=()
             config_args=()
-            [[ -n "$_genome_name" ]] && extra_args+=(--genome-name "$_genome_name")
+            [[ -n "$_subpath" ]] && extra_args+=(--subpath "$_subpath")
             if [[ "$software" == "MEGA_CC" ]]; then
                 config_args+=(--config "$MEGACC_CONFIG_MAO")
                 [[ -n "$MEGACC_CONFIG_NUC" ]] && extra_args+=(--megacc-config-nuc "$MEGACC_CONFIG_NUC")

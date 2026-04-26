@@ -7,26 +7,41 @@
 # ============================================================================
 
 [pipeline]
+# Gene groups to run phylogenetic analysis on. Each entry resolves to
+# config/{GROUP}/05_phylogenetic_analysis.toml (input_files) merged on top of
+# these shared defaults.
+# Available: "DMP", "HAP2", "DMP-HAP2"
+gene_groups = [
+    "DMP",
+    #"HAP2",
+    #"DMP-HAP2",
+]
+
 machine   = "Local"  # "Local" or "HPC" — selects compute profile below
 overwrite = true
 operations = [
-    #"build_tree",          # Already built from the HPC. 
-    #"visualize_tree",
-    #"compare_trees",   # IQ-TREE2 vs RAxML tanglegram; exits gracefully if only one software was run   
+    "build_tree",          # Already built from the HPC. 
+    "visualize_tree",
+    "compare_trees",   # IQ-TREE2 vs RAxML tanglegram; exits gracefully if only one software was run   
     "combined_bootstrap_tree"
 ]
 
 [pipeline.compute.Local]
 threads      = 12  # Total CPU threads
-max_parallel = 12   # Max concurrent phylo software programs
+max_parallel = 1   # Max concurrent phylo software programs
 
 [pipeline.compute.HPC]
 threads      = 32  # Total CPU threads on HPC node
-max_parallel = 2   # Max concurrent phylo software programs
+max_parallel = 1   # Max concurrent phylo software programs
 
 [phylogenetics]
 # Supported values: megacc, iqtree2, raxml
-software = ["iqtree2", "raxml"]
+software = [
+    #"megacc",
+    "iqtree2", 
+    "raxml"
+]
+
 #input_pattern = "*.fas"
 
 # Per-software optimal thread counts (drives dynamic parallelization)
@@ -40,9 +55,12 @@ config_file = "config/1_CONFIG_FILES_Phylo/infer_ML_amino_acid.mao"
 optimal_threads = 4
 
 [phylogenetics.iqtree2]
-optimal_threads = 30
-bootstrap = 5000
-alrt = 5000
+optimal_threads = 12
+# IQ-TREE2 enforces a hard minimum of 1000 replicates for both UFBoot (-bb) and
+# SH-aLRT (-alrt); values below 1000 cause "#replicates must be >= 1000" exit 2.
+# Set to 0 to disable that branch, or any integer >= 1000.
+bootstrap = 1000
+alrt = 1000
 model = "MFP+MERGE"
 nucleotide_model = "GTR+F+R4"
 protein_model    = "LG+F+R4"
@@ -55,11 +73,11 @@ fast = false
 pers = 0.05
 
 [phylogenetics.raxml]
-optimal_threads = 30
+optimal_threads = 12
 binary = "raxml-ng"
 seed = 12345
 mode = "all"
-bs_trees = 5000
+bs_trees = 50
 search_replicates = 50
 redo = true
 
@@ -115,8 +133,8 @@ eggplant_pattern     = "^SMEL5_|^Smel_|^SMELG"  # matches raw eggplant sequence 
 # Universal outgroup for both amino acid and nucleotide phylogenetic trees:
 #   PpDMP5-like  (Physcomitrella patens, moss — distant land plant)
 #   SiDMP10      (Setaria italica, foxtail millet — monocot)
-outgroup_pattern     = "PpDMP5-like" #|SiDMP10"       # regex matching universal outgroup tip labels
-exclude_tips         = "BdDMP2.*Outgroup,GrDMP10.*Outgroup"  # remove AA-only species absent from NT trees
+outgroup_pattern     = "PpDMP5-like|SiDMP10"  # regex matching universal outgroup tip labels (moss + monocot); both must match present tips for MRCA rooting, else R falls back to single-tip rooting
+exclude_tips         = "BdDMP2.*Outgroup,GrDMP10.*Outgroup"  # remove AA-only outgroups absent from NT trees so AA/NT figures stay comparable
 root_outgroup        = true       # root tree on outgroup MRCA before rendering
 
 # --- Branch ---

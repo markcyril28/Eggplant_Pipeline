@@ -23,6 +23,12 @@ EUTILS_DB="${EUTILS_DB:-nuccore}"
 EUTILS_RETMAX="${EUTILS_RETMAX:-10}"
 EUTILS_TIMEOUT="${EUTILS_TIMEOUT:-30}"   # wget --timeout in seconds (per-attempt)
 EUTILS_TRIES="${EUTILS_TRIES:-3}"        # wget --tries
+# Default rettype for nuccore efetch:
+#   fasta         = full mRNA (5'UTR + CDS + 3'UTR) -- legacy default; produces
+#                   internal stops when frame-1 translated
+#   fasta_cds_na  = pure CDS nucleotide (no UTRs)   -- preferred for DMP queries
+#   fasta_cds_aa  = pure CDS protein                -- canonical RefSeq protein
+EUTILS_RETTYPE="${EUTILS_RETTYPE:-fasta_cds_na}"
 # Rate-limit-aware default delay between requests within ONE worker:
 #   anonymous NCBI limit = 3 req/s -> safe single-worker delay = 0.4s
 #   API-key NCBI limit   = 10 req/s -> safe single-worker delay = 0.12s
@@ -66,7 +72,7 @@ _fetch_query() {
         return 1
     fi
 
-    efetch_url=$(_eutils_url efetch.fcgi "db=${EUTILS_DB}&id=${ids}&rettype=fasta&retmode=text")
+    efetch_url=$(_eutils_url efetch.fcgi "db=${EUTILS_DB}&id=${ids}&rettype=${EUTILS_RETTYPE}&retmode=text")
     if wget -qO "$out_file" --timeout="$EUTILS_TIMEOUT" --tries="$EUTILS_TRIES" "$efetch_url" \
        && [[ -s "$out_file" ]]; then
         echo "    -> $out_file"
@@ -174,7 +180,7 @@ ncbi_fetch_via_gene_db() {
         return 1
     fi
 
-    efetch_url=$(_eutils_url efetch.fcgi "db=nuccore&id=${nuccore_ids}&rettype=fasta&retmode=text")
+    efetch_url=$(_eutils_url efetch.fcgi "db=nuccore&id=${nuccore_ids}&rettype=${EUTILS_RETTYPE}&retmode=text")
     if wget -qO "$out_file" --timeout="$EUTILS_TIMEOUT" --tries="$EUTILS_TRIES" "$efetch_url" \
        && [[ -s "$out_file" ]]; then
         echo "    -> $out_file"

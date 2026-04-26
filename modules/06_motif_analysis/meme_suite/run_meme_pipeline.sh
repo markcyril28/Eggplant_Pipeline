@@ -282,12 +282,24 @@ done
 # ---------------------------------------------------------------------------
 # Output directories
 # ---------------------------------------------------------------------------
-MERGED_DIR="$OUTDIR/01_merged_promoters"
-MEME_DIR="$OUTDIR/02_MEME"
-TOMTOM_DIR="$OUTDIR/03_TOMTOM"
-FIMO_DIR="$OUTDIR/04_FIMO"
+# Per-alphabet subfolder so AA and NT runs sharing the same OUTDIR (the
+# orchestrator strips alphabet tokens from the label to share the parent
+# folder) keep their merged FASTA, MEME, TOMTOM, FIMO, and JPEG outputs
+# cleanly separated.
+case "$EFFECTIVE_ALPH" in
+    protein) ALPH_SUBDIR="amino_acid" ;;
+    *)       ALPH_SUBDIR="nucleotide" ;;
+esac
+MERGED_DIR="$OUTDIR/01_merged_promoters/$ALPH_SUBDIR"
+MEME_DIR="$OUTDIR/02_MEME/$ALPH_SUBDIR"
+TOMTOM_DIR="$OUTDIR/03_TOMTOM/$ALPH_SUBDIR"
+FIMO_DIR="$OUTDIR/04_FIMO/$ALPH_SUBDIR"
 
-mkdir -p "$MERGED_DIR" "$MEME_DIR" "$TOMTOM_DIR" "$FIMO_DIR"
+# Only create the dirs whose steps will actually run, so disabled steps
+# don't leave empty 03_TOMTOM/ or 04_FIMO/ trees behind.
+mkdir -p "$MERGED_DIR" "$MEME_DIR"
+should_run "tomtom" && mkdir -p "$TOMTOM_DIR"
+should_run "fimo"   && mkdir -p "$FIMO_DIR"
 
 log_step "MEME Suite Promoter Motif Analysis: $LABEL"
 log_info "FASTA input:  ${FASTA_FILE:-$FASTA_DIR}"
@@ -408,16 +420,21 @@ if should_run "meme"; then
             meme_alph_flags=(-dna)
         fi
 
-        # For protein sequences, strip characters that MEME rejects:
-        #   '-' alignment gaps (from MSA-derived FASTA)
-        #   '*' stop codons (common in translated sequences)
+        # Strip characters MEME rejects from MSA-derived FASTA inputs:
+        #   '-' alignment gaps      (both alphabets)
+        #   '*' stop codons         (protein only)
+        # MEME chokes on gap characters in either alphabet, so this runs for
+        # both protein and DNA so that aligned .fas inputs (from 04_MSA) work.
         MEME_INPUT="$MERGED_FASTA"
+        DEGAPPED_FASTA="$MEME_DIR/${LABEL}_degapped.fa"
         if [[ "$EFFECTIVE_ALPH" == "protein" ]]; then
-            DEGAPPED_FASTA="$MEME_DIR/${LABEL}_degapped.fa"
             sed '/^>/!{s/-//g; s/\*//g;}' "$MERGED_FASTA" > "$DEGAPPED_FASTA"
-            MEME_INPUT="$DEGAPPED_FASTA"
             log_info "Sanitized protein FASTA (stripped gaps and stop codons) -> $DEGAPPED_FASTA"
+        else
+            sed '/^>/!{s/-//g;}' "$MERGED_FASTA" > "$DEGAPPED_FASTA"
+            log_info "Sanitized DNA FASTA (stripped gaps) -> $DEGAPPED_FASTA"
         fi
+        MEME_INPUT="$DEGAPPED_FASTA"
 
         # Build MEME command: -objfun and -markov_order require MEME >= 5.x
         meme_cmd=(meme "$MEME_INPUT" \
@@ -637,7 +654,7 @@ fi
 #   regenerate PNGs with the chosen palette before montage assembly.
 # ===========================================================================
 if should_run "jpeg"; then
-    JPEG_DIR="$OUTDIR/05_JPEG"
+    JPEG_DIR="$OUTDIR/05_JPEG/$ALPH_SUBDIR"
     JPEG_OUT="$JPEG_DIR/${LABEL}_motifs.jpg"
 
     if [[ "$OVERWRITE" == true || ! -f "$JPEG_OUT" ]]; then
@@ -776,74 +793,45 @@ if should_run "jpeg"; then
     # Full-view motif locations PNG: Python-rendered, shows ALL
     # sequences regardless of dataset size (unlike the MEME SVG which
     # truncates long sequence lists).
-    # Always generates two versions:
-    #   *_motif_locations_full_light.png  — white background
-    #   *_motif_locations_full_dark.png   — black background (#111111)
-    # The legacy name (*_motif_locations_full.png) is kept as a symlink
-    # to the dark version when RESOLVED_MOTIF_BG is dark/non-empty,
-    # or to the light version otherwise, for backwards compatibility.
+    # Single render driven by [meme].motif_location_bg (resolved into
+    # RESOLVED_MOTIF_BG above): empty/white = light, non-empty = that
+    # colour (e.g. dark = #111111).
     # Runs independently — not gated by the logo-grid JPEG above.
     # ----------------------------------------------------------------
-    FULLVIEW_PNG_LIGHT="$JPEG_DIR/${LABEL}_motif_locations_full_light.png"
-    FULLVIEW_PNG_DARK="$JPEG_DIR/${LABEL}_motif_locations_full_dark.png"
     FULLVIEW_PNG="$JPEG_DIR/${LABEL}_motif_locations_full.png"
     PLOT_SCRIPT="$SCRIPT_DIR/plot_motif_locations.py"
 
     if [[ ! -f "$MEME_XML" ]]; then
         log_warn "meme.xml not found — skipping full-view motif locations PNG"
-    elif [[ "$OVERWRITE" == false && -f "$FULLVIEW_PNG_DARK" && -f "$FULLVIEW_PNG_LIGHT" ]]; then
-        log_info "Full-view motif locations PNGs exist, skipping: $JPEG_DIR/"
+    elif [[ "$OVERWRITE" == false && -f "$FULLVIEW_PNG" ]]; then
+        log_info "Full-view motif locations PNG exists, skipping: $FULLVIEW_PNG"
     elif ! python3 -c "import matplotlib" &>/dev/null; then
         log_warn "matplotlib not available — skipping full-view motif locations PNG"
         log_warn "Install: pip install matplotlib"
     else
         mkdir -p "$JPEG_DIR"
 
-        # Base args shared by both renders
-        _plot_base=(
+        _plot_cmd=(
             python3 "$PLOT_SCRIPT"
             --meme-xml "$MEME_XML"
             --outdir   "$JPEG_DIR"
+            --label    "$LABEL"
             --dpi      "$JPEG_DPI"
         )
-        [[ -n "$RESOLVED_MOTIF_PALETTE" ]] && _plot_base+=(--palette       "$RESOLVED_MOTIF_PALETTE")
-        [[ -n "$PHYLO_ORDER_FILE"        ]] && _plot_base+=(--phylo-order   "$PHYLO_ORDER_FILE")
-        [[ -n "$DOMAIN_COLORS"           ]] && _plot_base+=(--domain-colors "$DOMAIN_COLORS")
-        [[ -n "$DOMAIN_LABELS"           ]] && _plot_base+=(--domain-labels "$DOMAIN_LABELS")
+        [[ -n "$RESOLVED_MOTIF_PALETTE" ]] && _plot_cmd+=(--palette       "$RESOLVED_MOTIF_PALETTE")
+        [[ -n "$RESOLVED_MOTIF_BG"      ]] && _plot_cmd+=(--bg-color      "$RESOLVED_MOTIF_BG")
+        [[ -n "$PHYLO_ORDER_FILE"       ]] && _plot_cmd+=(--phylo-order   "$PHYLO_ORDER_FILE")
+        [[ -n "$DOMAIN_COLORS"          ]] && _plot_cmd+=(--domain-colors "$DOMAIN_COLORS")
+        [[ -n "$DOMAIN_LABELS"          ]] && _plot_cmd+=(--domain-labels "$DOMAIN_LABELS")
 
-        # --- Light (white background) ---
-        log_info "Generating motif locations PNG — light background → $FULLVIEW_PNG_LIGHT"
-        "${_plot_base[@]}" \
-            --label    "${LABEL}_light" \
-            2>&1 | tee "$JPEG_DIR/${LABEL}_fullview_light.log" || \
-            log_warn "Light full-view plot failed — check $JPEG_DIR/${LABEL}_fullview_light.log"
+        log_info "Generating motif locations PNG → $FULLVIEW_PNG (bg=${RESOLVED_MOTIF_BG:-white})"
+        "${_plot_cmd[@]}" \
+            2>&1 | tee "$JPEG_DIR/${LABEL}_fullview.log" || \
+            log_warn "Full-view plot failed — check $JPEG_DIR/${LABEL}_fullview.log"
 
-        # Rename: plot_motif_locations.py writes {label}_motif_locations_full.png
-        if [[ -f "$JPEG_DIR/${LABEL}_light_motif_locations_full.png" ]]; then
-            mv "$JPEG_DIR/${LABEL}_light_motif_locations_full.png" "$FULLVIEW_PNG_LIGHT"
-            sz=$(du -k "$FULLVIEW_PNG_LIGHT" 2>/dev/null | awk '{print $1}')
-            log_info "Light PNG: $FULLVIEW_PNG_LIGHT (${sz} KB)"
-        fi
-
-        # --- Dark (black background) ---
-        log_info "Generating motif locations PNG — dark background → $FULLVIEW_PNG_DARK"
-        "${_plot_base[@]}" \
-            --label    "${LABEL}_dark" \
-            --bg-color "#111111" \
-            2>&1 | tee "$JPEG_DIR/${LABEL}_fullview_dark.log" || \
-            log_warn "Dark full-view plot failed — check $JPEG_DIR/${LABEL}_fullview_dark.log"
-
-        if [[ -f "$JPEG_DIR/${LABEL}_dark_motif_locations_full.png" ]]; then
-            mv "$JPEG_DIR/${LABEL}_dark_motif_locations_full.png" "$FULLVIEW_PNG_DARK"
-            sz=$(du -k "$FULLVIEW_PNG_DARK" 2>/dev/null | awk '{print $1}')
-            log_info "Dark PNG: $FULLVIEW_PNG_DARK (${sz} KB)"
-        fi
-
-        # Legacy name → dark version (preferred publication render)
-        if [[ -f "$FULLVIEW_PNG_DARK" ]]; then
-            cp "$FULLVIEW_PNG_DARK" "$FULLVIEW_PNG"
-        elif [[ -f "$FULLVIEW_PNG_LIGHT" ]]; then
-            cp "$FULLVIEW_PNG_LIGHT" "$FULLVIEW_PNG"
+        if [[ -f "$FULLVIEW_PNG" ]]; then
+            sz=$(du -k "$FULLVIEW_PNG" 2>/dev/null | awk '{print $1}')
+            log_info "Full-view PNG: $FULLVIEW_PNG (${sz} KB)"
         fi
     fi
 fi
@@ -870,22 +858,22 @@ if should_run "fimo"; then
     log_info "  FIMO:   $FIMO_DIR/ ($fimo_count result file(s))"
 fi
 if should_run "jpeg"; then
-    if [[ -f "$OUTDIR/05_JPEG/${LABEL}_motifs.jpg" ]]; then
-        log_info "  JPEG logos:     $OUTDIR/05_JPEG/${LABEL}_motifs.jpg"
+    if [[ -f "$JPEG_DIR/${LABEL}_motifs.jpg" ]]; then
+        log_info "  JPEG logos:     $JPEG_DIR/${LABEL}_motifs.jpg"
     else
-        log_warn "  JPEG logos:     $OUTDIR/05_JPEG/ — ${LABEL}_motifs.jpg NOT FOUND"
+        log_warn "  JPEG logos:     $JPEG_DIR/ — ${LABEL}_motifs.jpg NOT FOUND"
     fi
-    if [[ -f "$OUTDIR/05_JPEG/${LABEL}_motif_locations.jpg" ]]; then
-        log_info "  JPEG locations: $OUTDIR/05_JPEG/${LABEL}_motif_locations.jpg"
-    elif [[ -f "$OUTDIR/05_JPEG/${LABEL}_motif_locations_full.png" ]]; then
+    if [[ -f "$JPEG_DIR/${LABEL}_motif_locations.jpg" ]]; then
+        log_info "  JPEG locations: $JPEG_DIR/${LABEL}_motif_locations.jpg"
+    elif [[ -f "$JPEG_DIR/${LABEL}_motif_locations_full.png" ]]; then
         log_info "  JPEG locations: N/A (full-view PNG used as fallback — see above)"
     else
-        log_warn "  JPEG locations: $OUTDIR/05_JPEG/ — ${LABEL}_motif_locations.jpg NOT FOUND"
+        log_warn "  JPEG locations: $JPEG_DIR/ — ${LABEL}_motif_locations.jpg NOT FOUND"
     fi
-    if [[ -f "$OUTDIR/05_JPEG/${LABEL}_motif_locations_full.png" ]]; then
-        log_info "  Full-view PNG:  $OUTDIR/05_JPEG/${LABEL}_motif_locations_full.png"
+    if [[ -f "$JPEG_DIR/${LABEL}_motif_locations_full.png" ]]; then
+        log_info "  Full-view PNG:  $JPEG_DIR/${LABEL}_motif_locations_full.png"
     else
-        log_warn "  Full-view PNG:  $OUTDIR/05_JPEG/ — ${LABEL}_motif_locations_full.png NOT FOUND"
+        log_warn "  Full-view PNG:  $JPEG_DIR/ — ${LABEL}_motif_locations_full.png NOT FOUND"
     fi
 fi
 

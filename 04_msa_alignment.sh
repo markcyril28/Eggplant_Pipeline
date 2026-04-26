@@ -137,9 +137,9 @@ if [[ -d "$CONFIG_DIR" ]]; then
     # tables). merge_toml.py silently skips missing files.
     python3 "$MERGE_TOML" \
         "$PIPELINE_DIR/04_msa_alignmentCONFIG.toml" \
-        "$CONFIG_DIR/00_common.toml" \
-        "$CONFIG_DIR/04_multiple_sequence_alignment.toml" \
-        "$CONFIG_DIR/02_blast_ortholog_alignment.toml" > "$CONFIG_FILE"
+        "$CONFIG_DIR/00_common_${GENE_GROUP}.toml" \
+        "$CONFIG_DIR/04_multiple_sequence_alignment_${GENE_GROUP}.toml" \
+        "$CONFIG_DIR/02_blast_ortholog_alignment_${GENE_GROUP}.toml" > "$CONFIG_FILE"
 else
     CONFIG_FILE="$PIPELINE_DIR/config/${GENE_GROUP}.toml"
 fi

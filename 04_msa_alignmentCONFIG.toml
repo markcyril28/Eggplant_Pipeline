@@ -3,7 +3,7 @@
 # ============================================================================
 # Alignment tool parameters shared across all gene groups.
 # Gene-group overrides (active_input_sets, input_sets) live in
-# config/{GROUP}/04_multiple_sequence_alignment.toml.
+# config/{GROUP}/04_multiple_sequence_alignment_{GROUP}.toml.
 #
 # Threading rule:
 #   parallel_jobs    = threads / optimal_threads   (min 1; per-method optimal_threads below)
@@ -12,7 +12,7 @@
 # ============================================================================
 
 [pipeline]
-# Gene groups to align. Each entry resolves to config/{GROUP}/04_multiple_sequence_alignment.toml
+# Gene groups to align. Each entry resolves to config/{GROUP}/04_multiple_sequence_alignment_{GROUP}.toml
 # (active_input_sets, input_sets, etc.) merged on top of these shared defaults.
 # Available: "DMP", "HAP2", "DMP-HAP2"
 gene_groups  = [

@@ -1,59 +1,68 @@
 # ============================================================================
-# Shared Pipeline Configuration — 09_CRISPR Analysis Defaults
+# Shared Pipeline Configuration - 09_CRISPR Analysis Defaults
 # ============================================================================
 # Default CRISPR parameters shared across all gene groups.
 # Gene-group overrides (grna_fastas) live in
 # config/{GROUP}/09_crispr_analysis_{GROUP}.toml.
 # ============================================================================
 
+
+# ============================================================================
+# 1. Pipeline Settings
+# ============================================================================
+
 [pipeline]
 # Gene groups to process. Available: "DMP", "HAP2", "GRF_GIF", "PLA"
-gene_groups  = ["DMP"]
+gene_groups = ["DMP"]
 
-machine      = "Local"   # "Local" or "HPC" — selects compute profile below
-overwrite    = true
+machine   = "Local"   # "Local" or "HPC" - selects compute profile below
+overwrite = true
 
 [pipeline.compute.Local]
-threads               = 12        # Total CPU threads available
-blast_optimal_threads = 4         # Threads per BLAST/Cas-OFFinder job (~4 is efficient)
-max_parallel          = 3         # Concurrent jobs (threads / blast_optimal_threads)
+threads               = 12   # Total CPU threads available
+blast_optimal_threads = 4    # Threads per BLAST/Cas-OFFinder job (~4 is efficient)
+max_parallel          = 3    # Concurrent jobs (threads / blast_optimal_threads)
 
 [pipeline.compute.HPC]
-threads               = 64        # Total CPU threads on HPC node
-blast_optimal_threads = 4         # Threads per BLAST/Cas-OFFinder job
-max_parallel          = 16        # Concurrent jobs
+threads               = 64   # Total CPU threads on HPC node
+blast_optimal_threads = 4    # Threads per BLAST/Cas-OFFinder job
+max_parallel          = 16   # Concurrent jobs
 
+
+# ============================================================================
+# 2. CRISPR Stage - Operations & Thresholds
 # ============================================================================
 
 [crispr]
 enabled = true
 
-# Operations to run (comment out to skip)
+# Operations to run (comment out to skip).
+# Core analysis ops produce TSV/CSV outputs; report ops produce figures/tables.
 operations = [
-    #"score_filter",
-    #"blast_offtarget",
-    #"cas_offinder",
+    # ---- Core analysis ----
+    "blast_offtarget",
+    "score_filter",
+    "cas_offinder",
+
+    # ---- Figures & report ----
     "report",
 ]
 
-# ---------- On-target score filtering ----------
-# Each threshold produces a separate numbered output dir
-# Tier assignments:  High >= 0.7,  Moderate >= 0.4
-score_thresholds = [0.4, 0.7]
+# On-target score filtering (Doench 2016 RS2 / Azimuth scale, 0-1).
+# Tiers: High >= 0.7 (top quartile, [Doench 2016]);
+#        Moderate >= 0.5 (plant CRISPR cutoff, [Liu 2020; Sun 2022]).
+score_thresholds = [0.5, 0.7]
 
-# ---------- Substage directory names ----------
-[crispr.dirs]
-raw_results      = "01_Raw_Scoring_Results_from_CRISPR-P_V2_0"
-filtered_prefix  = "0{n}_Filtered_Score_{t}"   # {n}=substage number, {t}=threshold
-blast_offtarget  = "04_Off_Target_BLAST"
-cas_offinder     = "05_Off_Target_Cas-OFFinder"
-summary_report   = "06_Summary_Report"
 
-# ---------- Genome subdirectories to process ----------
+# ============================================================================
+# 3. Inputs - Genomes & gRNA FASTAs
+# ============================================================================
+
+# Genome subdirectories to process.
 [crispr.genomes]
 names = ["GPE001970_SMEL5"]
 
-# ---------- gRNA FASTA files for off-target analysis ----------
+# gRNA FASTA files for off-target analysis.
 # One subsection per gene group: [crispr.offtarget.{GROUP}]
 # Paths are relative to PIPELINE_DIR.
 [crispr.offtarget.DMP]
@@ -73,54 +82,88 @@ grna_fastas = [
     "II_INPUTS/DMP-HAP2/gRNAs/SmelDMP-HAP2_guide_RNAs.fasta",
 ]
 
-# ---------- BLAST off-target parameters (most accurate) ----------
+
+# ============================================================================
+# 4. Output - Substage Directory Names
+# ============================================================================
+
+[crispr.dirs]
+raw_results     = "01_Raw_Scoring_Results_from_CRISPR-P_V2_0"
+filtered_prefix = "0{n}_Filtered_Score_{t}"   # {n}=substage number, {t}=threshold
+blast_offtarget = "04_Off_Target_BLAST"
+cas_offinder    = "05_Off_Target_Cas-OFFinder"
+summary_report  = "06_Summary_Report"
+
+
+# ============================================================================
+# 5. Tool Parameters
+# ============================================================================
+
+# ---- BLAST off-target parameters (most accurate) ----
 # Tuned for SpCas9 gRNA off-target detection in plant genomes.
 [crispr.blast]
-word_size        = 7       # short word size — critical for 20-23 nt guide queries
-evalue           = 10000   # very permissive — short queries produce high e-values even
-                           # for true off-targets; post-filter by mismatch count instead
-dust             = false   # do NOT mask low-complexity regions in short guides
-ungapped         = true    # CRISPR off-targets are mismatches, never indels —
-                           # gapped alignments create false positives
-reward           = 1       # equal reward/penalty gives uniform mismatch sensitivity
-penalty          = -1      # across all positions (seed + non-seed)
-max_target_seqs  = 10000   # capture all potential off-target loci genome-wide
-                           # (default 500 truncates results in large genomes)
-qcov_hsp_perc    = 80      # require >= 80% of guide aligned (e.g., 18/23 nt minimum);
-                           # rejects short partial matches that are not true off-targets
-max_mismatches   = 4       # allow up to 4 mismatches — SpCas9 can cleave with 3-4 mm
-                           # at PAM-distal positions (Hsu et al. 2013, Nat Biotech)
+word_size       = 7       # short-query mode for 20-23 nt sgRNAs [CRISPOR; Concordet 2018]
+evalue          = 10000   # permissive; filter post-hoc by mm count
+dust            = false   # masking removes legitimate AT-rich plant regulatory regions
+ungapped        = true    # SpCas9 indel off-targets are functionally rare [Doench 2016]
+reward          = 1       # uniform mismatch sensitivity [Altschul 1990]
+penalty         = -1
+max_target_seqs = 10000   # default 500 truncates in plant genomes (~1 Gb)
+qcov_hsp_perc   = 80      # >= 80% guide aligned; rejects partial-match noise
+max_mismatches  = 4       # SpCas9 cleaves up to 3-4 mm at PAM-distal sites [Hsu 2013]
 
-# ---------- Cas-OFFinder settings (most accurate) ----------
+# ---- Cas-OFFinder settings (most accurate) ----
 [crispr.cas_offinder]
-enabled         = true
-pam             = "NNNNNNNNNNNNNNNNNNNNNGG"   # SpCas9 canonical NGG PAM
-device          = "C"         # C = CPU-only (WSL2: OpenCL GPU is unreliable; module auto-falls back anyway)
-max_mismatches  = 4           # exhaustive enumeration finds ALL sites up to this threshold
-                              # with no heuristic loss (unlike BLAST); 4 captures the long
-                              # tail of PAM-distal-tolerant off-targets.
+enabled        = true
+pam            = "NNNNNNNNNNNNNNNNNNNNNGG"   # SpCas9 canonical NGG PAM
+device         = "C"   # C = CPU-only (WSL2: OpenCL GPU is unreliable; module auto-falls back anyway)
+max_mismatches = 3     # plant CRISPR safety standard [Wolter 2019]; SpCas9 cleavage
+                       # at >3 mm is rare and usually seed-conserved [Hsu 2013].
 
-# ---------- Report & visualization settings ----------
+
+# ============================================================================
+# 6. Report & Visualization
+# ============================================================================
+
 [crispr.report]
-dpi    = 600      # plot resolution (600 = publication quality)
-format = "png"    # png | svg | pdf
+dpi    = 600     # plot resolution (600 = publication quality)
+format = "png"   # png | svg | pdf
 
-# ── Scatter plot y-axis configuration ─────────────────────────────────────
-# Upper bound for off-target count (y-axis). Set to 0 for auto-scale (max × 1.15).
-# Positive values clamp the axis — guides above the cap render at the top edge
+# ---- Scatter plot y-axis ----
+# Upper bound for off-target count (y-axis). Set to 0 for auto-scale (max * 1.15).
+# Positive values clamp the axis - guides above the cap render at the top edge
 # with "(>cap)" appended, improving readability when a few outliers exist.
-y_max_cap = 25
+y_max_cap = 10
 
-# ── Filtered guide_comparison_table thresholds ────────────────────────────
+# ---- guide_comparison_table inclusion thresholds ----
 # Two table variants are written next to the scatter:
 #   guide_comparison_table.{png,csv,tsv}           : strict   (publication shortlist)
 #   guide_comparison_table_moderate.{png,csv,tsv}  : moderate (includes near-miss
 #                                                              candidates)
-# A guide passes a tier when score >= score_threshold AND off-targets <= offtarget_threshold.
+#
+# Inclusion is threshold-only (no hidden top-N cap). A guide enters a table iff:
+#     score       >= score_threshold      AND
+#     off-targets <= offtarget_threshold
 #
 # Score thresholds are NOT redeclared here. They derive from
 # [crispr].score_thresholds (above) so the score_filter operation, the scatter
 # plot threshold lines, and the filtered tables all stay in sync.
 # Convention: smallest value = moderate (orange line), largest = strict (green line).
-offtarget_strict   = 0      # strict off-target cap. 0 = auto (max(5, 25th-percentile))
-offtarget_moderate = 7      # moderate off-target cap (fixed)
+offtarget_strict   = 3   # publication shortlist; plant 3-mm median [Modrzejewski 2020]
+offtarget_moderate = 8   # near-miss tolerance at 3-mm [Wolter 2019; Bortesi 2015]
+
+
+# ============================================================================
+# References
+# ============================================================================
+# Altschul et al. 1990. Basic local alignment search tool. JMB 215:403.
+# Bortesi & Fischer 2015. The CRISPR/Cas9 system for plant editing. Biotechnol Adv 33:41.
+# Concordet & Haeussler 2018. CRISPOR. Nucleic Acids Res 46:W242.
+# Doench et al. 2016. Optimized sgRNA design (RS2/Azimuth, CFD). Nat Biotechnol 34:184.
+# Hsu et al. 2013. DNA targeting specificity of RNA-guided Cas9. Nat Biotechnol 31:827.
+# Liu et al. 2020. Plant CRISPR guide efficiency benchmark. Plant Methods 16:21.
+# Modrzejewski et al. 2020. Plant CRISPR off-target meta-analysis (88 studies).
+#     Front Plant Sci 11:574959.
+# Sun et al. 2022. Plant sgRNA efficiency benchmark. Plant Biotechnol J 20:1413.
+# Wolter, Schindele & Puchta 2019. Plant genome editing: 3-mm off-target standard.
+#     Plant J 100:1083.

@@ -3,12 +3,12 @@
 # ============================================================================
 # Software configurations shared across all gene groups.
 # Gene-group overrides (input_files) live in
-# config/{GROUP}/05_phylogenetic_analysis.toml.
+# config/{GROUP}/05_phylogenetic_analysis_{GROUP}.toml.
 # ============================================================================
 
 [pipeline]
 # Gene groups to run phylogenetic analysis on. Each entry resolves to
-# config/{GROUP}/05_phylogenetic_analysis.toml (input_files) merged on top of
+# config/{GROUP}/05_phylogenetic_analysis_{GROUP}.toml (input_files) merged on top of
 # these shared defaults.
 # Available: "DMP", "HAP2", "DMP-HAP2"
 gene_groups = [

@@ -25,7 +25,7 @@
 #     09_CRISPR_v2/{genome}/crispr_p_v2/01_Raw_Input/...
 #     09_CRISPR_v2/{genome}/comparison/...
 #
-# Gene-group overrides live in config/{GROUP}/09_crispr_analysis_v2.toml.
+# Gene-group overrides live in config/{GROUP}/09_crispr_analysis_v2_{GROUP}.toml.
 # ============================================================================
 
 [pipeline]
@@ -89,7 +89,7 @@ names = [
 # guide RNAs inside it. It does NOT score pre-designed gRNAs.
 #
 # Target FASTAs are group-specific — set them in the group override:
-#   config/{GROUP}/09_crispr_analysis_v2.toml  →  [crispr_v2.design_score]
+#   config/{GROUP}/09_crispr_analysis_v2_{GROUP}.toml  ->  [crispr_v2.design_score]
 #                                                 target_fasta_template = "..."
 #                                                 target_fastas         = [ ... ]
 #
@@ -546,7 +546,7 @@ format = "png"    # png | svg | pdf
 # Point crispor_p_raw_dir at the folder that already contains the raw
 # CRISPR-P v2.0 scoring outputs (the 01_Raw_Scoring_Results_from_CRISPR-P_V2_0
 # directories produced by i_crispr_v1.sh stage [1]).
-# Override per gene group in config/{GROUP}/09_crispr_analysis_v2.toml.
+# Override per gene group in config/{GROUP}/09_crispr_analysis_v2_{GROUP}.toml.
 [crispr_v2.crispr_p]
 # Path relative to PIPELINE_DIR, or absolute.
 # Default: reuse v1 results that already exist under III_RESULT/{GROUP}/

@@ -560,8 +560,8 @@ if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_crispr_v2_cfg_XXXXXX.toml")
     python3 "$MERGE_TOML" \
         "$PIPELINE_DIR/09_crispr_v2CONFIG.toml" \
-        "$CONFIG_DIR/00_common.toml" \
-        "$CONFIG_DIR/09_crispr_analysis_v2.toml" \
+        "$CONFIG_DIR/00_common_${GENE_GROUP}.toml" \
+        "$CONFIG_DIR/09_crispr_analysis_v2_${GENE_GROUP}.toml" \
         > "$CONFIG_FILE"
     TMP_CONFIG_FILES+=("$CONFIG_FILE")
 else

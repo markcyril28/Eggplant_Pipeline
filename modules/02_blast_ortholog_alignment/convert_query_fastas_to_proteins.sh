@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$CONFIG_FILE" ]]; then
-	CANDIDATE="$PIPELINE_DIR/config/$GENE_GROUP/02_blast_ortholog_alignment.toml"
+	CANDIDATE="$PIPELINE_DIR/config/$GENE_GROUP/02_blast_ortholog_alignment_${GENE_GROUP}.toml"
 	if [[ -f "$CANDIDATE" ]]; then
 		CONFIG_FILE="$CANDIDATE"
 	else

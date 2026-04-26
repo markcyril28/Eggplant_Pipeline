@@ -960,36 +960,56 @@ else
     else
         log_info "All BLASTp jobs completed successfully"
 
-        # Merge results per genome (3 versions: hmmer_only, combined, plant_only)
-        for genome_dir in "$BLAST_DIR"/*/; do
-            genome_dir="${genome_dir%/}"
-            if [[ -d "$genome_dir" && "$genome_dir" != "$BLAST_DIR/BLAST_DB" && "$genome_dir" != "$BLAST_DIR/curated_results" ]]; then
+        # Merge BLASTp results.  When use_hmmer_output=true (the standard mode),
+        # BLASTp uses a single shared HMMER-identified-proteins subject DB and
+        # writes to "$BLAST_DIR/shared/blastp_results", not per-genome.  In that
+        # case the same merged CSV is written into each genome's curated_results
+        # so the per-genome visualisation loop downstream picks it up.
+        # The legacy include/exclude "hmmer_identified" pattern was a BLASTn-only
+        # device (BLASTn ran two subject DBs and used the substring to split the
+        # output); every BLASTp CSV contains "hmmer_identified" in its filename,
+        # so applying that filter here would drop everything.  We just merge all
+        # BLASTp CSVs without filtering.
+        SHARED_BP_DIR="$BLAST_DIR/shared/blastp_results"
+        DATE_TAG=$(date +%F)
+
+        if [[ -d "$SHARED_BP_DIR" ]] && compgen -G "$SHARED_BP_DIR/ev_*/*.csv" >/dev/null 2>&1; then
+            log_info "Merging BLASTp results from shared subject DB into each genome's curated_results"
+            for genome_dir in "$BLAST_DIR"/*/; do
+                genome_dir="${genome_dir%/}"
+                [[ ! -d "$genome_dir" ]] && continue
+                case "$genome_dir" in
+                    "$BLAST_DIR/BLAST_DB"|"$BLAST_DIR/curated_results"|"$BLAST_DIR/shared") continue ;;
+                esac
                 genome_name=$(basename "$genome_dir")
                 mkdir -p "$genome_dir/curated_results"
-                # Clean old merged BLASTp CSVs to prevent stale file accumulation
                 rm -f "$genome_dir/curated_results"/merged_blastp_*.csv
-                if [[ -d "$genome_dir/blastp_results" ]]; then
-                    shopt -s nullglob; _csvs=("$genome_dir/blastp_results"/ev_*/*.csv); shopt -u nullglob
-                    if [[ ${#_csvs[@]} -eq 0 ]]; then
-                        log_warn "No BLASTp CSVs found for genome: $genome_name"
-                    else
-                        DATE_TAG=$(date +%F)
-                        log_info "Merging BLASTp results (3 versions) for genome: $genome_name"
-                        bash "$MODULES/02_blast_ortholog_alignment/merge_blast_csv.sh" \
-                            --input-dir "$genome_dir/blastp_results" \
-                            --include-pattern "hmmer_identified" \
-                            --output "$genome_dir/curated_results/merged_blastp_${DATE_TAG}_${genome_name}_hmmer_only.csv"
-                        bash "$MODULES/02_blast_ortholog_alignment/merge_blast_csv.sh" \
-                            --input-dir "$genome_dir/blastp_results" \
-                            --output "$genome_dir/curated_results/merged_blastp_${DATE_TAG}_${genome_name}_combined.csv"
-                        bash "$MODULES/02_blast_ortholog_alignment/merge_blast_csv.sh" \
-                            --input-dir "$genome_dir/blastp_results" \
-                            --exclude-pattern "hmmer_identified" \
-                            --output "$genome_dir/curated_results/merged_blastp_${DATE_TAG}_${genome_name}_plant_only.csv"
-                    fi
+                bash "$MODULES/02_blast_ortholog_alignment/merge_blast_csv.sh" \
+                    --input-dir "$SHARED_BP_DIR" \
+                    --output "$genome_dir/curated_results/merged_blastp_${DATE_TAG}_${genome_name}_plant_only.csv"
+            done
+        else
+            # Fallback: per-genome BLASTp results (e.g. use_hmmer_output=false).
+            for genome_dir in "$BLAST_DIR"/*/; do
+                genome_dir="${genome_dir%/}"
+                [[ ! -d "$genome_dir" ]] && continue
+                case "$genome_dir" in
+                    "$BLAST_DIR/BLAST_DB"|"$BLAST_DIR/curated_results"|"$BLAST_DIR/shared") continue ;;
+                esac
+                genome_name=$(basename "$genome_dir")
+                mkdir -p "$genome_dir/curated_results"
+                rm -f "$genome_dir/curated_results"/merged_blastp_*.csv
+                if [[ -d "$genome_dir/blastp_results" ]] \
+                    && compgen -G "$genome_dir/blastp_results/ev_*/*.csv" >/dev/null 2>&1; then
+                    log_info "Merging BLASTp results for genome: $genome_name"
+                    bash "$MODULES/02_blast_ortholog_alignment/merge_blast_csv.sh" \
+                        --input-dir "$genome_dir/blastp_results" \
+                        --output "$genome_dir/curated_results/merged_blastp_${DATE_TAG}_${genome_name}_plant_only.csv"
+                else
+                    log_warn "No BLASTp CSVs found for genome: $genome_name"
                 fi
-            fi
-        done
+            done
+        fi
     fi
 fi
 
@@ -1015,6 +1035,10 @@ if [[ "$DO_VISUALIZE" == "true" ]]; then
     VIZ_LOLLIPOP_DOT_SIZE_HI=$(get_toml blast_visualize lollipop_dot_size_hi 2>/dev/null || echo "150")
     VIZ_HI_STEM_COLOR=$(get_toml blast_visualize hi_stem_color 2>/dev/null || echo "#c7920a")
     VIZ_STEM_COLOR=$(get_toml blast_visualize stem_color 2>/dev/null || echo "#d1d5db")
+    # Per-type bit score thresholds (0 = use top-N instead of threshold).
+    VIZ_BSMIN_BLASTN=$(get_toml blast_visualize lollipop_bitscore_min_blastn 2>/dev/null || echo "0")
+    VIZ_BSMIN_BLASTP=$(get_toml blast_visualize lollipop_bitscore_min_blastp 2>/dev/null || echo "200")
+    VIZ_BSMIN_BLASTX=$(get_toml blast_visualize lollipop_bitscore_min_blastx 2>/dev/null || echo "200")
     # Haploid-inducer labels: TOML array (one per line from parse_toml.py) → CSV
     VIZ_HI_LABELS=""
     if mapfile -t _hi_arr < <(get_toml blast_visualize haploid_inducer_labels 2>/dev/null) \
@@ -1041,9 +1065,28 @@ if [[ "$DO_VISUALIZE" == "true" ]]; then
                 log_info "  Generating visualisations for: $(basename "$genome_dir")"
                 _viz_hi_labels_arg=()
                 [[ -n "$VIZ_HI_LABELS" ]] && _viz_hi_labels_arg=(--hi-labels "$VIZ_HI_LABELS")
+                # One viz pass per BLAST type that produced a curated plant_only CSV.
+                # Each pass writes fig{1,1b,3}_blast{type}_*.{png,svg}.
+                for _bt in n p x; do
+                    if compgen -G "$curated/merged_blast${_bt}_*_plant_only.csv" >/dev/null 2>&1; then
+                        log_info "    blast${_bt}: $(basename "$(ls -1 "$curated"/merged_blast${_bt}_*_plant_only.csv | head -1)")"
+                        # BLASTn force-includes HI hits outside top-N (sparse signal);
+                        # BLASTp/BLASTx panels are dense enough that top-N already captures
+                        # the relevant HI orthologs, so skip force-include for clarity.
+                        _force_hi=$([[ "$_bt" == "n" ]] && echo "true" || echo "false")
+                        # Per-type bit score threshold from config (0 = use top-N).
+                        case "$_bt" in
+                            n) _bs_min="$VIZ_BSMIN_BLASTN" ;;
+                            p) _bs_min="$VIZ_BSMIN_BLASTP" ;;
+                            x) _bs_min="$VIZ_BSMIN_BLASTX" ;;
+                            *) _bs_min="0" ;;
+                        esac
                 bash "$VIZ_SCRIPT" \
                     --results-dir "$curated" \
                     --gene-group "$GENE_GROUP" \
+                    --blast-type "$_bt" \
+                    --force-include-hi "$_force_hi" \
+                    --bitscore-min "$_bs_min" \
                     --top-n "$LOLLIPOP_TOP_N" \
                     --figures "$VIZ_FIGURES" \
                     --colormap "$VIZ_COLORMAP" \
@@ -1060,6 +1103,8 @@ if [[ "$DO_VISUALIZE" == "true" ]]; then
                     --hi-stem-color "$VIZ_HI_STEM_COLOR" \
                     --stem-color "$VIZ_STEM_COLOR" \
                     "${_viz_hi_labels_arg[@]}"
+                    fi   # end: blast-type CSV exists
+                done     # end: for _bt in n p x
             fi
         fi
     done

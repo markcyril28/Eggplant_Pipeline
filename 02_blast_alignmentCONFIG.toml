@@ -36,9 +36,9 @@ force_reindex = false        # Force rebuild of BLAST databases (skip cache chec
 # Comment in/out to select which stages run.  All run by default when this
 # key is absent.
 operations = [
-    "blastn",               # BLASTn: nucleotide query vs nucleotide DB (identification + ortholog)
+    #"blastn",               # BLASTn: nucleotide query vs nucleotide DB (identification + ortholog)
     #"blastx",              # BLASTx: nucleotide query vs protein DB (translated ortholog)
-    "blastp",               # BLASTp: protein query vs protein DB (ortholog alignment)
+    #"blastp",               # BLASTp: protein query vs protein DB (ortholog alignment)
     #"visualize_heatmap",        # Fig 1  - cross-species % identity heatmap
     #"visualize_heatmap_evalue", # Fig 1b - % identity + E-value overlay heatmap
     "visualize_lollipop",       # Fig 3  - per-gene top-hits lollipop (Bit Score)
@@ -133,6 +133,20 @@ lollipop_dot_size     = 100        # Dot marker area (pt²) for regular hits
 lollipop_dot_size_hi  = 150        # Dot marker area for haploid-inducer hits
 hi_stem_color         = "#c7920a"  # Gold stem color for haploid-inducer hits
 stem_color            = "#d1d5db"  # Gray stem color for regular hits
+
+# Bit score threshold per BLAST type. When > 0, the lollipop replaces the
+# top-N selection with "show every hit at or above this Bit Score". Set to 0
+# to keep the historical top-N selection.
+#   blastn: kept on top-N (BLASTn signal is sparse; HI force-include surfaces
+#           the validated haploid-inducer hits even when outside top-N).
+#   blastp: 200 = "strong homology / close-orthology" cutoff (Pearson 2013;
+#           conventional comparative-genomics threshold).  Empirically yields
+#           5-26 hits per SmelDMP panel on the DMP query set, which is the
+#           same density as the BLASTn top-10 figure.
+#   blastx: same default as blastp.
+lollipop_bitscore_min_blastn = 0
+lollipop_bitscore_min_blastp = 200
+lollipop_bitscore_min_blastx = 200
 
 # ── Haploid-inducer labels (DMP-only highlight set) ──────────────────────────
 # Validated haploid-inducer DMPs (Chapter II Table 1, 14-species panel).

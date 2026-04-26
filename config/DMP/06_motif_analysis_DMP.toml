@@ -1,0 +1,51 @@
+# ============================================================================
+# DMP-specific overrides for 06_Motif_Analysis
+# ----------------------------------------------------------------------------
+# Shared defaults live in /06_motif_analysisCONFIG.toml — including [pipeline]
+# operations, MEME discovery params, JPEG settings, TOMTOM/FIMO databases, and
+# threading. Add a [meme] block below only when DMP needs to deviate from
+# those shared defaults.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Explicit FASTA inputs for MEME (parallel arrays: labels[i] <-> fasta_files[i]).
+# Mirrors the active_input_sets in config/DMP/04_multiple_sequence_alignment_DMP.toml.
+# AA + NT pairs share one parent output folder (alphabet suffix stripped by
+# the orchestrator); the [meme].alphabets filter in the parent config selects
+# which side actually runs.
+# ----------------------------------------------------------------------------
+[meme.inputs]
+labels = [
+    # --- v1 Full: GPE001970 + Selected Crop Species ---
+    "selected_v1_full_amino_acid",
+    "selected_v1_full_nucleotide",
+
+    # --- v1 Full + verified HI panel (Chapter II Table 1) ---
+    "selected_v1_full_HI_DMPs_amino_acid",
+    "selected_v1_full_HI_DMPs_nucleotide",
+
+    # --- v4 BLAST groups merged (anchors + Bit Score >= 200 hits, deduped) ---
+    "selected_v4_blast_groups_merged_amino_acid",
+    "selected_v4_blast_groups_merged_nucleotide",
+]
+
+fasta_files = [
+    # MSA outputs from MAFFT_aligned/<stem>.fas (gaps are stripped by
+    # run_meme_pipeline.sh before MEME).
+    # --- v1 Full ---
+    "III_RESULT/DMP/04_MSA/GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_amino_acid/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence.fas",
+    "III_RESULT/DMP/04_MSA/GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_nucleotide/MAFFT_aligned/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fas",
+
+    # --- v1 Full + HI panel ---
+    "III_RESULT/DMP/04_MSA/GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_HI_DMPs_amino_acid/MAFFT_aligned/per_genome_gpe001970_and_HI_DMPs_AMINO_ACID_Sequence.fas",
+    "III_RESULT/DMP/04_MSA/GPE001970_SMEL5/Selected_Result/v1_Full/selected_v1_full_HI_DMPs_nucleotide/MAFFT_aligned/per_genome_gpe001970_and_HI_DMPs_NUCLEOTIDE_Sequence.fas",
+
+    # --- v4 BLAST groups merged ---
+    "III_RESULT/DMP/04_MSA/GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_amino_acid/MAFFT_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_AMINO_ACID_Sequence.fas",
+    "III_RESULT/DMP/04_MSA/GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_nucleotide/MAFFT_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_NUCLEOTIDE_Sequence.fas",
+]
+# phylo_order_files: omitted — the orchestrator auto-discovers a CLUSTAL
+# alignment under III_RESULT/<GROUP>/{09_Secondary_Structure_Analysis,
+# 05_Phylogenetics,04_MSA} whose stem matches the input FASTA (with alphabet
+# tokens stripped, so AA + NT share the AA-tree topology).
+# Provide phylo_order_files = [...] here only to override the auto-discovery.

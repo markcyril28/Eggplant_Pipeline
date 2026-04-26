@@ -9,15 +9,15 @@
 [pipeline]
 # Gene groups to process. Available: "DMP", "HAP2", "GRF", "GIF", "GRF_GIF", "PLA"
 gene_groups = [
-    #"DMP",
+    "DMP",
     #"HAP2",
-    "GRF_GIF",
+    #"GRF_GIF",
     #"PLA",
 ]
 
 [gene_sequence]
-upstream = 1000
-downstream = 1000
+upstream = 2000
+downstream = 0
 
 # GTF extraction: reference annotations to filter by HMMER-identified genes.
 # Labels must match identification.target_labels; arrays are parallel (same order).

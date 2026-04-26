@@ -16,7 +16,7 @@
 #   05_Off_Target_Cas-OFFinder/ (genome-scoped)
 #   06_Summary_Report/         (text report, guide_summary.csv, plots)
 #
-# Edit 9_crispr_v1CONFIG.toml to change gene groups, compute settings, and
+# Edit 09_crispr_v1CONFIG.toml to change gene groups, compute settings, and
 # operations, then run:
 #   bash i_crispr_v1.sh
 # ============================================================================
@@ -25,7 +25,7 @@ set -euo pipefail
 
 # ===================== IMPORTANT VARIABLES =====================
 # GENE_GROUPS, CPU, MAX_PARALLEL, OVERWRITE, and OPERATIONS are all loaded
-# from 9_crispr_v1CONFIG.toml [pipeline] — edit gene_groups there.
+# from 09_crispr_v1CONFIG.toml [pipeline] — edit gene_groups there.
 # ===============================================================
 
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,10 +40,10 @@ TOML_PARSER="$MODULES/utils/parse_toml.py"
 get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 
 # Load GENE_GROUPS from shared config (read before the per-group loop)
-SHARED_CONFIG="$PIPELINE_DIR/9_crispr_v1CONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/09_crispr_v1CONFIG.toml"
 mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null)
 if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
-    echo "ERROR: pipeline.gene_groups is empty in 9_crispr_v1CONFIG.toml" >&2
+    echo "ERROR: pipeline.gene_groups is empty in 09_crispr_v1CONFIG.toml" >&2
     exit 1
 fi
 
@@ -69,7 +69,7 @@ cleanup_tmp_configs() {
     done
 }
 
-trap 'teardown_logging; cleanup_tmp_configs' EXIT
+trap 'cleanup_tmp_configs; safe_teardown_logging' EXIT
 
 for GENE_GROUP in "${GENE_GROUPS[@]}"; do
 
@@ -77,7 +77,7 @@ for GENE_GROUP in "${GENE_GROUPS[@]}"; do
 CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
 if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_crispr_cfg_XXXXXX.toml")
-    cat "$PIPELINE_DIR/9_crispr_v1CONFIG.toml" \
+    cat "$PIPELINE_DIR/09_crispr_v1CONFIG.toml" \
         "$CONFIG_DIR/00_common.toml" \
         "$CONFIG_DIR/09_crispr_analysis.toml" > "$CONFIG_FILE"
     TMP_CONFIG_FILES+=("$CONFIG_FILE")

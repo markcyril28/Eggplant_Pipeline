@@ -24,7 +24,7 @@ GENE_GROUPS=(
 )
 
 # CPU, MAX_PARALLEL, OVERWRITE, OPERATIONS, and PHYLO_SOFTWARE are loaded from
-# 5_phyloCONFIG.toml — edit that file to change them.
+# 05_phyloCONFIG.toml — edit that file to change them.
 
 # ===============================================================
 
@@ -61,7 +61,7 @@ cleanup_tmp_configs() {
     done
 }
 
-trap 'teardown_logging; cleanup_tmp_configs' EXIT
+trap 'cleanup_tmp_configs; safe_teardown_logging' EXIT
 
 normalize_phylo_software() {
     local raw="$1"
@@ -92,7 +92,7 @@ MERGE_TOML="$MODULES/utils/merge_toml.py"
 if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_phylo_cfg_XXXXXX.toml")
     python3 "$MERGE_TOML" \
-        "$PIPELINE_DIR/5_phyloCONFIG.toml" \
+        "$PIPELINE_DIR/05_phyloCONFIG.toml" \
         "$CONFIG_DIR/00_common.toml" \
         "$CONFIG_DIR/05_phylogenetic_analysis.toml" > "$CONFIG_FILE"
     TMP_CONFIG_FILES+=("$CONFIG_FILE")

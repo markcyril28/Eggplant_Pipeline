@@ -8,7 +8,7 @@
 #
 # Module scripts under modules/09_crispr_analysis/v2/ are SHARED with v2 —
 # v3 expresses plant-first behaviour only through this orchestrator, the
-# TOML config 9_crispr_v3CONFIG.toml, and the group override
+# TOML config 09_crispr_v3CONFIG.toml, and the group override
 # config/{GROUP}/09_crispr_analysis_v3.toml.
 #
 # Mode:
@@ -33,7 +33,7 @@
 #     08_Ranking_Composite/            ← plant-weighted KO score
 #     09_Guide_Scatter/                ← on-target vs off-target scatter
 #
-# Edit 9_crispr_v3CONFIG.toml then run:
+# Edit 09_crispr_v3CONFIG.toml then run:
 #   bash i_crispr_v3_pipeline.sh
 # ============================================================================
 
@@ -63,10 +63,10 @@ TOML_PARSER="$MODULES/utils/parse_toml.py"
 get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 
 # ─── Load GENE_GROUPS from v3 shared config ──────────────────────────────────
-SHARED_CONFIG="$PIPELINE_DIR/9_crispr_v3CONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/09_crispr_v3CONFIG.toml"
 mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null)
 if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
-    echo "ERROR: pipeline.gene_groups is empty in 9_crispr_v3CONFIG.toml" >&2
+    echo "ERROR: pipeline.gene_groups is empty in 09_crispr_v3CONFIG.toml" >&2
     exit 1
 fi
 
@@ -123,7 +123,7 @@ cleanup_tmp_configs() {
         [[ -n "$cfg" && -f "$cfg" ]] && rm -f "$cfg"
     done
 }
-trap 'teardown_logging; cleanup_tmp_configs' EXIT
+trap 'cleanup_tmp_configs; safe_teardown_logging' EXIT
 
 # ─────────────────────────────────────────────────────────────────────────────
 # run_plant_stages ARM_DIR GENOME_NAME [_MP]
@@ -465,7 +465,7 @@ CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
 if [[ -d "$CONFIG_DIR" && -f "$CONFIG_DIR/09_crispr_analysis_v3.toml" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_crispr_v3_cfg_XXXXXX.toml")
     python3 "$MERGE_TOML" \
-        "$PIPELINE_DIR/9_crispr_v3CONFIG.toml" \
+        "$PIPELINE_DIR/09_crispr_v3CONFIG.toml" \
         "$CONFIG_DIR/00_common.toml" \
         "$CONFIG_DIR/09_crispr_analysis_v3.toml" \
         > "$CONFIG_FILE"

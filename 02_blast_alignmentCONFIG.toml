@@ -8,10 +8,10 @@
 
 [pipeline]
 gene_groups = [
-    #"DMP",
+    "DMP",
     #"HAP2",
-    "GRF_GIF",
-    # "PLA",
+    #"GRF_GIF",
+    #"PLA",
 ]
 
 machine            = "Local"   # "Local" or "HPC" — selects compute profile below
@@ -36,11 +36,11 @@ force_reindex = false        # Force rebuild of BLAST databases (skip cache chec
 # Comment in/out to select which stages run.  All run by default when this
 # key is absent.
 operations = [
-    #"blastn",               # BLASTn: nucleotide query vs nucleotide DB (identification + ortholog)
+    "blastn",               # BLASTn: nucleotide query vs nucleotide DB (identification + ortholog)
     #"blastx",              # BLASTx: nucleotide query vs protein DB (translated ortholog)
-    #"blastp",               # BLASTp: protein query vs protein DB (ortholog alignment)
-    "visualize_heatmap",        # Fig 1  — cross-species % identity heatmap
-    "visualize_heatmap_evalue", # Fig 1b — % identity + E-value overlay heatmap
+    "blastp",               # BLASTp: protein query vs protein DB (ortholog alignment)
+    #"visualize_heatmap",        # Fig 1  — cross-species % identity heatmap
+    #"visualize_heatmap_evalue", # Fig 1b — % identity + E-value overlay heatmap
     "visualize_lollipop",       # Fig 3  — per-gene top-hits lollipop (Bit Score)
 ]
 
@@ -91,17 +91,29 @@ target_proteins = [
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_proteins.fa",
 ]
 
-target_transcripts = [
-    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
+# Transcripts (full mRNA with UTRs) — disabled in favor of target_cds below.
+# Transcripts and CDS describe the same locus set; using both produces duplicate
+# BLAST hits per gene, so we use CDS only (coding regions, no UTRs).
+target_transcripts = []
+#target_transcripts = [
+#    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
+#    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
+#    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
+#]
+
+# CDS (coding sequences only, no UTRs) per target genome. Active nucleotide
+# BLAST subject DB for cross-species DMP queries. Order must match target_labels.
+target_cds = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_cds.fa",
     #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
-    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_cds.fa",
 ]
 
 use_hmmer_output = true      # Use HMMER-identified proteins as BLASTp subject database
 
 # ──────────────────────────────────────────────────────────────────
 [blast_visualize]
-lollipop_top_n        = 15          # Top-N hits shown per gene in Fig 3 (haploid-inducer genes always included)
+lollipop_top_n        = 10          # Top-N hits shown per gene in Fig 3 (haploid-inducer genes always included)
 
 # ── Common ──────────────────────────────────────────────────────────────────
 colormap              = "RdYlGn"   # Matplotlib colormap for heatmaps and lollipop colorbar
@@ -121,3 +133,41 @@ lollipop_dot_size     = 100        # Dot marker area (pt²) for regular hits
 lollipop_dot_size_hi  = 150        # Dot marker area for haploid-inducer hits
 hi_stem_color         = "#c7920a"  # Gold stem color for haploid-inducer hits
 stem_color            = "#d1d5db"  # Gray stem color for regular hits
+
+# ── Haploid-inducer labels (DMP-only highlight set) ──────────────────────────
+# Validated haploid-inducer DMPs (Chapter II Table 1, 14-species panel).
+# Force-included in Fig 3 lollipop with gold stems and star markers. Labels
+# must match _short_label() output. "(no hit)" entries are validated in the
+# literature but lack a current CSV row; kept for documentation. Only applied
+# when the gene group is DMP (gated in visualize_blast_results.py).
+haploid_inducer_labels = [
+    "AtDMP8",              # A. thaliana (Zhong 2020)
+    "AtDMP9",              # A. thaliana (Zhong 2020)
+    "AtDMP8+AtDMP9",       # A. thaliana (Zhong 2020), merged-FASTA alias
+    "ZmDMP",               # Z. mays (Zhong 2019), no hit
+    "SlDMP3",              # S. lycopersicum (Deng 2025; Zhong 2022b), Solyc05g007920
+    "SlDMP8-like",         # S. lycopersicum (Deng 2025), Solyc05g007920 NCBI alias
+    "StDMP",               # S. tuberosum (J. Zhang 2022)
+    "NtDMP",               # N. tabacum (X. Zhang 2022), no hit
+    "NtDMP2-like",         # N. tabacum (X. Zhang 2022)
+    "NtDMP3-like",         # N. tabacum (X. Zhang 2022)
+    "CDX74441",            # B. napus (Y. Li 2022)
+    "CDX81135",            # B. napus (Y. Li 2022)
+    "CDY30259",            # B. napus (Y. Li 2022)
+    "CDY56548",            # B. napus (Y. Li 2022)
+    "BoDMP_LOC106333617",  # B. oleracea (Zhao 2022)
+    "BoDMP_LOC106333853",  # B. oleracea (Zhao 2022)
+    "BjuA03g54090S",       # B. juncea (Chu 2025)
+    "BjuA04g10430S",       # B. juncea (Chu 2025)
+    "BjuB08g57390S",       # B. juncea (Chu 2025)
+    "ClDMP3",              # C. lanatus (Chen 2023)
+    "CsDMP",               # C. sativus (Yin 2024), no hit
+    "MtDMP8",              # M. truncatula (N. Wang 2022), no hit
+    "MtDMP9",              # M. truncatula (N. Wang 2022)
+    "GmDMP1",              # G. max (Zhong 2024)
+    "GmDMP2",              # G. max (Zhong 2024)
+    "GhDMPa",              # G. hirsutum (Long 2024)
+    "GhDMPd",              # G. hirsutum (Long 2024)
+    "OsDMP1",              # O. sativa (Liang 2025), no hit
+    "OsDMP3",              # O. sativa (Liang 2025)
+]

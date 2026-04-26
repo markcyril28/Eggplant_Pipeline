@@ -41,7 +41,7 @@ GENE_GROUPS=(
 )
 
 # All other settings (overwrite, threads, parallelism) are loaded from
-# 4_msa_alignmentCONFIG.toml [pipeline.compute.$MACHINE] section.
+# 04_msa_alignmentCONFIG.toml [pipeline.compute.$MACHINE] section.
 # ===============================================================
 
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -110,14 +110,13 @@ resolve_output_subdir() {
 # ---------------------------------------------------------------------------
 TEMP_FILES=()
 cleanup_all() {
-    # Kill any lingering background jobs (e.g. orphaned aligner subprocesses)
-    # so the tee pipe in setup_logging receives EOF and doesn't hang.
-    local -a _pids=()
-    mapfile -t _pids < <(jobs -rp 2>/dev/null) || true
-    (( ${#_pids[@]} > 0 )) && kill "${_pids[@]}" 2>/dev/null || true
-    wait 2>/dev/null || true
-    teardown_logging 2>/dev/null
-    rm -f "${TEMP_FILES[@]}"
+    # Note: do NOT pre-kill jobs -rp here -- that list includes the logging tee
+    # process substitutions, and killing them before teardown_logging restores
+    # FDs would lose buffered log writes. safe_teardown_logging closes pipe
+    # write-ends first (giving tees clean EOF), then SIGTERMs leftover children
+    # (orphaned aligner subprocesses) at the end.
+    rm -f "${TEMP_FILES[@]+"${TEMP_FILES[@]}"}" 2>/dev/null || true
+    safe_teardown_logging
 }
 trap cleanup_all EXIT
 
@@ -128,7 +127,7 @@ CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
 if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_msa_cfg_XXXXXX.toml")
     TEMP_FILES+=("$CONFIG_FILE")
-    cat "$PIPELINE_DIR/4_msa_alignmentCONFIG.toml" \
+    cat "$PIPELINE_DIR/04_msa_alignmentCONFIG.toml" \
         "$CONFIG_DIR/00_common.toml" \
         "$CONFIG_DIR/04_multiple_sequence_alignment.toml" \
         "$CONFIG_DIR/02_blast_ortholog_alignment.toml" > "$CONFIG_FILE"

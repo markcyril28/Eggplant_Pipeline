@@ -2,7 +2,7 @@
 # ============================================================================
 # Program 2: BLAST Identification & Ortholog Alignment
 # ============================================================================
-# Edit gene_groups in 2_blast_alignmentCONFIG.toml, then run:
+# Edit gene_groups in 02_blast_alignmentCONFIG.toml, then run:
 #   bash b_blast_alignment.sh
 # ============================================================================
 
@@ -12,13 +12,13 @@ PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES="$PIPELINE_DIR/modules"
 
 # ===================== IMPORTANT VARIABLES =====================
-# Gene groups: edit [pipeline].gene_groups in 2_blast_alignmentCONFIG.toml
+# Gene groups: edit [pipeline].gene_groups in 02_blast_alignmentCONFIG.toml
 # ===============================================================
-SHARED_CONFIG="$PIPELINE_DIR/2_blast_alignmentCONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/02_blast_alignmentCONFIG.toml"
 mapfile -t GENE_GROUPS < <(
     python3 "$MODULES/utils/parse_toml.py" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null
 )
-[[ ${#GENE_GROUPS[@]} -eq 0 ]] && { echo "ERROR: No gene_groups in 2_blast_alignmentCONFIG.toml [pipeline].gene_groups" >&2; exit 1; }
+[[ ${#GENE_GROUPS[@]} -eq 0 ]] && { echo "ERROR: No gene_groups in 02_blast_alignmentCONFIG.toml [pipeline].gene_groups" >&2; exit 1; }
 
 # Set PROJECT_ROOT before sourcing logging utility so log paths are absolute
 PROJECT_ROOT="$PIPELINE_DIR"
@@ -33,8 +33,8 @@ get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 
 TEMP_FILES=()
 cleanup_all() {
-    teardown_logging 2>/dev/null
-    rm -f "${TEMP_FILES[@]}"
+    rm -f "${TEMP_FILES[@]+"${TEMP_FILES[@]}"}" 2>/dev/null || true
+    safe_teardown_logging
 }
 trap cleanup_all EXIT
 
@@ -182,7 +182,7 @@ for GENE_GROUP in "${GENE_GROUPS[@]}"; do
         CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_blast_cfg_XXXXXX.toml")
         TEMP_FILES+=("$CONFIG_FILE")
         python3 "$MODULES/utils/merge_toml.py" \
-            "$PIPELINE_DIR/2_blast_alignmentCONFIG.toml" \
+            "$PIPELINE_DIR/02_blast_alignmentCONFIG.toml" \
             "$CONFIG_DIR/00_common.toml" \
             "$CONFIG_DIR/01_hmmer_gene_identification.toml" \
             "$CONFIG_DIR/02_blast_ortholog_alignment.toml" > "$CONFIG_FILE"
@@ -668,8 +668,9 @@ done
         NUCL_DB_PATHS+=("$(dirname "$GENOME_FULL")/${GENOME_BASENAME}_db/$GENOME_BASENAME")
     done
 
-    mapfile -t _orth_transcripts < <(get_toml ortholog_blast target_transcripts)
+    mapfile -t _orth_transcripts < <(get_toml ortholog_blast target_transcripts 2>/dev/null || true)
     for transcript_path in "${_orth_transcripts[@]}"; do
+        [[ -z "$transcript_path" ]] && continue
         TRANS_FULL="$PIPELINE_DIR/$transcript_path"
         [[ -f "$TRANS_FULL" ]] || { log_warn "Transcript not found: $TRANS_FULL"; continue; }
         log_info "Building nucleotide database for transcript: $(basename "$TRANS_FULL")"
@@ -679,6 +680,20 @@ done
         DB_PIDS+=("$!")
         TRANS_BASE=$(basename "$TRANS_FULL" .fa)
         NUCL_DB_PATHS+=("$(dirname "$TRANS_FULL")/${TRANS_BASE}_db/$TRANS_BASE")
+    done
+
+    mapfile -t _orth_cds < <(get_toml ortholog_blast target_cds 2>/dev/null || true)
+    for cds_path in "${_orth_cds[@]}"; do
+        [[ -z "$cds_path" ]] && continue
+        CDS_FULL="$PIPELINE_DIR/$cds_path"
+        [[ -f "$CDS_FULL" ]] || { log_warn "CDS not found: $CDS_FULL"; continue; }
+        log_info "Building nucleotide database for CDS: $(basename "$CDS_FULL")"
+        wait_for_slot "$MAX_PARALLEL"
+        bash "$MODULES/02_blast_ortholog_alignment/makeblastdb.sh" \
+            --input "$CDS_FULL" --dbtype nucl --outdir "$(dirname "$CDS_FULL")" $MAKEDB_FLAGS &
+        DB_PIDS+=("$!")
+        CDS_BASE=$(basename "$CDS_FULL" .fa)
+        NUCL_DB_PATHS+=("$(dirname "$CDS_FULL")/${CDS_BASE}_db/$CDS_BASE")
     done
 
     FAILED=0
@@ -1000,6 +1015,13 @@ if [[ "$DO_VISUALIZE" == "true" ]]; then
     VIZ_LOLLIPOP_DOT_SIZE_HI=$(get_toml blast_visualize lollipop_dot_size_hi 2>/dev/null || echo "150")
     VIZ_HI_STEM_COLOR=$(get_toml blast_visualize hi_stem_color 2>/dev/null || echo "#c7920a")
     VIZ_STEM_COLOR=$(get_toml blast_visualize stem_color 2>/dev/null || echo "#d1d5db")
+    # Haploid-inducer labels: TOML array (one per line from parse_toml.py) → CSV
+    VIZ_HI_LABELS=""
+    if mapfile -t _hi_arr < <(get_toml blast_visualize haploid_inducer_labels 2>/dev/null) \
+        && (( ${#_hi_arr[@]} > 0 )); then
+        VIZ_HI_LABELS=$(IFS=','; echo "${_hi_arr[*]}")
+    fi
+    unset _hi_arr
     VIZ_SCRIPT="$MODULES/02_blast_ortholog_alignment/visualize_blast.sh"
 
     # Build comma-separated figures list from per-figure operation flags
@@ -1017,6 +1039,8 @@ if [[ "$DO_VISUALIZE" == "true" ]]; then
             curated="$genome_dir/curated_results"
             if [[ -d "$curated" ]] && compgen -G "$curated/*_plant_only.csv" >/dev/null 2>&1; then
                 log_info "  Generating visualisations for: $(basename "$genome_dir")"
+                _viz_hi_labels_arg=()
+                [[ -n "$VIZ_HI_LABELS" ]] && _viz_hi_labels_arg=(--hi-labels "$VIZ_HI_LABELS")
                 bash "$VIZ_SCRIPT" \
                     --results-dir "$curated" \
                     --gene-group "$GENE_GROUP" \
@@ -1034,7 +1058,8 @@ if [[ "$DO_VISUALIZE" == "true" ]]; then
                     --lollipop-dot-size "$VIZ_LOLLIPOP_DOT_SIZE" \
                     --lollipop-dot-size-hi "$VIZ_LOLLIPOP_DOT_SIZE_HI" \
                     --hi-stem-color "$VIZ_HI_STEM_COLOR" \
-                    --stem-color "$VIZ_STEM_COLOR"
+                    --stem-color "$VIZ_STEM_COLOR" \
+                    "${_viz_hi_labels_arg[@]}"
             fi
         fi
     done
@@ -1046,5 +1071,7 @@ done
 log_step "All BLAST alignment processes completed"
 log_info "Pipeline execution finished successfully"
 log_info "Pipeline ended at: $(date)"
-wait
-teardown_logging
+# No bare `wait` here -- it would block on the logging tee process
+# substitutions whose PIDs are also in `jobs -rp`. Per-stage waits already
+# collected the BLAST workers; the EXIT trap (cleanup_all -> safe_teardown_logging)
+# handles tee shutdown via FD close.

@@ -15,15 +15,15 @@
 #   EXTRACT_TRANSCRIPTS   gffread CDS/transcript/protein extraction
 #   DOWNLOAD_CROP_GENOMES Various crop species genomes
 #
-# All behaviour driven by 0_RefSeq_setup_and_downloadCONFIG.toml.
+# All behaviour driven by 00_RefSeq_setup_and_downloadCONFIG.toml.
 #
 # Usage:
-#   bash 0_RefSeq_setup_and_download.sh                  # run enabled ops
-#   bash 0_RefSeq_setup_and_download.sh --list           # list operations
-#   bash 0_RefSeq_setup_and_download.sh --dry-run        # show planned actions
-#   bash 0_RefSeq_setup_and_download.sh --only OP[,OP]   # run subset
-#   bash 0_RefSeq_setup_and_download.sh --overwrite      # force re-download
-#   bash 0_RefSeq_setup_and_download.sh --parallel N     # override MAX_PARALLEL
+#   bash 00_RefSeq_setup_and_download.sh                  # run enabled ops
+#   bash 00_RefSeq_setup_and_download.sh --list           # list operations
+#   bash 00_RefSeq_setup_and_download.sh --dry-run        # show planned actions
+#   bash 00_RefSeq_setup_and_download.sh --only OP[,OP]   # run subset
+#   bash 00_RefSeq_setup_and_download.sh --overwrite      # force re-download
+#   bash 00_RefSeq_setup_and_download.sh --parallel N     # override MAX_PARALLEL
 #                                                        # (CPU-bound jobs only;
 #                                                        # NCBI concurrency is
 #                                                        # set in the TOML)
@@ -32,14 +32,14 @@
 set -euo pipefail
 
 # ===================== IMPORTANT VARIABLES =====================
-# Everything is loaded from 0_RefSeq_setup_and_downloadCONFIG.toml.
+# Everything is loaded from 00_RefSeq_setup_and_downloadCONFIG.toml.
 # Edit the TOML to change operations, parallelism, species coverage, etc.
 # ===============================================================
 
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES="$PIPELINE_DIR/modules"
 FASTA_DOWNLOAD_MODULES="$MODULES/00_refseq/fasta_download"
-CONFIG_FILE="$PIPELINE_DIR/0_RefSeq_setup_and_downloadCONFIG.toml"
+CONFIG_FILE="$PIPELINE_DIR/00_RefSeq_setup_and_downloadCONFIG.toml"
 TOML_PARSER="$MODULES/utils/parse_toml.py"
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -105,12 +105,15 @@ CROP_DIR="$REFSEQ_OUT_DIR/$CROP_REL"
 EXTRA_DIR="$REFSEQ_OUT_DIR/$EXTRA_REL"
 DMP_QUERY_DIR="$REFSEQ_OUT_DIR/$DMP_REL"
 
-mapfile -t DMP_HI_DIRS      < <(get_toml dmp_hi_genes dirs)
-mapfile -t DMP_HI_DOWNLOADS < <(get_toml dmp_hi_genes downloads)
-mapfile -t DMP_HI_MERGES    < <(get_toml dmp_hi_genes merge_outputs)
-mapfile -t DMP_FAM_DIRS      < <(get_toml dmp_family dirs)
-mapfile -t DMP_FAM_DOWNLOADS < <(get_toml dmp_family downloads)
-mapfile -t DMP_FAM_MERGES    < <(get_toml dmp_family merge_outputs)
+mapfile -t DMP_HI_DIRS         < <(get_toml dmp_hi_genes dirs)
+mapfile -t DMP_HI_DOWNLOADS    < <(get_toml dmp_hi_genes downloads)
+mapfile -t DMP_HI_MERGES       < <(get_toml dmp_hi_genes merge_outputs)
+mapfile -t DMP_HI_PROT_OUTPUTS < <(get_toml dmp_hi_genes merge_protein_outputs 2>/dev/null || true)
+mapfile -t DMP_FAM_DIRS        < <(get_toml dmp_family dirs)
+mapfile -t DMP_FAM_DOWNLOADS   < <(get_toml dmp_family downloads)
+mapfile -t DMP_FAM_MERGES      < <(get_toml dmp_family merge_outputs)
+
+TRANSLATE_PY="$MODULES/utils/translate_cds.py"
 
 UNITO_REL=$(get_toml smel_unito downloader_path)
 UNITO_DEST_REL=$(get_toml smel_unito dest_subdir)
@@ -216,18 +219,28 @@ run_module() {
 }
 
 run_merge() {
-    local out_filename="$1" work_dir="$2"
+    # Args: <out_cds_filename> <work_dir> [out_protein_filename]
+    # When out_protein_filename is non-empty, the merged CDS is also translated
+    # frame-1 to a sister protein FASTA (modules/utils/translate_cds.py) so the
+    # BLASTp stage can consume verified DMP protein queries without an external
+    # translator. Pass "" or omit to skip translation.
+    local out_filename="$1" work_dir="$2" prot_filename="${3:-}"
     local merger="$FASTA_DOWNLOAD_MODULES/merge_fasta_pwd.sh"
     if [[ ! -d "$work_dir" ]]; then
         log_warn "  [SKIP-MISSING] merge target dir absent: $(basename "$work_dir")"
         return 0
     fi
-    if should_skip_file "$work_dir/$out_filename"; then
-        log_info "  [SKIP-EXISTS] $(basename "$work_dir")/$out_filename — set overwrite=true to regenerate"
+    local cds_path="$work_dir/$out_filename"
+    local prot_path=""
+    [[ -n "$prot_filename" ]] && prot_path="$work_dir/$prot_filename"
+
+    if should_skip_file "$cds_path" && { [[ -z "$prot_path" ]] || should_skip_file "$prot_path"; }; then
+        log_info "  [SKIP-EXISTS] $(basename "$work_dir")/$out_filename (+ protein) — set overwrite=true to regenerate"
         return 0
     fi
     if $DRY_RUN; then
         echo "[DRY-RUN] (cd $work_dir && bash $merger $out_filename)"
+        [[ -n "$prot_path" ]] && echo "[DRY-RUN] python3 $TRANSLATE_PY $cds_path $prot_path"
         return 0
     fi
     # Reuse legacy merge scripts when present (Arabidopsis/Zm/Ip already have them)
@@ -243,6 +256,14 @@ run_merge() {
         ( cd "$work_dir" && bash "$legacy_lookup" )
     else
         ( cd "$work_dir" && bash "$merger" "$out_filename" )
+    fi
+    # Frame-1 translation step (sister _protein.fa for BLASTp queries)
+    if [[ -n "$prot_path" && -s "$cds_path" ]]; then
+        if [[ -f "$TRANSLATE_PY" ]]; then
+            python3 "$TRANSLATE_PY" "$cds_path" "$prot_path"
+        else
+            log_warn "  [SKIP-MISSING] translate_cds.py: $TRANSLATE_PY"
+        fi
     fi
 }
 
@@ -263,30 +284,9 @@ log_info "DMP HI species      : ${#DMP_HI_DIRS[@]}"
 log_info "DMP family species  : ${#DMP_FAM_DIRS[@]}"
 log_info "DMP HI registry     : $DMP_REGISTRY_REL"
 
-# Robust EXIT teardown.
-# 1) Close our stdout/stderr explicitly so any `tee` in a process substitution
-#    sees EOF immediately and exits (without this, the `wait` inside
-#    teardown_logging can stall on WSL2).
-# 2) Run teardown_logging in the background and bound it with a 3s deadline.
-# 3) Force-kill any logging children still attached to this shell.
-_stage0_cleanup() {
-    exec 1>&- 2>&- 2>/dev/null || true
-    ( teardown_logging 2>/dev/null ) &
-    local td_pid=$!
-    local i
-    for ((i=0; i<10; i++)); do
-        kill -0 "$td_pid" 2>/dev/null || break
-        sleep 0.1
-    done
-    kill -KILL "$td_pid" 2>/dev/null || true
-    # Reap any leftover child shells/tees that belong to this script
-    local cpid
-    for cpid in $(jobs -p) $(pgrep -P $$ 2>/dev/null); do
-        kill -TERM "$cpid" 2>/dev/null || true
-    done
-    return 0
-}
-trap _stage0_cleanup EXIT
+# Hang-proof EXIT teardown shared with all stage orchestrators.
+# Implementation lives in modules/logging/logging_utils.sh (safe_teardown_logging).
+trap safe_teardown_logging EXIT
 
 # ============================================================================
 # OP: SETUP_DIRS
@@ -361,21 +361,22 @@ fi
 # OP: MERGE_DMP_HI_GENES
 # ============================================================================
 if should_run "MERGE_DMP_HI_GENES"; then
-    log_step "[MERGE_DMP_HI_GENES] Merging HI per-species FASTAs (parallel=$MAX_PARALLEL)"
+    log_step "[MERGE_DMP_HI_GENES] Merging HI per-species FASTAs + frame-1 protein translation (parallel=$MAX_PARALLEL)"
     declare -a _hi_mg_pids=()
     for ((i=0; i<${#DMP_HI_DIRS[@]}; i++)); do
         species_dir="${DMP_HI_DIRS[i]}"
         merge_out="${DMP_HI_MERGES[i]}"
+        prot_out="${DMP_HI_PROT_OUTPUTS[i]:-}"
         [[ -z "$merge_out" ]] && continue
         out_dir="$DMP_QUERY_DIR/$species_dir"
         wait_for_slot "$MAX_PARALLEL"
-        log_info "  -> $species_dir -> $merge_out"
-        run_merge "$merge_out" "$out_dir" &
+        log_info "  -> $species_dir -> $merge_out${prot_out:+ (+ $prot_out)}"
+        run_merge "$merge_out" "$out_dir" "$prot_out" &
         _hi_mg_pids+=($!)
     done
     for _pid in "${_hi_mg_pids[@]}"; do wait "$_pid" || true; done
     unset _hi_mg_pids _pid
-    log_info "[MERGE_DMP_HI_GENES] All HI merges complete"
+    log_info "[MERGE_DMP_HI_GENES] All HI merges + translations complete"
 fi
 
 # ============================================================================

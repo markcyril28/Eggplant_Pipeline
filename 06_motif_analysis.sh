@@ -18,7 +18,7 @@ GENE_GROUPS=(
 
 # ===============================================================
 # CPU, MAX_PARALLEL, OVERWRITE, and OPERATIONS are loaded from
-# 6_motif_analysisCONFIG.toml  [pipeline]  section
+# 06_motif_analysisCONFIG.toml  [pipeline]  section
 # (gene-group overrides in config/{GROUP}/06_motif_analysis.toml).
 
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,7 +75,10 @@ resolve_plantcare_raw_dir() {
 }
 
 TEMP_FILES=()
-cleanup_temp() { for f in "${TEMP_FILES[@]}"; do rm -f "$f"; done; }
+cleanup_temp() {
+    for f in "${TEMP_FILES[@]+"${TEMP_FILES[@]}"}"; do rm -f "$f"; done
+    safe_teardown_logging
+}
 trap cleanup_temp EXIT
 
 GENE_SEQUENCE_OUTPUT_DIR="06_Motif_Analysis"
@@ -113,7 +116,7 @@ resolve_group_config() {
         # Deep-merge: shared defaults first, gene-group overrides win on conflict.
         # merge_toml.py silently skips missing files — no existence checks needed.
         python3 "$MERGE_TOML" \
-            "$PIPELINE_DIR/6_motif_analysisCONFIG.toml" \
+            "$PIPELINE_DIR/06_motif_analysisCONFIG.toml" \
             "$config_dir/00_common.toml" \
             "$config_dir/06_motif_analysis.toml" \
             "$config_dir/07_plantcare_analysis.toml" \

@@ -6,7 +6,7 @@
 # promoter sequences, then runs PlantCARE cis-element analysis and
 # heatmap visualisation.
 #
-# Edit gene_groups in 7_plant_care_analysisCONFIG.toml, then run:
+# Edit gene_groups in 07_plant_care_analysisCONFIG.toml, then run:
 #   bash g_plant_care_analysis.sh
 # ============================================================================
 
@@ -14,7 +14,7 @@ set -euo pipefail
 
 # ===================== IMPORTANT VARIABLES =====================
 # All variables (GENE_GROUPS, CPU, OVERWRITE, OPERATIONS) are loaded from
-# 7_plant_care_analysisCONFIG.toml — edit them there.
+# 07_plant_care_analysisCONFIG.toml — edit them there.
 # ===============================================================
 
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,10 +30,10 @@ TOML_MERGER="$MODULES/utils/merge_toml.py"
 get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 
 # Load GENE_GROUPS from shared config (read before the per-group loop)
-SHARED_CONFIG="$PIPELINE_DIR/7_plant_care_analysisCONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/07_plant_care_analysisCONFIG.toml"
 mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null)
 if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
-    echo "ERROR: pipeline.gene_groups is empty in 7_plant_care_analysisCONFIG.toml" >&2
+    echo "ERROR: pipeline.gene_groups is empty in 07_plant_care_analysisCONFIG.toml" >&2
     exit 1
 fi
 
@@ -60,7 +60,10 @@ load_operations_from_config() {
 }
 
 TEMP_FILES=()
-cleanup_temp() { for f in "${TEMP_FILES[@]}"; do rm -f "$f"; done; }
+cleanup_temp() {
+    for f in "${TEMP_FILES[@]+"${TEMP_FILES[@]}"}"; do rm -f "$f"; done
+    safe_teardown_logging
+}
 trap cleanup_temp EXIT
 
 PLANTCARE_OUTPUT_DIR="07_PlantCARE_Analysis"
@@ -97,12 +100,12 @@ resolve_group_config() {
         # missing files.
         local -a toml_sources=(
             "$shared_dir/00_common.toml"
-            "$PIPELINE_DIR/7_plant_care_analysisCONFIG.toml"
+            "$PIPELINE_DIR/07_plant_care_analysisCONFIG.toml"
             "$config_dir/00_common.toml"
             "$config_dir/07_plantcare_analysis.toml"
         )
-        [[ -f "$PIPELINE_DIR/1_hmmer_identifyCONFIG.toml" ]] && \
-            toml_sources+=("$PIPELINE_DIR/1_hmmer_identifyCONFIG.toml")
+        [[ -f "$PIPELINE_DIR/01_hmmer_identifyCONFIG.toml" ]] && \
+            toml_sources+=("$PIPELINE_DIR/01_hmmer_identifyCONFIG.toml")
         [[ -f "$config_dir/01_hmmer_gene_identification.toml" ]] && \
             toml_sources+=("$config_dir/01_hmmer_gene_identification.toml")
 

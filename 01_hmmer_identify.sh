@@ -10,7 +10,7 @@ set -euo pipefail
 
 # ===================== IMPORTANT VARIABLES =====================
 # GENE_GROUPS, CPU, MAX_PARALLEL, OVERWRITE, and OPERATIONS are all loaded
-# from 1_hmmer_identifyCONFIG.toml [pipeline]  — edit gene_groups there.
+# from 01_hmmer_identifyCONFIG.toml [pipeline]  — edit gene_groups there.
 # ===============================================================
 
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,17 +26,17 @@ get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 should_run() { [[ " ${OPERATIONS[*]} " =~ " $1 " ]]; }
 
 # Load GENE_GROUPS from shared config (read before the per-group loop)
-SHARED_CONFIG="$PIPELINE_DIR/1_hmmer_identifyCONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/01_hmmer_identifyCONFIG.toml"
 mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null)
 if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
-    echo "ERROR: pipeline.gene_groups is empty in 1_hmmer_identifyCONFIG.toml" >&2
+    echo "ERROR: pipeline.gene_groups is empty in 01_hmmer_identifyCONFIG.toml" >&2
     exit 1
 fi
 
 TEMP_FILES=()
 cleanup_all() {
-    teardown_logging 2>/dev/null
-    rm -f "${TEMP_FILES[@]}"
+    rm -f "${TEMP_FILES[@]+"${TEMP_FILES[@]}"}" 2>/dev/null || true
+    safe_teardown_logging
 }
 trap cleanup_all EXIT
 
@@ -49,7 +49,7 @@ if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_hmmer_cfg_XXXXXX.toml")
     TEMP_FILES+=("$CONFIG_FILE")
     python3 "$MERGE_TOML" \
-        "$PIPELINE_DIR/1_hmmer_identifyCONFIG.toml" \
+        "$PIPELINE_DIR/01_hmmer_identifyCONFIG.toml" \
         "$CONFIG_DIR/00_common.toml" \
         "$CONFIG_DIR/01_hmmer_gene_identification.toml" > "$CONFIG_FILE"
 else

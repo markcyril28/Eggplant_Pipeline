@@ -1,4 +1,4 @@
-# Config for: 0_RefSeq_setup_and_download.sh
+# Config for: 00_RefSeq_setup_and_download.sh
 # Parsed by modules/utils/parse_toml.py (flat parser; arrays are index-aligned).
 
 [pipeline]

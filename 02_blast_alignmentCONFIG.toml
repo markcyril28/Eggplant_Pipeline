@@ -3,7 +3,7 @@
 # ============================================================================
 # E-values, word sizes, target genomes shared across all gene groups.
 # Gene-group overrides (query_fastas, query_protein_fastas) live in
-# config/{GROUP}/02_blast_ortholog_alignment.toml.
+# config/{GROUP}/02_blast_ortholog_alignment_{GROUP}.toml.
 # ============================================================================
 
 [pipeline]

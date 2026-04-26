@@ -183,9 +183,9 @@ for GENE_GROUP in "${GENE_GROUPS[@]}"; do
         TEMP_FILES+=("$CONFIG_FILE")
         python3 "$MODULES/utils/merge_toml.py" \
             "$PIPELINE_DIR/02_blast_alignmentCONFIG.toml" \
-            "$CONFIG_DIR/00_common.toml" \
-            "$CONFIG_DIR/01_hmmer_gene_identification.toml" \
-            "$CONFIG_DIR/02_blast_ortholog_alignment.toml" > "$CONFIG_FILE"
+            "$CONFIG_DIR/00_common_${GENE_GROUP}.toml" \
+            "$CONFIG_DIR/01_hmmer_gene_identification_${GENE_GROUP}.toml" \
+            "$CONFIG_DIR/02_blast_ortholog_alignment_${GENE_GROUP}.toml" > "$CONFIG_FILE"
     else
         CONFIG_FILE="$PIPELINE_DIR/config/${GENE_GROUP}.toml"
     fi
@@ -538,7 +538,7 @@ fi
     done
 
     if (( MISSING_BLASTX_QUERIES > 0 && ${#RESOLVED_BLASTX_QUERIES[@]} > 0 )); then
-        log_warn "Skipped $MISSING_BLASTX_QUERIES configured BLASTx query FASTA(s) that were not found; check config/${GENE_GROUP}/02_blast_ortholog_alignment.toml"
+        log_warn "Skipped $MISSING_BLASTX_QUERIES configured BLASTx query FASTA(s) that were not found; check config/${GENE_GROUP}/02_blast_ortholog_alignment_${GENE_GROUP}.toml"
     fi
 
     if [[ ${#RESOLVED_BLASTX_QUERIES[@]} -eq 0 ]]; then
@@ -739,7 +739,7 @@ else
     done
 
     if (( MISSING_BLASTN_QUERIES > 0 && ${#BLASTN_QUERIES[@]} > 0 )); then
-        log_warn "Skipped $MISSING_BLASTN_QUERIES configured BLASTn query FASTA(s) that were not found; check config/${GENE_GROUP}/02_blast_ortholog_alignment.toml"
+        log_warn "Skipped $MISSING_BLASTN_QUERIES configured BLASTn query FASTA(s) that were not found; check config/${GENE_GROUP}/02_blast_ortholog_alignment_${GENE_GROUP}.toml"
     fi
 
     if [[ ${#BLASTN_QUERIES[@]} -eq 0 ]]; then
@@ -918,7 +918,7 @@ for query in "${CONFIGURED_BLASTP_QUERIES[@]}"; do
 done
 
 if (( MISSING_BLASTP_QUERIES > 0 && ${#RESOLVED_BLASTP_QUERIES[@]} > 0 )); then
-    log_warn "Skipped $MISSING_BLASTP_QUERIES configured BLASTp query FASTA(s) not found; check config/${GENE_GROUP}/02_blast_ortholog_alignment.toml"
+    log_warn "Skipped $MISSING_BLASTP_QUERIES configured BLASTp query FASTA(s) not found; check config/${GENE_GROUP}/02_blast_ortholog_alignment_${GENE_GROUP}.toml"
 fi
 
 if [[ ${#RESOLVED_BLASTP_QUERIES[@]} -eq 0 ]]; then

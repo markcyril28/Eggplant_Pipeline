@@ -311,6 +311,150 @@ cat("[INFO]", rf_label, "\n")
 out_dir <- dirname(args$output)
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
+# ======================== Shared Label Cleaning & HI Classification ========================
+# Defined here (before METHOD 1) so both phytools and ggtree branches use the same
+# canonical short names from II_INPUTS/DMP_HI_registry.tsv.
+
+smeldmp_name_map <- c(
+    "SMEL5_01g008730.1" = "SmelDMP01.730",
+    "SMEL5_01g026030.1" = "SmelDMP01.990",
+    "SMEL5_02g013320.1" = "SmelDMP02",
+    "SMEL5_04g005390.1" = "SmelDMP04",
+    "SMEL5_10g003660.1" = "SmelDMP10.560",
+    "SMEL5_10g017610.1" = "SmelDMP10.200",
+    "SMEL5_12g005350.1" = "SmelDMP12"
+)
+
+# Validated HI loci from II_INPUTS/DMP_HI_registry.tsv. NOTE: "CsDMP9" is
+# Citrus sinensis (not Cucumis sativus); the cucumber HI is CsaV3_1G028660.
+haploid_inducer_patterns <- c(
+    "AtDMP8",   "AtDMP9",                                       # Zhong et al. 2020
+    "GmDMP",   "Glyma.18G097400", "Glyma.18G098300",            # Zhong et al. 2024
+    "NtDMP",                                                    # X. Zhang et al. 2022
+    "SlDMP3",  "SlDMP8",  "Solyc05g007920",                     # Zhong 2022b / Deng 2025
+    "StDMP",   "Soltu.DM.05G005100",                            # J. Zhang et al. 2022
+    "ClDMP3",  "Cla97C06G121370",                               # Chen et al. 2023
+    "CsaV3_1G028660",                                           # Yin et al. 2024 (cucumber CsDMP)
+    "OsDMP1",  "OsDMP3", "LOC_Os08g01530", "LOC_Os01g29240",    # Liang et al. 2025
+    "GhDMPa",  "GhDMPd", "Gh_A11G3045", "Gh_D11G0735",          # Long et al. 2024
+    "MtDMP",   "Medtr7g010890", "Medtr5g044580",                # N. Wang et al. 2022
+    "ZmDMP",   "Zm00001d044822",                                # Zhong et al. 2019
+    "BoDMP",   "LOC106333617", "LOC106333853",                  # Zhao et al. 2022
+    "BjuDMP",  "BjuA04g10430S", "BjuA03g54090S",                # Chu et al. 2025
+    "BjuB08g57390S", "BjuB01g27600S"
+)
+
+# Locus / accession token -> gene symbol (drives display shortening).
+hi_alias_map <- c(
+    "BjuA04g10430S"      = "BjuDMP1",
+    "BjuA03g54090S"      = "BjuDMP2",
+    "BjuB08g57390S"      = "BjuDMP3",
+    "BjuB01g27600S"      = "BjuDMP4",
+    "LOC106333617"       = "BoDMP9",
+    "LOC106333853"       = "BoDMP9",
+    "Cla97C06G121370"    = "ClDMP3",
+    "CsaV3_1G028660"     = "CsDMP",
+    "Glyma.18G097400"    = "GmDMP1",
+    "Glyma.18G098300"    = "GmDMP2",
+    "Gh_A11G3045"        = "GhDMPa",
+    "Gh_D11G0735"        = "GhDMPd",
+    "LOC_Os08g01530"     = "OsDMP1",
+    "LOC_Os01g29240"     = "OsDMP3",
+    "Solyc05g007920"     = "SlDMP3",
+    "Soltu.DM.05G005100" = "StDMP",
+    "Medtr7g010890"      = "MtDMP8",
+    "Medtr5g044580"      = "MtDMP9",
+    "Zm00001d044822"     = "ZmDMP"
+)
+
+shorten_label <- function(lab) {
+    for (key in names(hi_alias_map)) {
+        if (grepl(key, lab, fixed = TRUE)) return(hi_alias_map[[key]])
+    }
+    lab <- sub("_LOC[0-9]+$", "", lab)
+    m <- regmatches(lab,
+        regexec("^([A-Za-z]+)DMP([0-9]+)_\\1DMP([0-9]+)$", lab))[[1]]
+    if (length(m) == 4L) {
+        return(sprintf("%sDMP%s/%s", m[2], m[3], m[4]))
+    }
+    lab <- sub("_([0-9]+)$", ".\\1", lab)
+    lab
+}
+
+short_gene_name <- function(lab) {
+    lab <- shorten_label(lab)
+    lab <- sub("_CDS_[0-9]+-[0-9]+$", "", lab)
+    lab <- sub("_[0-9]+-[0-9]+$", "", lab)
+    lab <- sub("_(XP|XM|XR|WP)_[0-9]+\\.?[0-9]*.*$", "", lab)
+    lab <- sub("_AT[0-9]+G[0-9]+\\.?[0-9]*.*$", "", lab)
+    lab <- sub("_Glyma\\.[0-9A-Z]+\\.?[0-9]*.*$", "", lab)
+    lab <- sub("_G[0-9]+(_Outgroup)?$", "", lab)
+    lab <- sub("_(Wang|Zhong|Deng|Liu|Yang|Lin)[._A-Za-z0-9]*$", "", lab)
+    lab
+}
+
+full_gene_name <- function(lab) {
+    lab <- shorten_label(lab)
+    lab <- sub("_CDS_[0-9]+-[0-9]+$", "", lab)
+    lab <- sub("_[0-9]+-[0-9]+$", "", lab)
+    lab <- sub("_G[0-9]+(_Outgroup)?$", "", lab)
+    lab <- sub("_(Wang|Zhong|Deng|Liu|Yang|Lin)[._A-Za-z0-9]*$", "", lab)
+    lab
+}
+
+classify_tip_orig <- function(label) {
+    if (grepl("^SMEL5_|^Smel_|^SMELG", label)) return("SmelDMP")
+    for (pat in haploid_inducer_patterns) {
+        if (grepl(pat, label, fixed = TRUE)) return("Haploid Inducer")
+    }
+    if (!is.null(args$outgroup_pattern) && grepl(args$outgroup_pattern, label)) {
+        return("Outgroup")
+    }
+    "Other DMP Ortholog"
+}
+
+clean_labels <- function(labels) {
+    sapply(labels, function(lab) {
+        if (tolower(args$label_style) == "replace") {
+            for (smel_id in names(smeldmp_name_map)) {
+                if (grepl(smel_id, lab, fixed = TRUE)) {
+                    short <- smeldmp_name_map[[smel_id]]
+                    full  <- sub("_CDS_[0-9]+-[0-9]+$", "", lab)
+                    full  <- sub("_[0-9]+-[0-9]+$", "", full)
+                    return(paste0(short, " (", full, ")"))
+                }
+            }
+            short <- short_gene_name(lab)
+            full  <- full_gene_name(lab)
+            if (short == full) return(short)
+            paste0(short, " (", full, ")")
+        } else {
+            for (smel_id in names(smeldmp_name_map)) {
+                if (grepl(smel_id, lab, fixed = TRUE)) {
+                    return(paste0(lab, "  [", smeldmp_name_map[[smel_id]], "]"))
+                }
+            }
+            lab
+        }
+    }, USE.NAMES = FALSE)
+}
+
+# Classify on ORIGINAL labels (before shortening) so registry locus IDs match
+orig_cats1 <- sapply(tree1$tip.label, classify_tip_orig, USE.NAMES = FALSE)
+orig_cats2 <- sapply(tree2$tip.label, classify_tip_orig, USE.NAMES = FALSE)
+
+new_labels1 <- clean_labels(tree1$tip.label)
+new_labels2 <- clean_labels(tree2$tip.label)
+
+tip_cats1 <- setNames(orig_cats1, new_labels1)
+tip_cats2 <- setNames(orig_cats2, new_labels2)
+
+tree1$tip.label <- new_labels1
+tree2$tip.label <- new_labels2
+
+# Recompute shared tips on the cleaned labels (used by phytools association matrix)
+shared_tips <- intersect(tree1$tip.label, tree2$tip.label)
+
 # ======================== METHOD 1: phytools cophyloplot ========================
 # Produces a proper tanglegram with connecting lines between shared tip labels.
 
@@ -324,21 +468,23 @@ if (has_phytools) {
     t1l <- ape::ladderize(tree1)
     t2l <- ape::ladderize(tree2)
 
-    # Tip label colours — 4-category scheme consistent with ggtree fallback
-    classify_tip_color <- function(lab) {
-        if (grepl(args$eggplant_pattern, lab)) return(args$color_smeldmp)
-        for (pat in c("AtDMP8", "AtDMP9", "GmDMP")) {
-            if (grepl(pat, lab, fixed = TRUE)) return(args$color_haploid)
-        }
-        if (!is.null(args$outgroup_pattern) && grepl(args$outgroup_pattern, lab)) {
-            return(args$color_outgroup)
-        }
-        args$color_ortholog
+    # Tip label colours — driven by the shared HI registry classification
+    color_for_category <- function(cat) {
+        switch(cat,
+            "SmelDMP"            = args$color_smeldmp,
+            "Haploid Inducer"    = args$color_haploid,
+            "Outgroup"           = args$color_outgroup,
+            args$color_ortholog
+        )
     }
 
     if (to_bool(args$highlight_eggplant)) {
-        tip_col1 <- sapply(t1l$tip.label, classify_tip_color, USE.NAMES = FALSE)
-        tip_col2 <- sapply(t2l$tip.label, classify_tip_color, USE.NAMES = FALSE)
+        tip_col1 <- sapply(t1l$tip.label,
+            function(lab) color_for_category(tip_cats1[[lab]]),
+            USE.NAMES = FALSE)
+        tip_col2 <- sapply(t2l$tip.label,
+            function(lab) color_for_category(tip_cats2[[lab]]),
+            USE.NAMES = FALSE)
     } else {
         tip_col1 <- rep("black", length(t1l$tip.label))
         tip_col2 <- rep("black", length(t2l$tip.label))
@@ -442,96 +588,8 @@ suppressPackageStartupMessages({
 })
 if (has_patchwork) suppressPackageStartupMessages(library(patchwork))
 
-# ======================== Label Cleaning & Category Classification ========================
-# Matches render_tree.R conventions for consistent visual identity across all tree figures.
-
-smeldmp_name_map <- c(
-    "SMEL5_01g008730.1" = "SmelDMP01.730",
-    "SMEL5_01g026030.1" = "SmelDMP01.990",
-    "SMEL5_02g013320.1" = "SmelDMP02",
-    "SMEL5_04g005390.1" = "SmelDMP04",
-    "SMEL5_10g003660.1" = "SmelDMP10.560",
-    "SMEL5_10g017610.1" = "SmelDMP10.200",
-    "SMEL5_12g005350.1" = "SmelDMP12"
-)
-
-haploid_inducer_patterns <- c(
-    "AtDMP8",   # Arabidopsis thaliana — Zhong et al. 2020
-    "AtDMP9",   # Arabidopsis thaliana — Zhong et al. 2020
-    "GmDMP",    # Glycine max — Zhong et al. 2024 (GmDMP1 + GmDMP2)
-    "NtDMP",    # Nicotiana tabacum — X. Zhang et al. 2022 (NtDMP1-3)
-    "SlDMP8"    # Solanum lycopersicum (SlDMP8-like, Solyc05g007920) — Deng et al. 2025
-    # NOTE: "CsDMP9"/XP_006482605 is Citrus sinensis — NOT Cucumis sativus (Yin 2024 HI = CsaV3_1G028660).
-)
-
-classify_tip_orig <- function(label) {
-    if (grepl("^SMEL5_|^Smel_|^SMELG", label)) return("SmelDMP")
-    for (pat in haploid_inducer_patterns) {
-        if (grepl(pat, label, fixed = TRUE)) return("Haploid Inducer")
-    }
-    if (!is.null(args$outgroup_pattern) && grepl(args$outgroup_pattern, label)) {
-        return("Outgroup")
-    }
-    "Other DMP Ortholog"
-}
-
-short_gene_name <- function(lab) {
-    lab <- sub("_CDS_[0-9]+-[0-9]+$", "", lab)
-    lab <- sub("_[0-9]+-[0-9]+$", "", lab)
-    lab <- sub("_(XP|XM|XR|WP)_[0-9]+\\.?[0-9]*.*$", "", lab)
-    lab <- sub("_AT[0-9]+G[0-9]+\\.?[0-9]*.*$", "", lab)
-    lab <- sub("_Glyma\\.[0-9A-Z]+\\.?[0-9]*.*$", "", lab)
-    lab <- sub("_G[0-9]+(_Outgroup)?$", "", lab)
-    lab <- sub("_(Wang|Zhong|Deng|Liu|Yang|Lin)[_A-Za-z0-9]*$", "", lab)
-    lab
-}
-
-full_gene_name <- function(lab) {
-    lab <- sub("_CDS_[0-9]+-[0-9]+$", "", lab)
-    lab <- sub("_[0-9]+-[0-9]+$", "", lab)
-    lab <- sub("_G[0-9]+(_Outgroup)?$", "", lab)
-    lab <- sub("_(Wang|Zhong|Deng|Liu|Yang|Lin)[_A-Za-z0-9]*$", "", lab)
-    lab
-}
-
-clean_labels <- function(labels) {
-    sapply(labels, function(lab) {
-        if (tolower(args$label_style) == "replace") {
-            for (smel_id in names(smeldmp_name_map)) {
-                if (grepl(smel_id, lab, fixed = TRUE)) {
-                    short <- smeldmp_name_map[[smel_id]]
-                    full  <- sub("_CDS_[0-9]+-[0-9]+$", "", lab)
-                    full  <- sub("_[0-9]+-[0-9]+$", "", full)
-                    return(paste0(short, " (", full, ")"))
-                }
-            }
-            short <- short_gene_name(lab)
-            full  <- full_gene_name(lab)
-            if (short == full) return(short)
-            paste0(short, " (", full, ")")
-        } else {
-            for (smel_id in names(smeldmp_name_map)) {
-                if (grepl(smel_id, lab, fixed = TRUE)) {
-                    return(paste0(lab, "  [", smeldmp_name_map[[smel_id]], "]"))
-                }
-            }
-            lab
-        }
-    }, USE.NAMES = FALSE)
-}
-
-# Classify on ORIGINAL labels, then clean
-orig_cats1 <- sapply(tree1$tip.label, classify_tip_orig, USE.NAMES = FALSE)
-orig_cats2 <- sapply(tree2$tip.label, classify_tip_orig, USE.NAMES = FALSE)
-
-new_labels1 <- clean_labels(tree1$tip.label)
-new_labels2 <- clean_labels(tree2$tip.label)
-
-tip_cats1 <- setNames(orig_cats1, new_labels1)
-tip_cats2 <- setNames(orig_cats2, new_labels2)
-
-tree1$tip.label <- new_labels1
-tree2$tip.label <- new_labels2
+# Note: tree labels and per-tip categories (tip_cats1, tip_cats2) were already
+# computed in the shared block above the phytools branch.
 
 # ======================== Tip Order Alignment ========================
 # Rotate tree1 (left) to match tree2 (right) tip ordering so corresponding

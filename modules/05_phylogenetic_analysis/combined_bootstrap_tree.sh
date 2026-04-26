@@ -23,13 +23,17 @@
 #
 # Pair-matching logic (same as compare_trees.sh):
 #   For every file matching:
-#     <treedir>/<genome>/IQTREE2/<stem>_IQTREE2.treefile
-#   the script looks for:
-#     <treedir>/<genome>/RAXML/<stem>_RAXML.raxml.support
+#     <treedir>/<...subpath...>/IQTREE2/<stem>_IQTREE2.treefile
+#   where <subpath> mirrors the MSA folder hierarchy
+#   (e.g. <genome>/<output_subdir>/<set_name>/<METHOD>_aligned/), and falls
+#   back to a single <genome>/ component for the legacy flat layout.
+#   The script looks for the sibling RAxML output:
+#     <treedir>/<...subpath...>/RAXML/<stem>_RAXML.raxml.support
 #   Pairs with no .raxml.support counterpart are skipped (bootstrap values
 #   required; .raxml.bestTree has no support annotations).
 #
-# Output: <outdir>/<genome>/Combined/{Nucleotide|Protein}/<stem>_combined_bootstrap.png
+# Output: <subpath>/Combined/{Nucleotide|Protein}/<stem>_combined_bootstrap.png
+#         (written next to the tree pair, not under --outdir).
 # ============================================================================
 
 set -euo pipefail
@@ -202,16 +206,23 @@ while IFS= read -r iq_tree_file; do
         continue
     fi
 
-    genome_name="$(basename "$genome_dir")"
+    # genome_dir is the parent of IQTREE2/ — for the new MSA-mirrored layout
+    # this is .../<METHOD>_aligned/, not the genome folder. Use the relative
+    # path (treedir-stripped) for a clearer log label.
+    rel_subpath="${genome_dir#$TREE_DIR/}"
     seq_type="$(detect_seq_type "$stem")"
-    out_png="$OUTPUT_DIR/$genome_name/Combined/${seq_type}/${stem}_combined_bootstrap.png"
+    # Place combined-bootstrap figures next to the trees they merge (parent of
+    # IQTREE2/ and RAXML/). Works for both the MSA-mirrored layout
+    # (.../<METHOD>_aligned/Combined/...) and the legacy flat layout
+    # (.../<genome>/Combined/...).
+    out_png="$genome_dir/Combined/${seq_type}/${stem}_combined_bootstrap.png"
 
     PAIR_IQTREE+=("$iq_tree_file")
     PAIR_RAXML+=("$raxml_file")
     PAIR_OUTPUT+=("$out_png")
     PAIR_SEQTYPE+=("$seq_type")
 
-    log_info "Matched pair: [$genome_name] [$seq_type] $stem"
+    log_info "Matched pair: [$rel_subpath] [$seq_type] $stem"
 done < <(find "$TREE_DIR" -type f -name "*_IQTREE2.treefile" 2>/dev/null | sort)
 
 n_pairs=${#PAIR_IQTREE[@]}

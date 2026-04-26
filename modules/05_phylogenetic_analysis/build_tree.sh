@@ -35,6 +35,7 @@ RAXML_BS_TREES="5000"
 RAXML_SEARCH_REPLICATES="50"
 RAXML_REDO="true"
 GENOME_NAME=""
+SUBPATH=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -67,6 +68,7 @@ while [[ $# -gt 0 ]]; do
         --raxml-search-replicates) RAXML_SEARCH_REPLICATES="$2"; shift 2 ;;
         --raxml-redo)              RAXML_REDO="$2"; shift 2 ;;
         --genome-name)             GENOME_NAME="$2"; shift 2 ;;
+        --subpath)                 SUBPATH="$2"; shift 2 ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
@@ -98,7 +100,13 @@ esac
 
 BASENAME=$(basename "$INPUT_FILE")
 BASENAME="${BASENAME%.*}"
-if [[ -n "$GENOME_NAME" ]]; then
+# Output layout (priority: --subpath  →  --genome-name  →  flat):
+#   $OUTPUT_DIR/<subpath>/<software>/   ← mirrors MSA folder structure
+#   $OUTPUT_DIR/<genome>/<software>/    ← legacy, single-genome layout
+#   $OUTPUT_DIR/<software>/             ← fallback
+if [[ -n "$SUBPATH" ]]; then
+    TREE_DIR="$OUTPUT_DIR/$SUBPATH/$SOFTWARE"
+elif [[ -n "$GENOME_NAME" ]]; then
     TREE_DIR="$OUTPUT_DIR/$GENOME_NAME/$SOFTWARE"
 else
     TREE_DIR="$OUTPUT_DIR/$SOFTWARE"
@@ -275,7 +283,7 @@ case "$SOFTWARE" in
         [[ "$IQTREE2_SAFE" == "true" ]] && IQTREE_FLAGS+=(--safe)
         [[ "$IQTREE2_BNNI" == "true" ]] && IQTREE_FLAGS+=(--bnni)
         [[ "$IQTREE2_FAST" == "true" ]] && IQTREE_FLAGS+=(--fast)
-        [[ -n "$IQTREE2_PERS" ]] && IQTREE_FLAGS+=(--pers "$IQTREE2_PERS")
+        [[ -n "$IQTREE2_PERS" ]] && IQTREE_FLAGS+=(-pers "$IQTREE2_PERS")
         [[ "$IQTREE2_REDO" == "true" ]] && IQTREE_FLAGS+=(--redo)
 
         if [[ -s "$TREE_FILE" ]] && [[ "$IQTREE2_REDO" != "true" ]]; then

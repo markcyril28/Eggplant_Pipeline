@@ -271,14 +271,27 @@ smeldmp_name_map <- c(
     "SMEL5_12g005350.1" = "SmelDMP12"
 )
 
-# Functionally validated haploid-inducing DMP genes
+# Functionally validated haploid-inducing DMP genes — drawn from
+# II_INPUTS/DMP_HI_registry.tsv. Patterns are matched as substrings (fixed=TRUE)
+# against ORIGINAL tip labels, so both raw locus IDs and short gene symbols
+# are listed to cover pre- and post-shortened forms.
+# NOTE: "CsDMP9"/XP_006482605 is Citrus sinensis — NOT Cucumis sativus.
+# Yin et al. 2024 cucumber HI is CsaV3_1G028660 (which IS listed below).
 haploid_inducer_patterns <- c(
-    "AtDMP8",   # Arabidopsis thaliana — Zhong et al. 2020
-    "AtDMP9",   # Arabidopsis thaliana — Zhong et al. 2020
-    "GmDMP",    # Glycine max — Zhong et al. 2024 (GmDMP1 + GmDMP2)
-    "NtDMP",    # Nicotiana tabacum — X. Zhang et al. 2022 (NtDMP1-3)
-    "SlDMP8"    # Solanum lycopersicum (SlDMP8-like, Solyc05g007920) — Deng et al. 2025
-    # NOTE: "CsDMP9"/XP_006482605 is Citrus sinensis — NOT Cucumis sativus (Yin 2024 HI = CsaV3_1G028660).
+    "AtDMP8",   "AtDMP9",                                       # Zhong et al. 2020
+    "GmDMP",   "Glyma.18G097400", "Glyma.18G098300",            # Zhong et al. 2024
+    "NtDMP",                                                    # X. Zhang et al. 2022
+    "SlDMP3",  "SlDMP8",  "Solyc05g007920",                     # Zhong 2022b / Deng 2025
+    "StDMP",   "Soltu.DM.05G005100",                            # J. Zhang et al. 2022
+    "ClDMP3",  "Cla97C06G121370",                               # Chen et al. 2023
+    "CsaV3_1G028660",                                           # Yin et al. 2024 (cucumber CsDMP)
+    "OsDMP1",  "OsDMP3", "LOC_Os08g01530", "LOC_Os01g29240",    # Liang et al. 2025
+    "GhDMPa",  "GhDMPd", "Gh_A11G3045", "Gh_D11G0735",          # Long et al. 2024
+    "MtDMP",   "Medtr7g010890", "Medtr5g044580",                # N. Wang et al. 2022
+    "ZmDMP",   "Zm00001d044822",                                # Zhong et al. 2019
+    "BoDMP",   "LOC106333617", "LOC106333853",                  # Zhao et al. 2022
+    "BjuDMP",  "BjuA04g10430S", "BjuA03g54090S",                # Chu et al. 2025
+    "BjuB08g57390S", "BjuB01g27600S"
 )
 
 # Classify using ORIGINAL labels (before any renaming)
@@ -295,24 +308,79 @@ orig_categories <- sapply(tree$tip.label, classify_tip_orig, USE.NAMES = FALSE)
 
 # ======================== Label Cleaning ========================
 
+# Canonical HI-registry alias map — locus / accession token -> gene symbol.
+# Source: II_INPUTS/DMP_HI_registry.tsv (validated DMP haploid-inducer genes).
+# Substring match: any tip label containing one of these keys is replaced
+# with the corresponding gene symbol so phylogeny figures show readable names.
+hi_alias_map <- c(
+    "BjuA04g10430S"      = "BjuDMP1",
+    "BjuA03g54090S"      = "BjuDMP2",
+    "BjuB08g57390S"      = "BjuDMP3",
+    "BjuB01g27600S"      = "BjuDMP4",
+    "LOC106333617"       = "BoDMP9",
+    "LOC106333853"       = "BoDMP9",
+    "Cla97C06G121370"    = "ClDMP3",
+    "CsaV3_1G028660"     = "CsDMP",
+    "Glyma.18G097400"    = "GmDMP1",
+    "Glyma.18G098300"    = "GmDMP2",
+    "Gh_A11G3045"        = "GhDMPa",
+    "Gh_D11G0735"        = "GhDMPd",
+    "LOC_Os08g01530"     = "OsDMP1",
+    "LOC_Os01g29240"     = "OsDMP3",
+    "Solyc05g007920"     = "SlDMP3",
+    "Soltu.DM.05G005100" = "StDMP",
+    "Medtr7g010890"      = "MtDMP8",
+    "Medtr5g044580"      = "MtDMP9",
+    "Zm00001d044822"     = "ZmDMP"
+)
+
+# Cosmetic shortening: removes purely-redundant accession suffixes from
+# already-shortened tip labels (e.g., "BoDMP_LOC106333617" -> "BoDMP9",
+# "AtDMP8_AtDMP9" -> "AtDMP8/9", "GmDMP1_2" -> "GmDMP1.2"). Applied to BOTH
+# short and full forms so the rendered label collapses to one clean name when
+# the only difference is cosmetic.
+shorten_label <- function(lab) {
+    # 1. Registry alias: substring match on canonical locus tokens
+    for (key in names(hi_alias_map)) {
+        if (grepl(key, lab, fixed = TRUE)) return(hi_alias_map[[key]])
+    }
+    # 2. Strip trailing NCBI LOC accession appended to a gene symbol
+    lab <- sub("_LOC[0-9]+$", "", lab)
+    # 3. Collapse dual-gene labels: "AtDMP8_AtDMP9" -> "AtDMP8/9"
+    m <- regmatches(lab,
+        regexec("^([A-Za-z]+)DMP([0-9]+)_\\1DMP([0-9]+)$", lab))[[1]]
+    if (length(m) == 4L) {
+        return(sprintf("%sDMP%s/%s", m[2], m[3], m[4]))
+    }
+    # 4. Paralog disambiguator: trailing "_N" -> ".N" (preserves info, shorter visual)
+    lab <- sub("_([0-9]+)$", ".\\1", lab)
+    lab
+}
+
 # Short name: gene symbol only — strips accessions, AT loci, Glyma IDs, and metadata.
 short_gene_name <- function(lab) {
+    lab <- shorten_label(lab)
     lab <- sub("_CDS_[0-9]+-[0-9]+$", "", lab)
     lab <- sub("_[0-9]+-[0-9]+$", "", lab)
     lab <- sub("_(XP|XM|XR|WP)_[0-9]+\\.?[0-9]*.*$", "", lab)
     lab <- sub("_AT[0-9]+G[0-9]+\\.?[0-9]*.*$", "", lab)
     lab <- sub("_Glyma\\.[0-9A-Z]+\\.?[0-9]*.*$", "", lab)
     lab <- sub("_G[0-9]+(_Outgroup)?$", "", lab)
-    lab <- sub("_(Wang|Zhong|Deng|Liu|Yang|Lin)[_A-Za-z0-9]*$", "", lab)
+    # Trailing citation strip. Includes '.' so years converted from "_2022"
+    # to ".2022" by the earlier digit-to-dot rule in shorten_label() also peel.
+    lab <- sub("_(Wang|Zhong|Deng|Liu|Yang|Lin)[._A-Za-z0-9]*$", "", lab)
     return(lab)
 }
 
 # Full name: gene symbol + accession/locus ID — strips only metadata notes.
 full_gene_name <- function(lab) {
+    lab <- shorten_label(lab)
     lab <- sub("_CDS_[0-9]+-[0-9]+$", "", lab)
     lab <- sub("_[0-9]+-[0-9]+$", "", lab)
     lab <- sub("_G[0-9]+(_Outgroup)?$", "", lab)
-    lab <- sub("_(Wang|Zhong|Deng|Liu|Yang|Lin)[_A-Za-z0-9]*$", "", lab)
+    # Trailing citation strip. Includes '.' so years converted from "_2022"
+    # to ".2022" by the earlier digit-to-dot rule in shorten_label() also peel.
+    lab <- sub("_(Wang|Zhong|Deng|Liu|Yang|Lin)[._A-Za-z0-9]*$", "", lab)
     return(lab)
 }
 

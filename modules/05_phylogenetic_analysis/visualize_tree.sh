@@ -201,11 +201,16 @@ for treefile in "${TREE_FILES[@]}"; do
         *.nwk)                PHYLO_SOFTWARE="MEGA_CC"  ;;
     esac
 
-    # Sequence type — from parent directory name (AA/ or NT/)
-    case "$treefile" in
-        */AA/*|*/aa/*|*/Protein/*) SEQ_TYPE="AA" ;;
-        */NT/*|*/nt/*|*/Nucleotide/*|*/nucleotide/*) SEQ_TYPE="NT" ;;
+    # Sequence type — match path or filename keywords (lowercased so detection
+    # works regardless of casing, including embedded keywords like
+    # ".../selected_v3_full_and_HI_DMPs_nucleotide/MAFFT_aligned/IQTREE2/<stem>_NUCLEOTIDE_Sequence_IQTREE2.treefile").
+    SEQ_TYPE=""
+    _path_lc=$(echo "$treefile" | tr '[:upper:]' '[:lower:]')
+    case "$_path_lc" in
+        *amino_acid*|*protein*|*polypeptide*|*/aa/*|*_aa_*) SEQ_TYPE="AA" ;;
+        *nucleotide*|*_nuc_*|*_nt_*|*_dna_*|*/nt/*) SEQ_TYPE="NT" ;;
     esac
+    unset _path_lc
 
     # Model and bootstrap — from TOML config (if available)
     if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then

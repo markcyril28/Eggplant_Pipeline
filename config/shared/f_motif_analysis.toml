@@ -3,7 +3,7 @@
 # ============================================================================
 # MEME-suite tool parameters shared across all gene groups.
 # Gene-group overrides ([pipeline] operations, [meme.inputs]) live in
-# config/{GROUP}/06_motif_analysis.toml.
+# config/{GROUP}/06_motif_analysis_{GROUP}.toml.
 # ============================================================================
 
 [pipeline]

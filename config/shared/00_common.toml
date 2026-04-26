@@ -2,7 +2,7 @@
 # Shared Pipeline Configuration — Common / Shared Defaults
 # ============================================================================
 # Settings here apply to ALL gene groups.  Gene-group-specific overrides
-# (e.g. [general] gene_group, base_dir) live in config/{GROUP}/00_common.toml
+# (e.g. [general] gene_group, base_dir) live in config/{GROUP}/00_common_{GROUP}.toml
 # and are deep-merged on top of these defaults at runtime.
 # ============================================================================
 

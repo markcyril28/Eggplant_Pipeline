@@ -257,11 +257,14 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
         ]
 
         ax_t.axis("off")
+        ax_t.set_xlim(0, 1)
+        ax_t.set_ylim(0, 1)
         tbl = ax_t.table(
             cellText=table_rows,
             colLabels=col_labels,
             cellLoc="left",
-            loc="center",
+            loc="upper center",
+            bbox=[0.0, 0.0, 1.0, 1.0],   # fill the axes; no internal whitespace
         )
         tbl.auto_set_font_size(False)
         tbl.set_fontsize(8.5)
@@ -286,11 +289,24 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
             tbl[i, OFFTARGET_COL_IDX].set_facecolor(cell_tint)
             tbl[i, 6].set_text_props(family="monospace")
 
-        # Section title above table axes (color matches header)
-        fig.text(0.5, ax_t.get_position().y1 + 0.008,
-                 title,
-                 ha="center", va="bottom", fontsize=9,
-                 fontweight="bold", color=header_color)
+        # Gene-group demarcation: thicken the border between rows whose Gene
+        # column differs from the previous row (rows are clustered by gene).
+        n_cols = len(col_labels)
+        for i in range(1, len(best)):
+            if best[i]["gene"] != best[i - 1]["gene"]:
+                # tbl[i, *] is the last guide of the previous gene; tbl[i+1, *]
+                # is the first of the new gene. Thicken the shared edge.
+                for j in range(n_cols):
+                    tbl[i,     j].set_linewidth(1.8)
+                    tbl[i + 1, j].set_linewidth(1.8)
+                    tbl[i,     j].set_edgecolor("#222222")
+                    tbl[i + 1, j].set_edgecolor("#222222")
+
+        # Title above the table (axes coords; va=bottom places it above y=1.0)
+        ax_t.text(0.5, 1.13, title,
+                  transform=ax_t.transAxes,
+                  ha="center", va="bottom", fontsize=10,
+                  fontweight="bold", color=header_color, clip_on=False)
 
         # Tier legend: explains the Score / Off-targets cell tints
         legend_handles = [

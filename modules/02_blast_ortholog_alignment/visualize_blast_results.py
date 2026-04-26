@@ -521,7 +521,7 @@ def _draw_colorbar(fig, label, cfg: "VizConfig" = None, rect=None):
     return cb
 
 
-def plot_heatmap(df, out_dir, cfg: VizConfig = None):
+def plot_heatmap(df, out_dir, cfg: VizConfig = None, blast_type="n"):
     if cfg is None:
         cfg = VizConfig()
     from matplotlib.gridspec import GridSpec
@@ -617,12 +617,12 @@ def plot_heatmap(df, out_dir, cfg: VizConfig = None):
 
     # ── Title ─────────────────────────────────────────────────────────────────
     fig.suptitle(
-        f"BLASTn Percent Identity: Smel{_GENE_GROUP} Genes vs. Plant Orthologs",
+        f"BLAST{blast_type} Percent Identity: Smel{_GENE_GROUP} Genes vs. Plant Orthologs",
         fontsize=14, fontweight="bold", y=0.97,
         color="#1a1a2e",
     )
 
-    _save(fig, out_dir, "fig1_blastn_identity_heatmap", save_dpi=cfg.save_dpi)
+    _save(fig, out_dir, f"fig1_blast{blast_type}_identity_heatmap", save_dpi=cfg.save_dpi)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -642,7 +642,7 @@ def _fmt_ev(ev):
     return f"e{int(math.floor(math.log10(ev)))}"
 
 
-def plot_heatmap_evalue(df, out_dir, cfg: VizConfig = None):
+def plot_heatmap_evalue(df, out_dir, cfg: VizConfig = None, blast_type="n"):
     """Heatmap with % Identity colour scale and E-value exponent in each cell."""
     if cfg is None:
         cfg = VizConfig()
@@ -757,29 +757,37 @@ def plot_heatmap_evalue(df, out_dir, cfg: VizConfig = None):
     )
 
     fig.suptitle(
-        f"BLASTn Percent Identity + E-value: Smel{_GENE_GROUP} Genes vs. Plant Orthologs",
+        f"BLAST{blast_type} Percent Identity + E-value: Smel{_GENE_GROUP} Genes vs. Plant Orthologs",
         fontsize=14, fontweight="bold", y=0.97,
         color="#1a1a2e",
     )
 
-    _save(fig, out_dir, "fig1b_blastn_identity_evalue_heatmap", save_dpi=cfg.save_dpi)
+    _save(fig, out_dir, f"fig1b_blast{blast_type}_identity_evalue_heatmap", save_dpi=cfg.save_dpi)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Figure 3 - Per-gene Top-Hits Lollipop (Bit Score)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _lollipop_row_count(gene_id, df, top_n):
+def _lollipop_row_count(gene_id, df, top_n, force_include_hi=True, bitscore_min=0.0):
     """Return the number of rows that the lollipop panel for *gene_id* will
-    display: top-N + force-included haploid-inducer hits (DMP only).
-    Mirrors the row-selection logic in plot_lollipop / _plot_lollipop_splits
-    so grid heights can be sized proportionally before rendering."""
+    display.  Mirrors the row-selection logic in plot_lollipop /
+    _plot_lollipop_splits so grid heights can be sized proportionally.
+
+    When bitscore_min > 0, every hit with Bit Score >= bitscore_min counts
+    (top-N is ignored).  Otherwise, top-N applies, plus force-included HI hits
+    when force_include_hi is True (DMP only).
+    """
     gene_df = df[df["Subject ID"] == gene_id]
     if gene_df.empty:
         return 1
+    if bitscore_min > 0:
+        sub = (gene_df[gene_df["Bit Score"] >= bitscore_min]
+                      .drop_duplicates(subset=["Query ID"]))
+        return max(1, len(sub))
     top = (gene_df.sort_values("Bit Score", ascending=False)
                   .drop_duplicates(subset=["Query ID"]).head(top_n))
-    if _GENE_GROUP != "DMP":
+    if _GENE_GROUP != "DMP" or not force_include_hi:
         return len(top)
     hi_rows = (gene_df[gene_df["ShortLabel"].isin(HAPLOID_INDUCER_LABELS)]
                       .drop_duplicates(subset=["Query ID"]))
@@ -787,7 +795,7 @@ def _lollipop_row_count(gene_id, df, top_n):
     return len(top) + len(extra)
 
 
-def plot_lollipop(df, out_dir, top_n=10, cfg: VizConfig = None):
+def plot_lollipop(df, out_dir, top_n=10, cfg: VizConfig = None, blast_type="n", force_include_hi=True, bitscore_min=0.0):
     """Top-N hits per gene ranked by Bit Score.
 
     Known haploid-inducer genes (AtDMP8, AtDMP9) are always shown even when
@@ -813,7 +821,7 @@ def plot_lollipop(df, out_dir, top_n=10, cfg: VizConfig = None):
 
     # Per-gene row count (same logic as the panel render loop), used to size
     # each grid row so every DMP gene gets the same vertical pixel space.
-    _row_counts = [_lollipop_row_count(g, df, top_n) for g in GENE_ORDER]
+    _row_counts = [_lollipop_row_count(g, df, top_n, force_include_hi, bitscore_min) for g in GENE_ORDER]
     # Pad to fill the grid (legend slot uses the row average so it doesn't
     # look squashed).
     while len(_row_counts) < nrows * ncols:
@@ -856,26 +864,37 @@ def plot_lollipop(df, out_dir, top_n=10, cfg: VizConfig = None):
                 spine.set_visible(False)
             continue
 
-        # Top-N hits by Bit Score (deduplicated per Query ID)
-        top = (
-            gene_df
-            .sort_values("Bit Score", ascending=False)
-            .drop_duplicates(subset=["Query ID"])
-            .head(top_n)
-        )
-
-        # Force-include known haploid-inducer hits even if outside top-N (DMP only)
-        if _GENE_GROUP == "DMP":
-            hi_rows = (
-                gene_df[gene_df["ShortLabel"].isin(HAPLOID_INDUCER_LABELS)]
+        if bitscore_min > 0:
+            # Threshold mode: show every hit with Bit Score >= threshold.
+            # Top-N and force-include-HI logic are bypassed; threshold is the
+            # only selector.
+            sub = (
+                gene_df[gene_df["Bit Score"] >= bitscore_min]
                 .sort_values("Bit Score", ascending=False)
                 .drop_duplicates(subset=["Query ID"])
             )
-            already_in = set(top["Query ID"])
-            hi_extra   = hi_rows[~hi_rows["Query ID"].isin(already_in)]
-            sub = pd.concat([top, hi_extra], ignore_index=True)
         else:
-            sub = top
+            # Top-N hits by Bit Score (deduplicated per Query ID)
+            top = (
+                gene_df
+                .sort_values("Bit Score", ascending=False)
+                .drop_duplicates(subset=["Query ID"])
+                .head(top_n)
+            )
+
+            # Force-include known haploid-inducer hits even if outside top-N
+            # (DMP only; gated on force_include_hi).
+            if _GENE_GROUP == "DMP" and force_include_hi:
+                hi_rows = (
+                    gene_df[gene_df["ShortLabel"].isin(HAPLOID_INDUCER_LABELS)]
+                    .sort_values("Bit Score", ascending=False)
+                    .drop_duplicates(subset=["Query ID"])
+                )
+                already_in = set(top["Query ID"])
+                hi_extra   = hi_rows[~hi_rows["Query ID"].isin(already_in)]
+                sub = pd.concat([top, hi_extra], ignore_index=True)
+            else:
+                sub = top
 
         # Sort: lowest bit score at bottom (so best hit is at top of panel)
         sub = sub.sort_values("Bit Score", ascending=True).reset_index(drop=True)
@@ -1022,7 +1041,16 @@ def plot_lollipop(df, out_dir, top_n=10, cfg: VizConfig = None):
     cb.ax.tick_params(labelsize=8.5, length=3)
     cb.outline.set_linewidth(0.6)
 
-    _lollipop_title = f"Top-{top_n} BLASTn Hits per Smel{_GENE_GROUP} Gene  (ranked by Bit Score)"
+    if bitscore_min > 0:
+        _lollipop_title = (
+            f"BLAST{blast_type} Hits per Smel{_GENE_GROUP} Gene  "
+            f"(Bit Score \u2265 {bitscore_min:g}, ranked by Bit Score)"
+        )
+    else:
+        _lollipop_title = (
+            f"Top-{top_n} BLAST{blast_type} Hits per Smel{_GENE_GROUP} Gene  "
+            f"(ranked by Bit Score)"
+        )
     if _GENE_GROUP == "DMP":
         _lollipop_title += (
             "\n\u2605 Gold = known haploid-inducer DMP "
@@ -1038,14 +1066,16 @@ def plot_lollipop(df, out_dir, top_n=10, cfg: VizConfig = None):
         warnings.simplefilter("ignore")
         fig.tight_layout(rect=[0, 0.05, 1, 0.95])
 
-    _save(fig, out_dir, "fig3_blastn_lollipop", save_dpi=cfg.save_dpi)
+    _save(fig, out_dir, f"fig3_blast{blast_type}_lollipop", save_dpi=cfg.save_dpi)
 
     # Also emit split variants (split_1 = first ceil(N/2) panels with the
     # suptitle; split_2 = remaining panels + HI legend + colorbar).
-    _plot_lollipop_splits(df, out_dir, top_n, cfg)
+    _plot_lollipop_splits(df, out_dir, top_n, cfg, blast_type=blast_type,
+                          force_include_hi=force_include_hi,
+                          bitscore_min=bitscore_min)
 
 
-def _plot_lollipop_splits(df, out_dir, top_n, cfg):
+def _plot_lollipop_splits(df, out_dir, top_n, cfg, blast_type="n", force_include_hi=True, bitscore_min=0.0):
     """Render fig3_blastn_lollipop_split_{1,2}.{png,svg}.
 
     Splits Fig 3 into two equal-height figures:
@@ -1075,7 +1105,7 @@ def _plot_lollipop_splits(df, out_dir, top_n, cfg):
 
         # Per-grid-row max row count -> height ratio so every DMP gene gets
         # the same vertical pixel space across the split figure.
-        row_counts = [_lollipop_row_count(g, df, top_n) for g in gene_subset]
+        row_counts = [_lollipop_row_count(g, df, top_n, force_include_hi, bitscore_min) for g in gene_subset]
         while len(row_counts) < nrows * ncols:
             row_counts.append(max(1, sum(row_counts) // max(1, len(row_counts))))
         height_ratios = [
@@ -1110,18 +1140,22 @@ def _plot_lollipop_splits(df, out_dir, top_n, cfg):
                     spine.set_visible(False)
                 continue
 
-            top = (gene_df.sort_values("Bit Score", ascending=False)
-                          .drop_duplicates(subset=["Query ID"]).head(top_n))
-
-            if _GENE_GROUP == "DMP":
-                hi_rows = (gene_df[gene_df["ShortLabel"].isin(HAPLOID_INDUCER_LABELS)]
-                                  .sort_values("Bit Score", ascending=False)
-                                  .drop_duplicates(subset=["Query ID"]))
-                already_in = set(top["Query ID"])
-                hi_extra   = hi_rows[~hi_rows["Query ID"].isin(already_in)]
-                sub = pd.concat([top, hi_extra], ignore_index=True)
+            if bitscore_min > 0:
+                sub = (gene_df[gene_df["Bit Score"] >= bitscore_min]
+                              .sort_values("Bit Score", ascending=False)
+                              .drop_duplicates(subset=["Query ID"]))
             else:
-                sub = top
+                top = (gene_df.sort_values("Bit Score", ascending=False)
+                              .drop_duplicates(subset=["Query ID"]).head(top_n))
+                if _GENE_GROUP == "DMP" and force_include_hi:
+                    hi_rows = (gene_df[gene_df["ShortLabel"].isin(HAPLOID_INDUCER_LABELS)]
+                                      .sort_values("Bit Score", ascending=False)
+                                      .drop_duplicates(subset=["Query ID"]))
+                    already_in = set(top["Query ID"])
+                    hi_extra   = hi_rows[~hi_rows["Query ID"].isin(already_in)]
+                    sub = pd.concat([top, hi_extra], ignore_index=True)
+                else:
+                    sub = top
 
             sub = sub.sort_values("Bit Score", ascending=True).reset_index(drop=True)
 
@@ -1228,7 +1262,16 @@ def _plot_lollipop_splits(df, out_dir, top_n, cfg):
             cb.outline.set_linewidth(0.6)
 
         if split_idx == 1:
-            title = f"Top-{top_n} BLASTn Hits per Smel{_GENE_GROUP} Gene  (ranked by Bit Score)"
+            if bitscore_min > 0:
+                title = (
+                    f"BLAST{blast_type} Hits per Smel{_GENE_GROUP} Gene  "
+                    f"(Bit Score ≥ {bitscore_min:g}, ranked by Bit Score)"
+                )
+            else:
+                title = (
+                    f"Top-{top_n} BLAST{blast_type} Hits per Smel{_GENE_GROUP} Gene  "
+                    f"(ranked by Bit Score)"
+                )
             if _GENE_GROUP == "DMP":
                 title += ("\n★ Gold = known haploid-inducer DMP "
                           "(AtDMP8+AtDMP9, NtDMP, SlDMP3, MtDMP9, GmDMP2)")
@@ -1242,7 +1285,7 @@ def _plot_lollipop_splits(df, out_dir, top_n, cfg):
             warnings.simplefilter("ignore")
             fig.tight_layout(rect=rect)
 
-        _save(fig, out_dir, f"fig3_blastn_lollipop_split_{split_idx}",
+        _save(fig, out_dir, f"fig3_blast{blast_type}_lollipop_split_{split_idx}",
               save_dpi=cfg.save_dpi)
 
 
@@ -1258,12 +1301,19 @@ def _save(fig, out_dir, stem, save_dpi=300):
     plt.close(fig)
 
 
-def _discover_plant_csv(results_dir):
-    hits = sorted(Path(results_dir).glob("*_plant_only.csv"))
+def _discover_plant_csv(results_dir, blast_type="n"):
+    """Find the curated `*_plant_only.csv` for a given BLAST type.
+
+    blast_type: 'n', 'p', or 'x' selects merged_blast{n,p,x}_*_plant_only.csv.
+    """
+    pattern = f"merged_blast{blast_type}_*_plant_only.csv"
+    hits = sorted(Path(results_dir).glob(pattern))
     if not hits:
-        sys.exit(f"ERROR: No *_plant_only.csv found in {results_dir}")
+        # Fall back to the legacy generic pattern for backward compatibility.
+        hits = sorted(Path(results_dir).glob("*_plant_only.csv"))
+    if not hits:
+        sys.exit(f"ERROR: No {pattern} (or *_plant_only.csv) in {results_dir}")
     if len(hits) > 1:
-        # Pick the CSV with the most data rows (not just the newest by name)
         best = max(hits, key=lambda p: sum(1 for _ in open(p, encoding="utf-8")))
         print(f"  WARNING: Multiple plant CSVs found; using largest: {best.name}")
         return best
@@ -1308,6 +1358,35 @@ def main():
     parser.add_argument(
         "--top-n", type=int, default=10,
         help="Top-N hits per gene in Fig 3 lollipop (default: 10)",
+    )
+    parser.add_argument(
+        "--blast-type", default="n", choices=["n", "p", "x"],
+        help=(
+            "BLAST program whose curated CSV to visualize: 'n' (BLASTn, default), "
+            "'p' (BLASTp), or 'x' (BLASTx).  Drives both input discovery "
+            "(merged_blast{type}_*_plant_only.csv) and output stems "
+            "(fig{1,1b,3}_blast{type}_*).  Titles also reflect the program."
+        ),
+    )
+    parser.add_argument(
+        "--force-include-hi", default="true", choices=["true", "false"],
+        help=(
+            "Whether to force-include haploid-inducer hits in the lollipop even "
+            "when they fall outside the top-N (DMP only). 'true' (default) is "
+            "appropriate for BLASTn where HI signal is sparse; 'false' is "
+            "recommended for BLASTp, where the panels are dense enough that the "
+            "top-N already captures the relevant HI orthologs."
+        ),
+    )
+    parser.add_argument(
+        "--bitscore-min", type=float, default=0.0,
+        help=(
+            "Bit score threshold for the lollipop. When > 0, this REPLACES the "
+            "--top-n selection: panels show every hit with Bit Score >= the "
+            "threshold (still ranked by Bit Score, dedup by Query ID).  Default "
+            "0 keeps the historical top-N behavior. Recommended for BLASTp: "
+            "100 (conventional confident-homology cutoff)."
+        ),
     )
     parser.add_argument(
         "--figures", default="heatmap,heatmap_evalue,lollipop",
@@ -1404,18 +1483,31 @@ def main():
     )
     plt.rcParams["figure.dpi"] = cfg.figure_dpi
 
+    blast_type = args.blast_type
+    force_include_hi = (args.force_include_hi == "true")
+
     plant_csv = (
         Path(args.plant_csv) if args.plant_csv
-        else _discover_plant_csv(args.results_dir)
+        else _discover_plant_csv(args.results_dir, blast_type=blast_type)
     )
     if not plant_csv.exists():
         sys.exit(f"ERROR: CSV not found: {plant_csv}")
 
-    out_dir = Path(args.out_dir) if args.out_dir else plant_csv.parent / "figures"
+    # BLASTn keeps the historical "figures/" subdir for backward compatibility
+    # with manuscript references; BLASTp/BLASTx land in "figures_blast{type}/"
+    # so the two outputs never mix.
+    if args.out_dir:
+        out_dir = Path(args.out_dir)
+    elif blast_type == "n":
+        out_dir = plant_csv.parent / "figures"
+    else:
+        out_dir = plant_csv.parent / f"figures_blast{blast_type}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"BLAST type: blast{blast_type}")
     print(f"Input CSV : {plant_csv}")
     print(f"Output dir: {out_dir}")
+    print(f"Force-include HI: {force_include_hi}")
     print(f"Figures   : {', '.join(sorted(figures))}\n")
 
     df = _load_plant_csv(plant_csv)
@@ -1427,11 +1519,13 @@ def main():
     print(f"Loaded {len(df)} hits across {n_genes} subject gene(s)\n")
 
     if "heatmap" in figures:
-        plot_heatmap(df, out_dir, cfg)
+        plot_heatmap(df, out_dir, cfg, blast_type=blast_type)
     if "heatmap_evalue" in figures:
-        plot_heatmap_evalue(df, out_dir, cfg)
+        plot_heatmap_evalue(df, out_dir, cfg, blast_type=blast_type)
     if "lollipop" in figures:
-        plot_lollipop(df, out_dir, top_n=args.top_n, cfg=cfg)
+        plot_lollipop(df, out_dir, top_n=args.top_n, cfg=cfg,
+                      blast_type=blast_type, force_include_hi=force_include_hi,
+                      bitscore_min=args.bitscore_min)
 
     print(f"\nAll figures saved to: {out_dir}/")
 

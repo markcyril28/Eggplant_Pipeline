@@ -34,11 +34,17 @@ LOLLIPOP_DOT_SIZE_HI="150"
 HI_STEM_COLOR="#c7920a"
 STEM_COLOR="#d1d5db"
 HI_LABELS=""
+BLAST_TYPE="n"
+FORCE_INCLUDE_HI="true"
+BITSCORE_MIN="0"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --results-dir)          RESULTS_DIR="$2";        shift 2 ;;
         --gene-group)           GENE_GROUP="$2";         shift 2 ;;
+        --blast-type)           BLAST_TYPE="$2";         shift 2 ;;
+        --force-include-hi)     FORCE_INCLUDE_HI="$2";   shift 2 ;;
+        --bitscore-min)         BITSCORE_MIN="$2";       shift 2 ;;
         --top-n)                TOP_N="$2";              shift 2 ;;
         --figures)              FIGURES="$2";            shift 2 ;;
         --colormap)             COLORMAP="$2";           shift 2 ;;
@@ -71,6 +77,9 @@ _HI_LABELS_ARG=()
 python3 "$SCRIPT_DIR/visualize_blast_results.py" \
     --results-dir "$RESULTS_DIR" \
     "${_GENE_GROUP_ARG[@]}" \
+    --blast-type "$BLAST_TYPE" \
+    --force-include-hi "$FORCE_INCLUDE_HI" \
+    --bitscore-min "$BITSCORE_MIN" \
     --top-n "$TOP_N" \
     --figures "$FIGURES" \
     --colormap "$COLORMAP" \

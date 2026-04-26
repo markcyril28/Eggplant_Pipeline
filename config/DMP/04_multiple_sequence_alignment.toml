@@ -27,8 +27,8 @@ active_input_sets = [
     # — Per-genome: single genome —
     #"per_genome_smel_v4_1_nucleotide",
     #"per_genome_smel_v4_1_amino_acid",
-    "per_genome_gpe001970_nucleotide",
-    "per_genome_gpe001970_amino_acid",
+    #"per_genome_gpe001970_nucleotide",
+    #"per_genome_gpe001970_amino_acid",
 
     # — All eggplant: both genomes merged —
     #"all_eggplant_nucleotide",
@@ -69,26 +69,26 @@ active_input_sets = [
     # (default 200). Built reproducibly by:
     #   bash modules/04_multiple_sequence_alignment/build_v4_blast_groups.sh
     # Files live in 04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/.
-    "selected_v4_blast_groups_01g008730_nucleotide",
-    "selected_v4_blast_groups_01g008730_amino_acid",
+    #"selected_v4_blast_groups_01g008730_nucleotide",
+    #"selected_v4_blast_groups_01g008730_amino_acid",
     
-    "selected_v4_blast_groups_01g026030_nucleotide",
-    "selected_v4_blast_groups_01g026030_amino_acid",
+    #"selected_v4_blast_groups_01g026030_nucleotide",
+    #"selected_v4_blast_groups_01g026030_amino_acid",
     
-    "selected_v4_blast_groups_02g013320_nucleotide",
-    "selected_v4_blast_groups_02g013320_amino_acid",
+    #"selected_v4_blast_groups_02g013320_nucleotide",
+    #"selected_v4_blast_groups_02g013320_amino_acid",
     
-    "selected_v4_blast_groups_04g005390_nucleotide",
-    "selected_v4_blast_groups_04g005390_amino_acid",
+    #"selected_v4_blast_groups_04g005390_nucleotide",
+    #"selected_v4_blast_groups_04g005390_amino_acid",
     
-    "selected_v4_blast_groups_10g003660_nucleotide",
-    "selected_v4_blast_groups_10g003660_amino_acid",
+    #"selected_v4_blast_groups_10g003660_nucleotide",
+    #"selected_v4_blast_groups_10g003660_amino_acid",
     
-    "selected_v4_blast_groups_10g017610_nucleotide",
-    "selected_v4_blast_groups_10g017610_amino_acid",
+    #"selected_v4_blast_groups_10g017610_nucleotide",
+    #"selected_v4_blast_groups_10g017610_amino_acid",
     
-    "selected_v4_blast_groups_12g005350_nucleotide",
-    "selected_v4_blast_groups_12g005350_amino_acid",
+    #"selected_v4_blast_groups_12g005350_nucleotide",
+    #"selected_v4_blast_groups_12g005350_amino_acid",
 
     # — Selected v4 merged: all 7 paralog BLAST groups concatenated, deduped —
     # Single combined FASTA per sequence type covering the union of all v4

@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 # ── Result root (relative to pipeline root) ───────────────────────────────────
 AF3_DIR = Path(
-    "3_RESULT/DMP/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results"
+    "III_RESULT/DMP/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results"
 )
 DEFAULT_OUTPUT_SUBDIR = "Combined_Confidence_Interaction"
 
@@ -91,6 +91,19 @@ PROTEINS = [
         "gene": "SMEL5_12g005350.1",
         "panel": "vi",
         "tier": "",
+    },
+    # Primary HI candidate. Placed in row 4 of the grid (centered, spanning both columns)
+    # via the in_grid_solo flag; still rendered as a per-gene composite as well.
+    {
+        "confidence_dir":  "fold_smel5_10g017610_1",
+        "confidence_stem": "fold_smel5_10g017610_1",
+        "interaction_dir":  "smel5_10g017610_1",   # latest re-render
+        "interaction_stem": "smel5_10g017610_1",
+        "name": "SmelDMPv5_10.610",
+        "gene": "SMEL5_10g017610.1",
+        "panel": "vii",
+        "tier": "Tier 1, primary",
+        "in_grid_solo": True,
     },
 ]
 
@@ -281,17 +294,21 @@ def make_pair(pipeline_dir, protein, out_dir, bg, interaction_version):
     return canvas
 
 
-def make_grid(composites, pipeline_dir, out_dir):
-    """Arrange 6 composites in a 3-row × 2-column grid."""
+def make_grid(composites, pipeline_dir, out_dir, solo_composite=None):
+    """Arrange paired composites in a 2-column grid; optionally append a single
+    solo_composite centered in its own row at the bottom."""
     if not composites:
         return
 
-    cw, ch   = composites[0].size
-    cols, rows = 2, 3
-    grid_w   = cols * cw + (cols - 1) * GRID_GAP
-    grid_h   = rows * ch + (rows - 1) * GRID_GAP
-    top_h    = 110
-    grid     = Image.new("RGB", (grid_w, grid_h + top_h), BG_COLOR)
+    cw, ch     = composites[0].size
+    cols       = 2
+    pair_rows  = (len(composites) + cols - 1) // cols
+    extra_rows = 1 if solo_composite is not None else 0
+    total_rows = pair_rows + extra_rows
+    grid_w     = cols * cw + (cols - 1) * GRID_GAP
+    grid_h     = total_rows * ch + (total_rows - 1) * GRID_GAP
+    top_h      = 110
+    grid       = Image.new("RGB", (grid_w, grid_h + top_h), BG_COLOR)
 
     draw  = ImageDraw.Draw(grid)
     font  = get_font(FONT_SIZE + 4)
@@ -304,6 +321,11 @@ def make_grid(composites, pipeline_dir, out_dir):
         x = col * (cw + GRID_GAP)
         y = top_h + row * (ch + GRID_GAP)
         grid.paste(comp, (x, y))
+
+    if solo_composite is not None:
+        x = (grid_w - cw) // 2
+        y = top_h + pair_rows * (ch + GRID_GAP)
+        grid.paste(solo_composite, (x, y))
 
     out_jpg = out_dir / "Figure_5cd_confidence_vs_interaction_grid.jpg"
     out_png = out_dir / "Figure_5cd_confidence_vs_interaction_grid.png"
@@ -328,19 +350,25 @@ def main():
     print(f"Interaction version:  {args.interaction_version}")
     print()
 
-    composites = []
+    grid_composites = []
+    solo_composite  = None
     for p in PROTEINS:
         print(f"Processing {p['name']} ({p['gene']})...")
         comp = make_pair(pipeline_dir, p, out_dir, args.background, args.interaction_version)
-        if comp is not None:
-            composites.append(comp)
+        if comp is None:
+            continue
+        if p.get("in_grid_solo"):
+            solo_composite = comp
+        elif p.get("in_grid", True):
+            grid_composites.append(comp)
 
     print()
-    if len(composites) == 6:
-        print("Building 3\xd72 combined grid...")
-        make_grid(composites, pipeline_dir, out_dir)
+    if len(grid_composites) == 6:
+        layout = "3\xd72 + 1 centered solo row" if solo_composite is not None else "3\xd72"
+        print(f"Building {layout} combined grid...")
+        make_grid(grid_composites, pipeline_dir, out_dir, solo_composite=solo_composite)
     else:
-        print(f"Only {len(composites)}/6 composites generated \u2014 skipping grid.")
+        print(f"Only {len(grid_composites)}/6 paired grid composites generated, skipping grid.")
 
     print("\nDone.")
 

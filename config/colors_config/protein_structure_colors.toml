@@ -3,7 +3,7 @@
 # ============================================================================
 # Central palette and rendering settings for PyMOL protein-structure figures.
 #
-# Referenced from:  config/{GROUP}/h_protein_structure_analysis.toml
+# Referenced from:  config/{GROUP}/h_protein_structure_analysis_{GROUP}.toml
 # Parsed via:       modules/utils/parse_toml.py
 #
 # Color formats accepted:

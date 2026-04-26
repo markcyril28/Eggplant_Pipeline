@@ -3,7 +3,7 @@
 # ============================================================================
 # Only query FASTAs are unique per gene group.
 # Shared defaults (e-values, word sizes, targets, flags) are in
-# b_blast_alignmentCONFIG.toml (project root).
+# 02_blast_alignmentCONFIG.toml (project root).
 # ============================================================================
 # TODO: Add HAP2 query FASTA paths once input files are prepared in
 #       II_INPUTS/HAP2_query_fasta_file/ (or similar directory).

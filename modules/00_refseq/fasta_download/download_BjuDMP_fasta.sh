@@ -1,58 +1,72 @@
 #!/bin/bash
-# Download BjuDMP1-4 candidates for Brassica juncea (Chu et al., 2025).
+# Download BjuDMP1-4 CDS for Brassica juncea (Chu et al., 2025).
 #
 # Source paper: Chu et al. (2025) Horticulture Research, 12(7):uhaf094.
 #   "In vivo maternal haploid induction in Brassica juncea". HIR 0.64-1.51%.
 #
-# Data-availability gap: the Chu paper releases BjuDMP1-4 sequences only via a
-# Chinese cloud-storage link (https://kdocs.cn/l/cpGGcwjHItGV) which requires
-# manual sign-in and cannot be machine-fetched. NCBI Gene contains zero
-# DUF679/DMP entries for "Brassica juncea"[Organism] (verified 2026-04-26).
-# Until the Chu sequences can be obtained manually and dropped into this dir,
-# we proxy via the B. juncea AA subgenome donor (Brassica rapa, NCBI annotated)
-# using the four DMP9/DMP7/DMP2/DMP3 paralogs most likely to match the Chu
-# nomenclature, plus the second B. rapa DMP9 paralog so the HMMER stage has the
-# full canonical-HI candidate panel:
+# The Chu paper does not publish per-paralog locus IDs (the supplementary
+# kdocs.cn link cited in the paper hosts no downloadable sequence file at
+# verification time). Per-paralog identities resolved here by k-mer overlap of
+# AtDMP8 (UniProt O80493) + AtDMP9 (NP_198781.1) against the Ensembl Plants
+# B. juncea proteome (assembly ASM1870372v1, T84-66 var. tumida; release 62).
+# The four highest-scoring proteins are clear orthologs and span both AABB
+# subgenomes (2 BjuA + 2 BjuB), matching the Chu nomenclature of four BjuDMPs:
 #
-#   LOC103855829  XM_009132872.3  B. rapa  chr A03  protein DMP9   -> BjuDMP1 (canonical HI)
-#   LOC103863904  XM_*            B. rapa  chr A04  protein DMP9   -> BjuDMP1_alt (canonical HI)
-#   LOC103861835  XM_009139540.3  B. rapa  chr A03  protein DMP7   -> BjuDMP2
-#   LOC103835095  XM_009111198.3  B. rapa  chr A01  protein DMP2   -> BjuDMP3
-#   LOC103861987  XM_033288643.1  B. rapa  chr A01  protein DMP3   -> BjuDMP4
+#   shared k-mers (k=7) vs AtDMP8/9 union | gene id          | chr | candidate
+#   ------------------------------------- | ---------------- | --- | ---------
+#   191 / 238   (78.3% normalised)        | BjuA04g10430S    | A04 | BjuDMP1
+#   153 / 238   (63.2%)                   | BjuA03g54090S    | A03 | BjuDMP2
+#   147 / 238   (60.7%)                   | BjuB08g57390S    | B08 | BjuDMP3
+#   120 / 238   (43.5%)                   | BjuB01g27600S    | B01 | BjuDMP4
+#   --- sharp drop to 2 shared k-mers in next hits ---
 #
-# B. nigra (BB subgenome donor) has no DUF679/DMP genes in NCBI Gene, so no BB
-# proxy is available. To replace these AA-only proxies with the true Chu
-# sequences, manually download the kdocs amino-acid file and place per-paralog
-# FASTAs here named BjuDMP1.fasta..BjuDMP4.fasta (then re-run with overwrite=false).
+# Source: Ensembl Plants REST API (https://rest.ensembl.org/sequence/id/<id>)
+# returns the canonical CDS in FASTA format.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/_lib_ncbi_fetch.sh"
 
-# AA-subgenome (Brassica rapa) canonical DMP candidates as proxies.
-ORGANISM_PROXY="Brassica rapa"
-ACCESSION_LIST=(
-    "XM_009132872.3"  # LOC103855829, B. rapa chrA03, DMP9
-    "XM_009139540.3"  # LOC103861835, B. rapa chrA03, DMP7
-    "XM_009111198.3"  # LOC103835095, B. rapa chrA01, DMP2
-    "XM_033288643.1"  # LOC103861987, B. rapa chrA01, DMP3
+REST="https://rest.ensembl.org"
+GENE_IDS=(
+    "BjuA04g10430S"
+    "BjuA03g54090S"
+    "BjuB08g57390S"
+    "BjuB01g27600S"
 )
-GENE_NAME_LIST=(
-    "BjuDMP1_proxy_BraDMP9_A03"
-    "BjuDMP2_proxy_BraDMP7_A03"
-    "BjuDMP3_proxy_BraDMP2_A01"
-    "BjuDMP4_proxy_BraDMP3_A01"
+GENE_NAMES=(
+    "BjuDMP1_AA_subgenome_A04"
+    "BjuDMP2_AA_subgenome_A03"
+    "BjuDMP3_BB_subgenome_B08"
+    "BjuDMP4_BB_subgenome_B01"
 )
 
-for ((i=0; i<${#ACCESSION_LIST[@]}; i++)); do
-    ncbi_fetch_by_locus "${ACCESSION_LIST[i]}" "${GENE_NAME_LIST[i]}" "$ORGANISM_PROXY" || true
-done
+# Prefer wget (pipeline default on Linux/WSL); fall back to curl.
+_fetch() {
+    local url="$1" out="$2"
+    if command -v wget >/dev/null 2>&1; then
+        wget -qO "$out" --header="Accept: text/x-fasta" --timeout=30 --tries=3 "$url"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -sf --max-time 30 --retry 3 -H "Accept: text/x-fasta" -o "$out" "$url"
+    else
+        echo "    [ERROR] need wget or curl in PATH" >&2
+        return 1
+    fi
+}
 
-# Add the second B. rapa DMP9 paralog (chr A04) for full canonical-HI panel.
-ncbi_fetch_via_gene_db "103863904" "BjuDMP1alt_proxy_BraDMP9_A04" "$ORGANISM_PROXY" || true
-
-# Optional: try a direct B. juncea symbol search; harmless when it returns nothing.
-ORGANISM="Brassica juncea"
-SYMBOL_LIST=("BjuDMP1" "BjuDMP2" "BjuDMP3" "BjuDMP4")
-for sym in "${SYMBOL_LIST[@]}"; do
-    ncbi_fetch_via_gene_db "$sym" "$sym" "$ORGANISM" || true
+for ((i=0; i<${#GENE_IDS[@]}; i++)); do
+    gid="${GENE_IDS[i]}"
+    name="${GENE_NAMES[i]}"
+    out_file="${name}_${gid}.fasta"
+    if [[ -s "$out_file" && "${OVERWRITE:-false}" != "true" ]]; then
+        echo "    [SKIP] $out_file exists"
+        continue
+    fi
+    url="${REST}/sequence/id/${gid}?type=cds"
+    echo ">>> $name  ($gid, Ensembl Plants)"
+    if _fetch "$url" "$out_file" && [[ -s "$out_file" ]] && head -1 "$out_file" | grep -q "^>"; then
+        echo "    -> $out_file ($(wc -c < "$out_file") bytes)"
+    else
+        echo "    [WARN] Ensembl REST fetch failed for $gid" >&2
+        rm -f "$out_file"
+    fi
+    sleep 0.3
 done

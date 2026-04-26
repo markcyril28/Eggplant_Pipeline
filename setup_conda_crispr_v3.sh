@@ -764,11 +764,11 @@ $(  [[ "$WITH_ESMFOLD_LOCAL" == "true" ]] \
         stripped to derive gene_id) attribute styles. No conversion step is
         required for the bundled GPE001970.gff. If your workflow already
         produces GTF, point [reference].gpe001970_v5_gtf at it in
-        config/DMP/00_common.toml; otherwise leave the .gff path as-is.
+        config/DMP/00_common_DMP.toml; otherwise leave the .gff path as-is.
 
   [3] (Optional) Add Pfam domain TSV for stage [6]:
         [reference].dmp_domain_tsv = "II_INPUTS/DMP/Pfam/DMP_domains.tsv"
-        in config/DMP/00_common.toml. Without it, stage [6] will log an
+        in config/DMP/00_common_DMP.toml. Without it, stage [6] will log an
         empty domain dict and c_domain will always be 0.
 
   [4] (Optional) Enable plant-trained scorers:

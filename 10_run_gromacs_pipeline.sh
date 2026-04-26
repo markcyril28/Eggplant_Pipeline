@@ -48,7 +48,7 @@ INLINE_STEPS=(
 GENE_GROUP="DMP-HAP2"
 
 #------------------------------------------------------------------------------
-# STRUCTURES TO ANALYZE  —  override config/<GENE_GROUP>/h_protein_structure_analysis.toml
+# STRUCTURES TO ANALYZE  -  override config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml
 # Paths are relative to INPUT_BASE (set in common.toml)
 # Leave empty to use [ppi_structures].active from the gene-group config.
 #------------------------------------------------------------------------------
@@ -133,8 +133,8 @@ if [[ ${#INLINE_STRUCTURES[@]} -gt 0 ]]; then
         SHARED_STRUCTURES+=("${INPUT_BASE}/${rel_path}")
     done
 else
-    # Load structures from gene-group config (config/<GENE_GROUP>/h_protein_structure_analysis.toml)
-    GENE_STRUCTURES_CONFIG="${SCRIPT_DIR}/config/${GENE_GROUP}/h_protein_structure_analysis.toml"
+    # Load structures from gene-group config (config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml)
+    GENE_STRUCTURES_CONFIG="${SCRIPT_DIR}/config/${GENE_GROUP}/h_protein_structure_analysis_${GENE_GROUP}.toml"
     if [[ -f "$GENE_STRUCTURES_CONFIG" ]]; then
         load_config "$GENE_STRUCTURES_CONFIG"
         while IFS= read -r rel_path; do

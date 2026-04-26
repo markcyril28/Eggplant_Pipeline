@@ -69,6 +69,8 @@ MAX_PARALLEL_CFG=$(get_toml pipeline max_parallel 2>/dev/null || echo "auto")
 DOWNLOAD_CONC_CFG=$(get_toml pipeline download_concurrency 2>/dev/null || echo "auto")
 OVERWRITE=$(get_toml pipeline overwrite)
 NCBI_API_KEY_CFG=$(get_toml pipeline ncbi_api_key 2>/dev/null || echo "")
+JGI_USER_CFG=$(get_toml phytozome jgi_user 2>/dev/null || echo "")
+JGI_PASSWORD_CFG=$(get_toml phytozome jgi_password 2>/dev/null || echo "")
 
 # CPU-bound parallelism (gffread, merges) — saturate cores
 if [[ "$MAX_PARALLEL_CFG" == "auto" || -z "$MAX_PARALLEL_CFG" ]]; then
@@ -103,9 +105,12 @@ CROP_DIR="$REFSEQ_OUT_DIR/$CROP_REL"
 EXTRA_DIR="$REFSEQ_OUT_DIR/$EXTRA_REL"
 DMP_QUERY_DIR="$REFSEQ_OUT_DIR/$DMP_REL"
 
-mapfile -t DMP_DIRS      < <(get_toml dmp_queries dirs)
-mapfile -t DMP_DOWNLOADS < <(get_toml dmp_queries downloads)
-mapfile -t DMP_MERGES    < <(get_toml dmp_queries merge_outputs)
+mapfile -t DMP_HI_DIRS      < <(get_toml dmp_hi_genes dirs)
+mapfile -t DMP_HI_DOWNLOADS < <(get_toml dmp_hi_genes downloads)
+mapfile -t DMP_HI_MERGES    < <(get_toml dmp_hi_genes merge_outputs)
+mapfile -t DMP_FAM_DIRS      < <(get_toml dmp_family dirs)
+mapfile -t DMP_FAM_DOWNLOADS < <(get_toml dmp_family downloads)
+mapfile -t DMP_FAM_MERGES    < <(get_toml dmp_family merge_outputs)
 
 UNITO_REL=$(get_toml smel_unito downloader_path)
 UNITO_DEST_REL=$(get_toml smel_unito dest_subdir)
@@ -119,6 +124,21 @@ DMP_REGISTRY="$PIPELINE_DIR/$DMP_REGISTRY_REL"
 if [[ -n "$NCBI_API_KEY_CFG" ]]; then
     export NCBI_API_KEY="$NCBI_API_KEY_CFG"
 fi
+# Export JGI credentials for Phytozome download scripts (_lib_phytozome.sh).
+# Lookup order: shell env → .jgi_credentials file → TOML [phytozome] section.
+_CREDS_FILE="$PIPELINE_DIR/.jgi_credentials"
+if [[ -z "${JGI_USER:-}" && -f "$_CREDS_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$_CREDS_FILE"
+fi
+if [[ -z "${JGI_USER:-}" && -n "$JGI_USER_CFG" ]]; then
+    JGI_USER="$JGI_USER_CFG"
+fi
+if [[ -z "${JGI_PASSWORD:-}" && -n "$JGI_PASSWORD_CFG" ]]; then
+    JGI_PASSWORD="$JGI_PASSWORD_CFG"
+fi
+export JGI_USER JGI_PASSWORD
+unset _CREDS_FILE
 export OVERWRITE
 
 DRY_RUN=false
@@ -236,9 +256,11 @@ log_info "TOTAL_CORES         : $TOTAL_CORES (detected)"
 log_info "MAX_PARALLEL        : $MAX_PARALLEL (CPU-bound: gffread, merges)"
 log_info "DOWNLOAD_CONCURRENCY: $DOWNLOAD_CONCURRENCY (NCBI rate-limited)"
 log_info "NCBI_API_KEY        : $([[ -n "$NCBI_API_KEY_CFG" ]] && echo "set" || echo "anonymous")"
+log_info "JGI (Phytozome)     : $([[ -n "${JGI_USER:-}" ]] && echo "${JGI_USER} (set)" || echo "not set — Phytozome steps will fall back to NCBI gene DB")"
 log_info "OVERWRITE           : $OVERWRITE"
 log_info "DRY_RUN             : $DRY_RUN"
-log_info "DMP species         : ${#DMP_DIRS[@]}"
+log_info "DMP HI species      : ${#DMP_HI_DIRS[@]}"
+log_info "DMP family species  : ${#DMP_FAM_DIRS[@]}"
 log_info "DMP HI registry     : $DMP_REGISTRY_REL"
 
 # Robust EXIT teardown.
@@ -283,7 +305,8 @@ if should_run "SETUP_DIRS"; then
         "$EXTRA_DIR"
         "$DMP_QUERY_DIR"
     )
-    for d in "${DMP_DIRS[@]}"; do target_dirs+=("$DMP_QUERY_DIR/$d"); done
+    for d in "${DMP_HI_DIRS[@]}";  do target_dirs+=("$DMP_QUERY_DIR/$d"); done
+    for d in "${DMP_FAM_DIRS[@]}"; do target_dirs+=("$DMP_QUERY_DIR/$d"); done
     if $DRY_RUN; then
         printf '[DRY-RUN] mkdir -p %s\n' "${target_dirs[@]}"
     else
@@ -311,40 +334,94 @@ if should_run "EXTRACT_DMP_LOCAL"; then
 fi
 
 # ============================================================================
-# OP: DOWNLOAD_DMP_QUERIES
+# OP: DOWNLOAD_DMP_HI_GENES
+# 14 verified haploid-inducer species. Scripts use NCBI eutils, Phytozome
+# (for Glyma/CsaV3/Cla97 locus IDs), or NCBI gene DB depending on species.
 # ============================================================================
-if should_run "DOWNLOAD_DMP_QUERIES"; then
-    log_step "[DOWNLOAD_DMP_QUERIES] Downloading DMP query FASTAs from NCBI (concurrency=$DOWNLOAD_CONCURRENCY)"
-    for ((i=0; i<${#DMP_DIRS[@]}; i++)); do
-        species_dir="${DMP_DIRS[i]}"
-        download_module="${DMP_DOWNLOADS[i]}"
+if should_run "DOWNLOAD_DMP_HI_GENES"; then
+    log_step "[DOWNLOAD_DMP_HI_GENES] Downloading HI DMP query FASTAs (concurrency=$DOWNLOAD_CONCURRENCY)"
+    declare -a _hi_dl_pids=()
+    for ((i=0; i<${#DMP_HI_DIRS[@]}; i++)); do
+        species_dir="${DMP_HI_DIRS[i]}"
+        download_module="${DMP_HI_DOWNLOADS[i]}"
         [[ -z "$download_module" ]] && { log_info "  -> $species_dir: no download module (skip)"; continue; }
         out_dir="$DMP_QUERY_DIR/$species_dir"
         module_path="$FASTA_DOWNLOAD_MODULES/$download_module"
         wait_for_slot "$DOWNLOAD_CONCURRENCY"
         log_info "  -> $species_dir via $download_module"
         run_module "$module_path" "$out_dir" &
+        _hi_dl_pids+=($!)
     done
-    wait
-    log_info "[DOWNLOAD_DMP_QUERIES] All downloads complete"
+    for _pid in "${_hi_dl_pids[@]}"; do wait "$_pid" || true; done
+    unset _hi_dl_pids _pid
+    log_info "[DOWNLOAD_DMP_HI_GENES] All HI downloads complete"
 fi
 
 # ============================================================================
-# OP: MERGE_DMP_QUERIES
+# OP: MERGE_DMP_HI_GENES
 # ============================================================================
-if should_run "MERGE_DMP_QUERIES"; then
-    log_step "[MERGE_DMP_QUERIES] Merging per-species FASTAs (parallel=$MAX_PARALLEL)"
-    for ((i=0; i<${#DMP_DIRS[@]}; i++)); do
-        species_dir="${DMP_DIRS[i]}"
-        merge_out="${DMP_MERGES[i]}"
+if should_run "MERGE_DMP_HI_GENES"; then
+    log_step "[MERGE_DMP_HI_GENES] Merging HI per-species FASTAs (parallel=$MAX_PARALLEL)"
+    declare -a _hi_mg_pids=()
+    for ((i=0; i<${#DMP_HI_DIRS[@]}; i++)); do
+        species_dir="${DMP_HI_DIRS[i]}"
+        merge_out="${DMP_HI_MERGES[i]}"
         [[ -z "$merge_out" ]] && continue
         out_dir="$DMP_QUERY_DIR/$species_dir"
         wait_for_slot "$MAX_PARALLEL"
         log_info "  -> $species_dir -> $merge_out"
         run_merge "$merge_out" "$out_dir" &
+        _hi_mg_pids+=($!)
     done
-    wait
-    log_info "[MERGE_DMP_QUERIES] All merges complete"
+    for _pid in "${_hi_mg_pids[@]}"; do wait "$_pid" || true; done
+    unset _hi_mg_pids _pid
+    log_info "[MERGE_DMP_HI_GENES] All HI merges complete"
+fi
+
+# ============================================================================
+# OP: DOWNLOAD_DMP_FAMILY
+# Broader DMP gene family panel for phylogenetic context. Many of these
+# species have pre-built merged FASTAs in II_INPUTS/DMP_query_fasta_file/
+# and have no download module (""); only Ipomoea_batatas is re-fetched.
+# ============================================================================
+if should_run "DOWNLOAD_DMP_FAMILY"; then
+    log_step "[DOWNLOAD_DMP_FAMILY] Downloading DMP family FASTAs (concurrency=$DOWNLOAD_CONCURRENCY)"
+    declare -a _fam_dl_pids=()
+    for ((i=0; i<${#DMP_FAM_DIRS[@]}; i++)); do
+        species_dir="${DMP_FAM_DIRS[i]}"
+        download_module="${DMP_FAM_DOWNLOADS[i]}"
+        [[ -z "$download_module" ]] && { log_info "  -> $species_dir: pre-built in II_INPUTS (skip download)"; continue; }
+        out_dir="$DMP_QUERY_DIR/$species_dir"
+        module_path="$FASTA_DOWNLOAD_MODULES/$download_module"
+        wait_for_slot "$DOWNLOAD_CONCURRENCY"
+        log_info "  -> $species_dir via $download_module"
+        run_module "$module_path" "$out_dir" &
+        _fam_dl_pids+=($!)
+    done
+    for _pid in "${_fam_dl_pids[@]}"; do wait "$_pid" || true; done
+    unset _fam_dl_pids _pid
+    log_info "[DOWNLOAD_DMP_FAMILY] All family downloads complete"
+fi
+
+# ============================================================================
+# OP: MERGE_DMP_FAMILY
+# ============================================================================
+if should_run "MERGE_DMP_FAMILY"; then
+    log_step "[MERGE_DMP_FAMILY] Merging DMP family FASTAs (parallel=$MAX_PARALLEL)"
+    declare -a _fam_mg_pids=()
+    for ((i=0; i<${#DMP_FAM_DIRS[@]}; i++)); do
+        species_dir="${DMP_FAM_DIRS[i]}"
+        merge_out="${DMP_FAM_MERGES[i]}"
+        [[ -z "$merge_out" ]] && continue
+        out_dir="$DMP_QUERY_DIR/$species_dir"
+        wait_for_slot "$MAX_PARALLEL"
+        log_info "  -> $species_dir -> $merge_out"
+        run_merge "$merge_out" "$out_dir" &
+        _fam_mg_pids+=($!)
+    done
+    for _pid in "${_fam_mg_pids[@]}"; do wait "$_pid" || true; done
+    unset _fam_mg_pids _pid
+    log_info "[MERGE_DMP_FAMILY] All family merges complete"
 fi
 
 # ============================================================================

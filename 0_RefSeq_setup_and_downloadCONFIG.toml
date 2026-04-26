@@ -6,11 +6,13 @@
 operations = [
     "SETUP_DIRS",
     "EXTRACT_DMP_LOCAL",
-    "DOWNLOAD_DMP_QUERIES",
-    "MERGE_DMP_QUERIES",
-    "DOWNLOAD_SMEL_UNITO",
-    "EXTRACT_TRANSCRIPTS",
-    "DOWNLOAD_CROP_GENOMES",
+    "DOWNLOAD_DMP_HI_GENES",      # 14 verified haploid-inducer species (HIR table)
+    "MERGE_DMP_HI_GENES",
+    #"DOWNLOAD_DMP_FAMILY",         # broader DMP gene family for phylogenetic context
+    #"MERGE_DMP_FAMILY",
+    #"DOWNLOAD_SMEL_UNITO",
+    #"EXTRACT_TRANSCRIPTS",
+    #"DOWNLOAD_CROP_GENOMES",
 ]
 
 max_parallel         = "auto"   # CPU-bound jobs (gffread, merges); "auto" = $(nproc)
@@ -25,15 +27,27 @@ crop_genomes_subdir  = "b_Various_Crop_Species_Genomes"
 extra_genomes_subdir = "c_Extra_Genomes"
 dmp_query_subdir     = "d_DMP_Query_Fasta"
 
-# DMP query FASTA downloads. Arrays are index-aligned per species.
+# ─────────────────────────────────────────────────────────────────────────────
+# DMP HAPLOID-INDUCER GENES  (14 verified species from HIR table)
+# ─────────────────────────────────────────────────────────────────────────────
+# Arrays are index-aligned per species.
 #   dirs[i]          subdir under output.dmp_query_subdir/
 #   downloads[i]     module under modules/00_refseq/fasta_download/ ("" = skip)
 #   merge_outputs[i] merged .fa filename ("" = skip merge)
-[dmp_queries]
+#
+# Fetch priority per species:
+#   At, Sl     local CDS (EXTRACT_DMP_LOCAL)
+#   Zm, Bna,
+#   Mt         NCBI nuccore by locus ID
+#   St, Nt,
+#   Bo, Bju    NCBI Gene DB (locus/symbol not in nuccore directly)
+#   Gm, Cl, Cs Phytozome primary (Glyma/Cla97/CsaV3 IDs); NCBI Gene DB fallback
+#   Gh         NCBI Gene DB (CottonGen HAU IDs cross-referenced)
+#   Os         NCBI nuccore by MSU7 locus (LOC_Os format)
+[dmp_hi_genes]
 dirs = [
     "Arabidopsis_thaliana",
     "Zea_mays",
-    "Ipomoea_batatas",
     "Solanum_lycopersicum",
     "Solanum_tuberosum",
     "Nicotiana_tabacum",
@@ -46,12 +60,10 @@ dirs = [
     "Glycine_max",
     "Gossypium_hirsutum",
     "Oryza_sativa",
-    "Other_DMPs",
 ]
 downloads = [
     "download_AtDMP_fasta.sh",
     "download_ZmDMPs_fasta.sh",
-    "download_IpDMPs_fasta.sh",
     "download_SlDMP_fasta.sh",
     "download_StDMP_fasta.sh",
     "download_NtDMP_fasta.sh",
@@ -64,32 +76,102 @@ downloads = [
     "download_GmDMP_fasta.sh",
     "download_GhDMP_fasta.sh",
     "download_OsDMP_fasta.sh",
-    "",
 ]
 merge_outputs = [
     "AtDMPs_merged_fasta.fa",
-    "ZmDMPs_merged_fasta.fa",
-    "IpDMPs_merged_fasta.fa",
-    "SlDMPs_merged_fasta.fa",
-    "StDMPs_merged_fasta.fa",
-    "NtDMPs_merged_fasta.fa",
-    "BnaDMPs_merged_fasta.fa",
-    "BoDMPs_merged_fasta.fa",
-    "BjuDMPs_merged_fasta.fa",
-    "ClDMPs_merged_fasta.fa",
-    "CsDMPs_merged_fasta.fa",
-    "MtDMPs_merged_fasta.fa",
-    "GmDMPs_merged_fasta.fa",
-    "GhDMPs_merged_fasta.fa",
-    "OsDMPs_merged_fasta.fa",
-    "OtherDMPs_merged_fasta.fa",
+    "ZmDMPs_v2_merged_fasta.fa",
+    "SlDMPs_merged.fa",
+    "StDMPs_merged.fa",
+    "NtDMPs_merged.fa",
+    "BnaDMPs_merged.fa",
+    "BoDMPs_merged.fa",
+    "BjuDMPs_merged.fa",
+    "ClDMPs_merged.fa",
+    "CsDMPs_merged.fa",
+    "MtDMPs_merged.fa",
+    "GmDMPs_merged.fa",
+    "GhDMPs_merged.fa",
+    "OsDMPs_merged.fa",
 ]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DMP GENE FAMILY — BROADER PHYLOGENETIC PANEL
+# ─────────────────────────────────────────────────────────────────────────────
+# Species used for DMP family-wide phylogenetics and comparative analysis.
+# These are NOT verified haploid-inducer species; they provide phylogenetic
+# context (outgroups, monocot/eudicot representatives, paralogy panels).
+# Pre-built merged FASTAs for Physcomitrella, Setaria, Ananas, Musa, Populus,
+# Brachypodium, Gossypium_raimondii, and Sorghum already exist in
+# II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/; downloads are skipped ("").
+[dmp_family]
+dirs = [
+    "Ipomoea_batatas",
+    "Capsicum_annuum",
+    "Physcomitrella_patens",
+    "Setaria_italica",
+    "Ananas_comosus",
+    "Musa_acuminata",
+    "Populus_trichocarpa",
+    "Brachypodium_distachyon",
+    "Gossypium_raimondii",
+    "Sorghum_bicolor",
+    "Other_DMPs",
+]
+downloads = [
+    "download_IpDMPs_fasta.sh",
+    "",   # pre-built in II_INPUTS/DMP_query_fasta_file/Capsicum_annuum_Pepper/
+    "",   # pre-built in II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_1_Physcomitrella_patens/
+    "",   # pre-built in II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_1_Setaria_italica/
+    "",   # pre-built in II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_2_Ananas_comosus/
+    "",   # pre-built in II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_3_Musa_acuminata/
+    "",   # pre-built in II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_4_Populus_trichocarpa/
+    "",   # pre-built in II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_5_Brachypodium_distachyon/
+    "",   # pre-built in II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_5_Gossypium_raimondii/
+    "",   # pre-built in II_INPUTS/DMP_query_fasta_file/2024_Paper_DMPs/GROUP_5_Sorghum_bicolor/
+    "",   # assembled manually; merged by legacy script
+]
+merge_outputs = [
+    "IpDMPs_merged.fa",
+    "CaDMPs_merged.fa",
+    "PpDMPs_merged.fa",
+    "SiDMPs_merged.fa",
+    "AcDMPs_merged.fa",
+    "MaDMPs_merged.fa",
+    "PtDMPs_merged.fa",
+    "BdDMPs_merged.fa",
+    "GrDMPs_merged.fa",
+    "SbDMPs_merged.fa",
+    "OtherDMPs_merged.fa",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REGISTRY & PHYTOZOME
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Verified DMP HI registry. Drives EXTRACT_DMP_LOCAL: rows with
 # source_mode=local are extracted from the named local genome; rows with
-# source_mode=ncbi fall through to DOWNLOAD_DMP_QUERIES.
+# source_mode=ncbi fall through to DOWNLOAD_DMP_HI_GENES.
 [dmp_registry]
 path = "II_INPUTS/DMP_HI_registry.tsv"
+
+# Phytozome / JGI Genome Portal  (https://phytozome-next.jgi.doe.gov/)
+# Required for species whose published locus IDs are Phytozome-specific and
+# are not indexed in NCBI nuccore. The portal codes below are the *short*
+# names accepted by the get-directory ext-api (verified empirically):
+#   Glycine max         Glyma.18G IDs   ->  Gmax
+#   Cucumis sativus     CsaV3_ IDs      ->  Csativus
+#   Citrullus lanatus   Cla97 IDs       ->  Clanatus
+#   Solanum tuberosum   Soltu.DM IDs    ->  Stuberosum   (NCBI gene DB tried first)
+#   Oryza sativa        LOC_Os IDs      ->  Osativa      (NCBI gene DB tried first)
+#   Gossypium hirsutum  Gh_A/D IDs      ->  Ghirsutum    (CottonGen mirror)
+#   Ipomoea batatas     Ibatatas IDs    ->  Ibatatas
+#
+# Set credentials here, or export JGI_USER / JGI_PASSWORD in the shell before
+# running the stage. If both are absent the Phytozome steps are skipped and the
+# scripts fall back to NCBI gene DB where possible.
+[phytozome]
+jgi_user     = "mrmercado3@up.edu.ph"   # JGI account email
+jgi_password = ""   # JGI account password
 
 # Solanum melongena Unito Genomics mirror (https://solgenomics.net/ftp/unito_genomics/)
 [smel_unito]

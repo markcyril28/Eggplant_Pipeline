@@ -352,8 +352,10 @@ shorten_label <- function(lab) {
     if (length(m) == 4L) {
         return(sprintf("%sDMP%s/%s", m[2], m[3], m[4]))
     }
-    # 4. Paralog disambiguator: trailing "_N" -> ".N" (preserves info, shorter visual)
-    lab <- sub("_([0-9]+)$", ".\\1", lab)
+    # 4. Paralog disambiguator: trailing "_N" (single digit) -> ".N".
+    # Restricted to one digit so this never collapses NCBI accession suffixes
+    # like "XM_008658777" (which would otherwise become "XM.008658777").
+    lab <- sub("_([0-9])$", ".\\1", lab)
     lab
 }
 

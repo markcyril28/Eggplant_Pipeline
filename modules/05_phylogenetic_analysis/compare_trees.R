@@ -377,7 +377,8 @@ shorten_label <- function(lab) {
     if (length(m) == 4L) {
         return(sprintf("%sDMP%s/%s", m[2], m[3], m[4]))
     }
-    lab <- sub("_([0-9]+)$", ".\\1", lab)
+    # Single-digit only so NCBI accessions like "XM_008658777" pass through.
+    lab <- sub("_([0-9])$", ".\\1", lab)
     lab
 }
 

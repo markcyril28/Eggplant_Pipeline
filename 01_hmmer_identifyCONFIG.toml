@@ -6,9 +6,9 @@
 # [identification.gene_groups.{GROUP}] — one subsection per gene group.
 #
 # Consumers:
-#   a_hmmer_identify.sh  — primary (reads all keys)
-#   b_blast_alignment.sh — reads identification.method only
-#   g_plant_care_analysis.sh — merges this file but only uses output_dirs
+#   01_hmmer_identify.sh       — primary (reads all keys)
+#   02_blast_alignment.sh      — reads identification.method only
+#   07_plant_care_analysis.sh  — merges this file but only uses output_dirs
 # ============================================================================
 
 [pipeline]

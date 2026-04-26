@@ -34,7 +34,7 @@ gpu_id            = 0
 max_threads       = 8
 
 # [structures]
-# Structures loaded from config/<GENE_GROUP>/h_protein_structure_analysis.toml
+# Structures loaded from config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml
 # Uncomment below to override for this step only:
 # [structures]
 # active = [

@@ -42,12 +42,12 @@ auto_timestamp_dir = true
 
 
 # ==============================================================================
-# STRUCTURES — loaded from config/<GENE_GROUP>/h_protein_structure_analysis.toml
+# STRUCTURES — loaded from config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml
 # ([ppi_structures].active). Per-step overrides still available below.
 # ==============================================================================
 
 # [structures]
-# Moved to config/DMP-HAP2/h_protein_structure_analysis.toml [ppi_structures]
+# Moved to config/DMP-HAP2/h_protein_structure_analysis_DMP-HAP2.toml [ppi_structures]
 
 
 # ==============================================================================

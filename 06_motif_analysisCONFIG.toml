@@ -1,73 +1,77 @@
 # ============================================================================
-# Shared Pipeline Configuration — 06_Motif_Analysis Defaults
-# ============================================================================
-# MEME-suite tool parameters shared across all gene groups.
-# Gene-group overrides ([pipeline] operations, [meme.inputs]) live in
-# config/{GROUP}/06_motif_analysis.toml.
+# Shared defaults for 06_Motif_Analysis (MEME suite).
+# Per-group overrides ([meme.inputs] FASTA lists, etc.) live in
+# config/{GROUP}/06_motif_analysis_{GROUP}.toml.
 # ============================================================================
 
 [pipeline]
-machine      = "Local"   # "Local" or "HPC" — selects compute profile below
+machine      = "Local"   # "Local" | "HPC" — picks the compute profile below
 overwrite    = true
+# Gene groups to run; each needs a config/{GROUP}/ directory.
+gene_groups = [
+    "DMP",
+    #"GRF_GIF",
+    #"PLA",
+]
+
 operations = [
-    "RUN_READY_DATABASE",
+    #"RUN_READY_DATABASE",
     "RUN_MEME_SUITE_Analysis",
     "RUN_JPEG_Export",
 ]
 
 [pipeline.compute.Local]
-threads      = 12        # Total CPU threads available
-max_parallel = 10        # Concurrent TOMTOM/FIMO jobs (single-threaded tools; MEME parallelism = threads/optimal_threads)
+threads      = 12
+max_parallel = 10        # concurrent TOMTOM/FIMO jobs (single-threaded)
 
 [pipeline.compute.HPC]
-threads      = 64        # Total CPU threads on HPC node
-max_parallel = 64        # Concurrent TOMTOM/FIMO jobs
+threads      = 64
+max_parallel = 64
 
 [meme]
 enabled       = true
-overwrite     = true
+# Alphabet filter — accepts amino_acid|protein|aa, nucleotide|dna|nt.
+# Empty/missing key = both.
+alphabets     = [
+    "amino_acid",
+    #"nucleotide",
+]
+
 databases_dir = "II_INPUTS/meme_motif_databases"  # run setup_meme_databases.sh once
-# Pipeline steps to run (comma-separated, order matters):
-#   meme   — de novo motif discovery from input FASTA sequences
-#   tomtom — compare discovered motifs against known databases
-#   fimo   — scan input sequences for occurrences of discovered motifs
-#   jpeg   — assemble motif logo PNGs into a single grid JPEG per dataset
-steps         = "meme,jpeg"  # tomtom,fimo
+# Steps (order matters): meme | tomtom | fimo | jpeg
+steps         = "meme,jpeg"   # add tomtom,fimo as needed
 
-# --- JPEG export (step: jpeg) ---
-# color_scheme: preset name (default|nature|colorblind|dmp) or path to .alph file.
-# Colors are baked into MEME XML at discovery time via the -alph flag.
-# Changing color_scheme requires re-running the MEME step to take effect.
-color_scheme      = "dmp"      # try also: default, nature, colorblind
-jpeg_dpi          = 900
+# --- JPEG export ---
+# color_scheme: default|nature|colorblind|dmp or path to .alph file (baked
+# into MEME XML at discovery; re-run meme step to change).
+color_scheme      = "nature"
+jpeg_dpi          = 600
 jpeg_columns      = 5
-jpeg_quality      = 92         # 92 is near-lossless; lower (e.g. 75) for smaller files
-jpeg_logo_padding = 10         # px spacing between logo tiles in the grid
+jpeg_quality      = 92        # 92 ≈ near-lossless
+jpeg_logo_padding = 10        # px between logo tiles
 
-# Motif location diagram palette: version name from
-# config/colors_config/meme_motif_colors.toml (wong|warm|cool|pastel|high_contrast|dark|dmp_interaction)
-# or comma-separated hex codes for a custom palette.
-# dmp_interaction: 4-color cycle (TM helices → N-terminal → beta sheet → loops)
-# synchronized with [DMP.interaction] in protein_structure_colors.toml.
+# Motif location diagram: palette from config/colors_config/meme_motif_colors.toml
+# (wong|warm|cool|pastel|high_contrast|dark|dmp_interaction) or comma-separated hex.
 motif_location_palette = "dmp_interaction"
-# Background for motif location diagram: dark|light or hex code (empty = white).
-motif_location_bg      = "dark"   # black background (#111111)
+motif_location_bg      = "dark"   # dark|light or hex (empty = white)
 
 # --- Discovery ---
-nmotifs = 9      # motifs to find
-minw    = 6       # min width (bp)
-maxw    = 50      # max width (bp)
-mod     = "zoops" # zero-or-one per sequence (best for TF motifs)
+# Tuned for small families (~7 paralogs); for larger sets raise nmotifs and
+# switch mod = "zoops".
+nmotifs = 8
+minw    = 6
+maxw    = 50
+mod     = "anr"   # anr|oops|zoops
 
-# --- Databases (paths relative to databases_dir, comma-separated) ---
-# Unified keys (used by module and orchestrator via get_toml meme tomtom_databases):
-tomtom_databases = "JASPAR/JASPAR2024_CORE_plants_non-redundant_v2.meme,ARABD/ArabidopsisDAPv1.meme"
-fimo_databases   = "JASPAR/JASPAR2024_CORE_plants_non-redundant_v2.meme,ARABD/ArabidopsisDAPv1.meme"
-# Split keys for reference (not currently read by orchestrator):
-# tomtom_databases_dna = "JASPAR/...,ARABD/..."
-# tomtom_databases_protein = "PROTEIN/prosite2021_04.meme,PROTEIN/elm2024.meme"
+# --- TOMTOM / FIMO databases (relative to databases_dir) ---
+# Mixed DNA + protein; run_meme_pipeline.sh routes each query to compatible
+# DBs by alphabet automatically.
+tomtom_databases = "JASPAR/JASPAR2024_CORE_plants_non-redundant_v2.meme,ARABD/ArabidopsisDAPv1.meme,PROTEIN/elm2024.meme,PROTEIN/prosite2021_04.meme"
+fimo_databases   = "JASPAR/JASPAR2024_CORE_plants_non-redundant_v2.meme,ARABD/ArabidopsisDAPv1.meme,PROTEIN/elm2024.meme,PROTEIN/prosite2021_04.meme"
 
 # --- Threading ---
-optimal_threads = 5      # per MEME run → floor(cpu/optimal_threads) parallel jobs
-time_limit      = 18000  # seconds per run (5 h)
-markov_order    = 3      # trinucleotide background
+# All cores per MEME run, one job at a time. Lower optimal_threads for larger
+# families so floor(cpu/optimal_threads) > 1 enables parallel MEME jobs.
+optimal_threads = 12
+time_limit      = 300    # seconds per MEME run
+markov_order    = 0      # 0 = uniform; 3 = trinucleotide for large NT sets

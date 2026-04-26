@@ -8,18 +8,11 @@
 
 set -euo pipefail
 
-# ===================== IMPORTANT VARIABLES =====================
-# Comment in/out the gene groups to process:
-GENE_GROUPS=(
-    "DMP"
-    #"GRF_GIF"
-    #"PLA"
-)
-
 # ===============================================================
-# CPU, MAX_PARALLEL, OVERWRITE, and OPERATIONS are loaded from
+# GENE_GROUPS, CPU, MAX_PARALLEL, OVERWRITE, and OPERATIONS are loaded from
 # 06_motif_analysisCONFIG.toml  [pipeline]  section
-# (gene-group overrides in config/{GROUP}/06_motif_analysis.toml).
+# (gene-group overrides in config/{GROUP}/06_motif_analysis_{GROUP}.toml).
+# Edit gene_groups in the TOML to control which groups run.
 
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES="$PIPELINE_DIR/modules"
@@ -88,6 +81,51 @@ PLANTCARE_STAGE_DIR="03_PlantCARE_Analysis"
 PLANTCARE_RAW_STAGE_DIR="03_PlantCARE_Results"
 MEME_STAGE_DIR="04_MEME_Analysis"
 
+# ---------------------------------------------------------------------------
+# Auto-discover phylo-ordered alignment file for the motif locations diagram.
+# Search convention (first hit wins):
+#   1. III_RESULT/<GROUP>/09_Secondary_Structure_Analysis/**/*<base>*phylo_ordered*.aln
+#   2. III_RESULT/<GROUP>/05_Phylogenetics/**/*<base>*phylo_ordered*.aln
+#   3. III_RESULT/<GROUP>/04_MSA/**/*<base>*AMINO_ACID*.aln          (alignment order fallback)
+# <base> is the FASTA stem with alphabet tokens stripped, so AA + NT inputs
+# resolve to the same base and share the AA-tree topology.
+# Returns empty string when no candidate is found.
+# ---------------------------------------------------------------------------
+auto_find_phylo_order() {
+    local group="$1" fasta_path="$2"
+    local stem base
+    stem=$(basename "$fasta_path")
+    stem="${stem%.fasta}"
+    stem="${stem%.fa}"
+    base="$stem"
+    base="${base/_AMINO_ACID_Sequence/}"
+    base="${base/_NUCLEOTIDE_Sequence/}"
+    base="${base%_amino_acid}"
+    base="${base%_nucleotide_fixed}"
+    base="${base%_nucleotide}"
+    base="${base%_protein}"
+
+    local -a search_dirs=(
+        "$PIPELINE_DIR/III_RESULT/$group/09_Secondary_Structure_Analysis"
+        "$PIPELINE_DIR/III_RESULT/$group/05_Phylogenetics"
+    )
+    local dir match
+    for dir in "${search_dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        match=$(find "$dir" -type f -name "*${base}*phylo_ordered*.aln" 2>/dev/null | sort | head -n 1)
+        [[ -n "$match" ]] && { echo "$match"; return 0; }
+    done
+
+    # Fallback: any AMINO_ACID alignment from the MSA stage (not strictly phylo-ordered)
+    local msa_dir="$PIPELINE_DIR/III_RESULT/$group/04_MSA"
+    if [[ -d "$msa_dir" ]]; then
+        match=$(find "$msa_dir" -type f -name "*${base}*AMINO_ACID*.aln" 2>/dev/null | sort | head -n 1)
+        [[ -n "$match" ]] && { echo "$match"; return 0; }
+    fi
+
+    echo ""
+}
+
 resolve_top_folder() {
     local genome_path="$1"
 
@@ -113,14 +151,25 @@ resolve_group_config() {
         CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${group}_geneseq_cfg_XXXXXX.toml")
         TEMP_FILES+=("$CONFIG_FILE")
 
+        # Required: 00_common_<GROUP>.toml provides [general] + [output_dirs] +
+        # [reference]. Fail loudly if it's missing so the user sees which
+        # file path is wrong, instead of a cryptic downstream "key not found".
+        local common_file="$config_dir/00_common_${group}.toml"
+        if [[ ! -f "$common_file" ]]; then
+            echo "ERROR: required config not found: $common_file" >&2
+            echo "       (expected naming: <stage>_<GROUP>.toml under config/<GROUP>/)" >&2
+            ls -la "$config_dir" >&2
+            exit 1
+        fi
+
         # Deep-merge: shared defaults first, gene-group overrides win on conflict.
-        # merge_toml.py silently skips missing files — no existence checks needed.
+        # merge_toml.py logs skipped/missing files to stderr.
         python3 "$MERGE_TOML" \
             "$PIPELINE_DIR/06_motif_analysisCONFIG.toml" \
-            "$config_dir/00_common.toml" \
-            "$config_dir/06_motif_analysis.toml" \
-            "$config_dir/07_plantcare_analysis.toml" \
-            "$config_dir/01_hmmer_gene_identification.toml" \
+            "$common_file" \
+            "$config_dir/06_motif_analysis_${group}.toml" \
+            "$config_dir/07_plantcare_analysis_${group}.toml" \
+            "$config_dir/01_hmmer_gene_identification_${group}.toml" \
             > "$CONFIG_FILE"
     else
         CONFIG_FILE="$PIPELINE_DIR/config/${group}.toml"
@@ -392,6 +441,25 @@ run_meme_analysis() {
     mapfile -t meme_input_fastas       < <(get_toml meme inputs fasta_files 2>/dev/null || true)
     mapfile -t meme_input_phylo_orders < <(get_toml meme inputs phylo_order_files 2>/dev/null || true)
 
+    # Optional alphabet filter — when [meme].alphabets is set, only labels whose
+    # detected alphabet appears in the list are processed. Default: both AA + NT.
+    # Accepted tokens (case-insensitive): amino_acid, protein, nucleotide, dna.
+    local -a _meme_alphabets _alph_filter=()
+    mapfile -t _meme_alphabets < <(get_toml meme alphabets 2>/dev/null || true)
+    if [[ ${#_meme_alphabets[@]} -eq 0 ]]; then
+        _alph_filter=("amino_acid" "nucleotide")
+    else
+        local _a
+        for _a in "${_meme_alphabets[@]}"; do
+            case "${_a,,}" in
+                amino_acid|protein|aa) _alph_filter+=("amino_acid") ;;
+                nucleotide|dna|nt)     _alph_filter+=("nucleotide") ;;
+                *) log_warn "Unknown [meme].alphabets token: '$_a' (skipping)" ;;
+            esac
+        done
+    fi
+    log_info "Alphabet filter: ${_alph_filter[*]}"
+
     if [[ ${#meme_input_labels[@]} -gt 0 ]]; then
         # Validate parallel arrays are same length
         if [[ ${#meme_input_labels[@]} -ne ${#meme_input_fastas[@]} ]]; then
@@ -405,6 +473,20 @@ run_meme_analysis() {
         for i in "${!meme_input_labels[@]}"; do
             local dataset_label="${meme_input_labels[$i]}"
             local fasta_file="$PIPELINE_DIR/${meme_input_fastas[$i]}"
+
+            # Apply alphabet filter — same regex as run_meme_pipeline.sh's
+            # auto-detection so the orchestrator and module agree.
+            local _label_alph="nucleotide"
+            [[ "$dataset_label" =~ (amino_acid|protein) ]] && _label_alph="amino_acid"
+            local _ok=false _fa
+            for _fa in "${_alph_filter[@]}"; do
+                [[ "$_fa" == "$_label_alph" ]] && { _ok=true; break; }
+            done
+            if ! $_ok; then
+                log_info "Skip $dataset_label ($_label_alph not in alphabet filter)"
+                continue
+            fi
+
             # Output folder = label with alphabet suffix stripped, so AA + NT
             # variants share one folder (e.g. selected_GPE001970_{amino_acid,nucleotide}
             # both write into selected_GPE001970/04_MEME_Analysis/). Per-label file
@@ -418,11 +500,19 @@ run_meme_analysis() {
             output_label="${output_label%_nt}"
             output_label="${output_label%_dna}"
             local out_dir="$gene_seq_dir/$output_label/$MEME_STAGE_DIR"
-            local phylo_order_file=""
+
+            # Phylo-order resolution: auto-discover by convention, then let an
+            # explicit non-empty [meme.inputs].phylo_order_files entry override.
+            local phylo_order_file
+            phylo_order_file=$(auto_find_phylo_order "$group" "$fasta_file")
             if [[ $i -lt ${#meme_input_phylo_orders[@]} ]]; then
                 local _raw_phylo="${meme_input_phylo_orders[$i]}"
                 [[ -n "$_raw_phylo" ]] && phylo_order_file="$PIPELINE_DIR/$_raw_phylo"
             fi
+            [[ -n "$phylo_order_file" && ! -f "$phylo_order_file" ]] && {
+                log_warn "Phylo-order file resolved but not on disk: $phylo_order_file"
+                phylo_order_file=""
+            }
 
             if [[ ! -f "$fasta_file" ]]; then
                 log_warn "FASTA not found for $dataset_label at $fasta_file — skipping"
@@ -563,16 +653,62 @@ run_combined_jpeg() {
     local gene_seq_dir
     gene_seq_dir=$(resolve_gene_sequence_dir "$base_dir")
 
+    # Honor the same [meme].alphabets filter used in run_meme_analysis so that
+    # commented-out alphabets don't get bundled in via stale on-disk JPEGs.
+    local -a _meme_alphabets _alph_filter=()
+    mapfile -t _meme_alphabets < <(get_toml meme alphabets 2>/dev/null || true)
+    if [[ ${#_meme_alphabets[@]} -eq 0 ]]; then
+        _alph_filter=("amino_acid" "nucleotide")
+    else
+        local _a
+        for _a in "${_meme_alphabets[@]}"; do
+            case "${_a,,}" in
+                amino_acid|protein|aa) _alph_filter+=("amino_acid") ;;
+                nucleotide|dna|nt)     _alph_filter+=("nucleotide") ;;
+            esac
+        done
+    fi
+
     # Collect all per-dataset JPEG logo grids
     local -a jpeg_files=()
     local -a jpeg_labels=()
     while IFS= read -r jpg; do
+        # Detect alphabet from the parent dir: .../05_JPEG/{amino_acid,nucleotide}/file.jpg
+        local _parent _jpg_alph=""
+        _parent=$(basename "$(dirname "$jpg")")
+        case "$_parent" in
+            amino_acid|nucleotide) _jpg_alph="$_parent" ;;
+        esac
+
+        # Filename fallback for the legacy flat layout (.../05_JPEG/<label>_motifs.jpg)
+        if [[ -z "$_jpg_alph" ]]; then
+            if [[ "$jpg" =~ (amino_acid|protein|_aa_) ]]; then
+                _jpg_alph="amino_acid"
+            elif [[ "$jpg" =~ (nucleotide|_nt_|_dna_) ]]; then
+                _jpg_alph="nucleotide"
+            fi
+        fi
+
+        if [[ -n "$_jpg_alph" ]]; then
+            local _ok=false _fa
+            for _fa in "${_alph_filter[@]}"; do
+                [[ "$_fa" == "$_jpg_alph" ]] && { _ok=true; break; }
+            done
+            if ! $_ok; then
+                log_info "Combined JPEG: skip $(basename "$jpg") ($_jpg_alph not in alphabet filter)"
+                continue
+            fi
+        fi
+
         jpeg_files+=("$jpg")
         # Extract label from path: .../<label>/04_MEME_Analysis/05_JPEG/<label>_motifs.jpg
         local fname
         fname=$(basename "$jpg" _motifs.jpg)
         jpeg_labels+=("$fname")
-    done < <(find "$gene_seq_dir" -path '*/05_JPEG/*_motifs.jpg' 2>/dev/null | sort)
+    # Match both layouts:
+    #   .../05_JPEG/<label>_motifs.jpg                         (legacy flat)
+    #   .../05_JPEG/{amino_acid,nucleotide}/<label>_motifs.jpg (new alphabet-split)
+    done < <(find "$gene_seq_dir" -path '*/05_JPEG/*' -name '*_motifs.jpg' 2>/dev/null | sort)
 
     if [[ ${#jpeg_files[@]} -lt 2 ]]; then
         log_info "Combined JPEG: fewer than 2 per-dataset JPEGs found — skipping combined view"
@@ -748,6 +884,15 @@ process_gene_group() {
     run_secondary_structure_notice "$group"
     teardown_logging
 }
+
+# Load gene_groups from the parent shared TOML before any per-group merge,
+# since we need the list to know which per-group configs to merge in turn.
+SHARED_CONFIG="$PIPELINE_DIR/06_motif_analysisCONFIG.toml"
+mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null || true)
+if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
+    echo "ERROR: pipeline.gene_groups not set in $SHARED_CONFIG" >&2
+    exit 1
+fi
 
 for GENE_GROUP in "${GENE_GROUPS[@]}"; do
     process_gene_group "$GENE_GROUP"

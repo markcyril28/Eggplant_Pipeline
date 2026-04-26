@@ -153,6 +153,28 @@ domain_colors_json = '{"1":"#F5DEB3","2":"#D43005","3":"#D43005","4":"#D43005","
 # Grouped legend labels for --domain-labels.  Maps hex color → structural name.
 domain_labels_json = '{"#D43005":"Transmembrane Helices (TM1-TM4)","#F5DEB3":"Extracellular beta-sheet","#D9A621":"N-terminal Domain","#B3B3B3":"Loops"}'
 
+# ----------------------------------------------------------------------------
+# Position-based domain mapping (preferred over the static motif→color JSON
+# above). When plot_motif_locations.py is given --ref-seq-ids and
+# --domain-ranges-json it will look up the reference SmelDMP sequence in
+# meme.xml's scanned_sites and assign each motif its color by where the motif
+# best matches on that reference, instead of by MEME's discovery rank.
+#
+# This is robust across datasets: different inputs yield different motif
+# rankings, but a motif covering pos 70-85 always lands in the extracellular
+# beta-sheet, pos 100-130 in TM3, etc.
+# ----------------------------------------------------------------------------
+# Reference SmelDMP sequence IDs to look up in meme.xml. First match wins.
+reference_seq_ids = [
+    "SmelDMP01.030",
+    "SMEL5_01g026030.1",
+    "smel5_01g026030.1",
+    "SmelDMPv5_01.030",
+]
+# Domain ranges on the reference (0-based amino acid positions, end inclusive).
+# Boundaries derived from PyMOL DSS on the AlphaFold3 model of smel5_01g026030.1.
+domain_ranges_json = '{"ranges":[{"start":0,"end":9,"color":"#D9A621","label":"N-terminal Domain"},{"start":10,"end":50,"color":"#D43005","label":"Transmembrane Helices (TM1-TM4)"},{"start":51,"end":53,"color":"#B3B3B3","label":"Loops"},{"start":54,"end":68,"color":"#D43005","label":"Transmembrane Helices (TM1-TM4)"},{"start":69,"end":89,"color":"#F5DEB3","label":"Extracellular beta-sheet"},{"start":90,"end":97,"color":"#B3B3B3","label":"Loops"},{"start":98,"end":138,"color":"#D43005","label":"Transmembrane Helices (TM1-TM4)"},{"start":139,"end":142,"color":"#B3B3B3","label":"Loops"},{"start":143,"end":171,"color":"#D43005","label":"Transmembrane Helices (TM1-TM4)"}],"default_color":"#B3B3B3","default_label":"Loops"}'
+
 
 # ════════════════════════════════════════════════════════════════════════════
 #  dark — High-luminance palette optimised for black / dark backgrounds

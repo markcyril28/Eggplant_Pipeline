@@ -95,7 +95,7 @@ merge_outputs = [
 ]
 # Protein FASTAs derived from merge_outputs[i] by frame-1 translation
 # (modules/utils/translate_cds.py). Empty string ("") skips translation.
-# These feed directly into config/DMP/02_blast_ortholog_alignment.toml
+# These feed directly into config/DMP/02_blast_ortholog_alignment_DMP.toml
 # query_protein_fastas (BLASTp queries against Smel HMMER hits).
 merge_protein_outputs = [
     "AtDMPs_merged_protein.fa",

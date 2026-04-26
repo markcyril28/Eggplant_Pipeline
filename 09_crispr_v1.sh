@@ -78,8 +78,8 @@ CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
 if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_crispr_cfg_XXXXXX.toml")
     cat "$PIPELINE_DIR/09_crispr_v1CONFIG.toml" \
-        "$CONFIG_DIR/00_common.toml" \
-        "$CONFIG_DIR/09_crispr_analysis.toml" > "$CONFIG_FILE"
+        "$CONFIG_DIR/00_common_${GENE_GROUP}.toml" \
+        "$CONFIG_DIR/09_crispr_analysis_${GENE_GROUP}.toml" > "$CONFIG_FILE"
     TMP_CONFIG_FILES+=("$CONFIG_FILE")
 else
     CONFIG_FILE="$PIPELINE_DIR/config/${GENE_GROUP}.toml"

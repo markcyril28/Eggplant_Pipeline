@@ -3,7 +3,7 @@
 # ============================================================================
 # Default CRISPR parameters shared across all gene groups.
 # Gene-group overrides (grna_fastas) live in
-# config/{GROUP}/09_crispr_analysis.toml.
+# config/{GROUP}/09_crispr_analysis_{GROUP}.toml.
 # ============================================================================
 
 [pipeline]

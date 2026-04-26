@@ -744,26 +744,66 @@ run_combined_jpeg() {
     local jpeg_quality
     jpeg_quality=$(get_toml meme jpeg_quality 2>/dev/null || echo "92")
 
-    # Label each per-dataset image, then stack vertically
+    # Find a TTF/OTF font file on disk to pass as `-font /abs/path`. The
+    # `magick -list font` route can list font *names* whose backing file is
+    # not actually installed (then FreeType fails with `unable to read font`).
+    # Searching the filesystem for an actual font file avoids that.
+    local _font_path=""
+    local _candidate
+    for _candidate in \
+        /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf \
+        /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+        /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf \
+        /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf \
+        /Library/Fonts/Helvetica.ttc \
+        /System/Library/Fonts/Helvetica.ttc \
+        /c/Windows/Fonts/arial.ttf \
+        /mnt/c/Windows/Fonts/arial.ttf
+    do
+        [[ -f "$_candidate" ]] && { _font_path="$_candidate"; break; }
+    done
+    if [[ -z "$_font_path" ]]; then
+        # Last resort: any .ttf or .otf under /usr/share/fonts.
+        _font_path=$(find /usr/share/fonts -type f \( -name '*.ttf' -o -name '*.otf' \) 2>/dev/null | head -n 1 || true)
+    fi
+
+    if [[ -z "$_font_path" ]]; then
+        log_warn "No TTF/OTF font found on host — combined JPEG will be assembled without per-dataset labels."
+        log_warn "Install one with: sudo apt install fonts-dejavu-core"
+    else
+        log_info "Annotation font: $_font_path"
+    fi
+
+    # Label each per-dataset image (when a font is available), then stack
+    # vertically. Without a font, just stack the originals.
     local -a labelled_parts=()
+    local _annotate_log="$combined_dir/.annotate.log"
+    : > "$_annotate_log"
     for i in "${!jpeg_files[@]}"; do
         local tmp_labelled="$combined_dir/.tmp_${jpeg_labels[$i]}.jpg"
         if [[ ! -f "${jpeg_files[$i]}" ]]; then
             log_warn "Per-dataset JPEG missing for ${jpeg_labels[$i]} — skipping"
             continue
         fi
-        $_im_cmd "${jpeg_files[$i]}" \
+        if [[ -z "$_font_path" ]]; then
+            tmp_labelled="${jpeg_files[$i]}"
+            labelled_parts+=("$tmp_labelled")
+            continue
+        fi
+        if $_im_cmd "${jpeg_files[$i]}" \
             -gravity North \
             -background white \
             -splice 0x80 \
-            -font Helvetica -fill black \
+            -font "$_font_path" -fill black \
             -pointsize 48 \
             -annotate +0+15 "${jpeg_labels[$i]}" \
             -density "$jpeg_dpi" \
-            "$tmp_labelled" 2>/dev/null || {
-                log_warn "Failed to annotate ${jpeg_labels[$i]} — using original"
-                tmp_labelled="${jpeg_files[$i]}"
-            }
+            "$tmp_labelled" 2>>"$_annotate_log"; then
+            :
+        else
+            log_warn "Failed to annotate ${jpeg_labels[$i]} — using original (see $_annotate_log)"
+            tmp_labelled="${jpeg_files[$i]}"
+        fi
         labelled_parts+=("$tmp_labelled")
     done
 

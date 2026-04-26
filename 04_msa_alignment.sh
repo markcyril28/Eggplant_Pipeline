@@ -74,7 +74,7 @@ resolve_top_folder() {
     local set_name="$1"
     case "$set_name" in
         *smel_v4_1*) echo "Solanum_melongena_v4.1" ;;
-        *gpe001970*|*selected_v1*|*selected_v2*) echo "GPE001970_SMEL5" ;;
+        *gpe001970*|*selected_v1*|*selected_v2*|*selected_v3*|*selected_v4*) echo "GPE001970_SMEL5" ;;
         *) echo "shared" ;;
     esac
 }
@@ -84,7 +84,9 @@ resolve_top_folder() {
 #   Determine which sub-folder under <top_folder>/ to write results into.
 #   Priority: explicit output_subdir in config → name-based pattern → All_Result
 #   Naming rules (applied to set_name):
-#     *selected*v2* | *v2_reduced*          → Selected_Result/v2_Reduced
+#     *selected*v4*                          → Selected_Result/v4_BLAST_Groups_bitscore200
+#     *selected*v3*                          → Selected_Result/v3_Full_and_HI_DMPs
+#     *selected*v2* | *v2_reduced*           → Selected_Result/v2_Reduced
 #     *selected*                             → Selected_Result/v1_Full
 #     (default)                              → All_Result
 # ---------------------------------------------------------------------------
@@ -99,6 +101,8 @@ resolve_output_subdir() {
     fi
     # 2. Infer from set name
     case "$set_name" in
+        *selected*v4*)              echo "Selected_Result/v4_BLAST_Groups_bitscore200" ;;
+        *selected*v3*)              echo "Selected_Result/v3_Full_and_HI_DMPs" ;;
         *selected*v2*|*v2_reduced*) echo "Selected_Result/v2_Reduced" ;;
         *selected*)                  echo "Selected_Result/v1_Full"    ;;
         *)                           echo "All_Result"                 ;;
@@ -124,10 +128,15 @@ for GENE_GROUP in "${GENE_GROUPS[@]}"; do
 
 # --- Resolve config: split directory or monolithic file --------------------
 CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
+MERGE_TOML="$MODULES/utils/merge_toml.py"
 if [[ -d "$CONFIG_DIR" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_msa_cfg_XXXXXX.toml")
     TEMP_FILES+=("$CONFIG_FILE")
-    cat "$PIPELINE_DIR/04_msa_alignmentCONFIG.toml" \
+    # Deep-merge so shared root + group overrides combine cleanly. A simple
+    # `cat` fails when both files declare [alignment] (TOML rejects duplicate
+    # tables). merge_toml.py silently skips missing files.
+    python3 "$MERGE_TOML" \
+        "$PIPELINE_DIR/04_msa_alignmentCONFIG.toml" \
         "$CONFIG_DIR/00_common.toml" \
         "$CONFIG_DIR/04_multiple_sequence_alignment.toml" \
         "$CONFIG_DIR/02_blast_ortholog_alignment.toml" > "$CONFIG_FILE"
@@ -160,7 +169,9 @@ log_step "Multiple Sequence Alignment: $GENE_GROUP (OVERWRITE=$OVERWRITE)"
 SET_NAMES=()
 SET_FASTAS=()
 
-IFS=' ' read -ra ACTIVE_SETS <<< "$(get_toml alignment active_input_sets 2>/dev/null || true)"
+# parse_toml.py emits one list element per line. mapfile reads the full
+# multi-line output; `read -ra <<<` would only capture the first line.
+mapfile -t ACTIVE_SETS < <(get_toml alignment active_input_sets 2>/dev/null || true)
 if [[ ${#ACTIVE_SETS[@]} -eq 0 ]]; then
     log_error "alignment.active_input_sets is empty or missing — nothing to align"
     teardown_logging
@@ -169,10 +180,11 @@ fi
 log_info "Active input sets: ${#ACTIVE_SETS[@]}"
 
 # --- Handle OVERWRITE: clean only the active sets' previous outputs --------
+# Set names are matched verbatim against [alignment.input_sets.<name>] keys,
+# which are case-sensitive in TOML (e.g. "selected_v3_full_and_HI_DMPs_*").
 if [[ "$OVERWRITE" == "true" ]]; then
     log_info "OVERWRITE=true — removing outputs for active input sets only"
     for _set in "${ACTIVE_SETS[@]}"; do
-        _set=$(echo "$_set" | tr 'A-Z' 'a-z')
         _top_folder="$(resolve_top_folder "$_set")"
         _output_subdir="$(resolve_output_subdir "$_set")"
         _outdir="$ALIGN_DIR/$_top_folder/$_output_subdir/$_set"
@@ -186,7 +198,6 @@ if [[ "$OVERWRITE" == "true" ]]; then
 fi
 
 for set_name in "${ACTIVE_SETS[@]}"; do
-    set_name=$(echo "$set_name" | tr 'A-Z' 'a-z')
 
     is_merge=$(get_toml alignment input_sets "$set_name" merge 2>/dev/null) || is_merge="false"
     mapfile -t fastas_raw < <(get_toml alignment input_sets "$set_name" fastas 2>/dev/null) || fastas_raw=()

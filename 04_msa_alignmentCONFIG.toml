@@ -12,6 +12,15 @@
 # ============================================================================
 
 [pipeline]
+# Gene groups to align. Each entry resolves to config/{GROUP}/04_multiple_sequence_alignment.toml
+# (active_input_sets, input_sets, etc.) merged on top of these shared defaults.
+# Available: "DMP", "HAP2", "DMP-HAP2"
+gene_groups  = [
+    "DMP",
+    #"HAP2",
+    #"DMP-HAP2",
+]
+
 machine      = "Local"   # "Local" or "HPC" — selects compute profile below
 overwrite    = true
 
@@ -24,6 +33,7 @@ threads      = 64        # Total CPU threads on HPC node
 max_parallel = 64        # Ceiling for concurrent alignment jobs
 
 [alignment]
+#methods = ["CLUSTALO"]
 methods = [
     #"CLUSTALO",
     "MAFFT",
@@ -33,7 +43,7 @@ methods = [
 ]
 
 sequence_types = [
-    "nucleotide",
+    #"nucleotide",
     "amino_acid",
 ]
 

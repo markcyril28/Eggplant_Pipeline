@@ -40,7 +40,7 @@ enabled = true
 # Core analysis ops produce TSV/CSV outputs; report ops produce figures/tables.
 operations = [
     # ---- Core analysis ----
-    "blast_offtarget",
+    #"blast_offtarget",
     "score_filter",
     "cas_offinder",
 

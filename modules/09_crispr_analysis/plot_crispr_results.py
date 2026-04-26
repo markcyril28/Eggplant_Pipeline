@@ -36,6 +36,38 @@ TIER_COLORS = {
 GENE_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
                "#9467bd", "#8c564b", "#e377c2", "#7f7f7f"]
 
+# ── SmelDMP gene-tier ordering (manuscript Chapter IV, Table 4) ────────────
+# Used to sort the comparison-table rows by expression-tier priority.
+# Lower rank = higher priority (rendered first).
+DMP_TIER_RANK = {
+    "SMEL5_10g017610": 0,   # Tier 1 — primary candidate (rendered first)
+    "SMEL5_01g026030": 1,   # Tier 1 — reproductive
+    "SMEL5_02g013320": 2,   # Tier 2 — broad
+    "SMEL5_01g008730": 2,   # Tier 2 — broad
+    "SMEL5_12g005350": 3,   # Tier 3 — n.d.
+    "SMEL5_04g005390": 3,   # Tier 3 — n.d.
+    "SMEL5_10g003660": 3,   # Tier 3 — n.d.
+}
+
+# Tier label rendered in the first column of the comparison tables.
+# Same string per tier so consecutive same-tier rows merge into one cell
+# (primary-candidate priority is preserved by DMP_TIER_RANK ordering above).
+DMP_TIER_LABEL = {
+    "SMEL5_10g017610": "Tier 1",
+    "SMEL5_01g026030": "Tier 1",
+    "SMEL5_02g013320": "Tier 2",
+    "SMEL5_01g008730": "Tier 2",
+    "SMEL5_12g005350": "Tier 3",
+    "SMEL5_04g005390": "Tier 3",
+    "SMEL5_10g003660": "Tier 3",
+}
+
+
+def _gene_tier_key(gene: str) -> tuple:
+    """Sort key: (tier_rank, gene_id). Unknown genes sort after all tiers."""
+    stem = gene.split(".")[0]
+    return (DMP_TIER_RANK.get(stem, 99), stem)
+
 
 def read_summary(path: str) -> list[dict]:
     rows = []
@@ -111,7 +143,7 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
     for d in sorted(data, key=lambda d: d["score"], reverse=True):
         _per_gene[d["gene"]].append(d)
     best = []
-    for _gene in sorted(_per_gene.keys()):
+    for _gene in sorted(_per_gene.keys(), key=_gene_tier_key):
         best.extend(_per_gene[_gene])
     has_table = bool(best)
 
@@ -241,10 +273,14 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
                  if variant == "strict"
                  else "Guides Passing Moderate Thresholds  (ranked by on-target score)")
 
-        col_labels = ["Gene", "Guide", "Score", "Off-targets", "Strand", "%GC",
+        col_labels = ["Tier", "Gene", "Guide",
+                      "Score\n(CRISPR-P v2)",
+                      "Off-targets\n(Cas-OFFinder)",
+                      "Strand", "%GC",
                       "Sequence  (5'→3')"]
         table_rows = [
             [
+                DMP_TIER_LABEL.get(d["gene"].split(".")[0], ""),
                 d["gene"].split(".")[0],
                 d["label"],
                 f"{d['score']:.4f}",
@@ -276,10 +312,11 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
             cell.set_facecolor("white")
             cell.set_text_props(fontweight="bold")
 
-        # Data rows: leave most cells unfilled; tint only the Score (col 2)
+        # Data rows: leave most cells unfilled; tint only the Score (col 3)
         # and Off-targets (col 3) cells by which threshold tier the row passes.
-        SCORE_COL_IDX     = 2
-        OFFTARGET_COL_IDX = 3
+        SCORE_COL_IDX     = 3
+        OFFTARGET_COL_IDX = 4
+        SEQUENCE_COL_IDX  = 7
         for i, row_d in enumerate(best, start=1):
             tier_hex  = _row_tier_color(row_d)
             cell_tint = _lighten(tier_hex, alpha=0.22)
@@ -287,28 +324,68 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
                 tbl[i, j].set_facecolor("white")
             tbl[i, SCORE_COL_IDX].set_facecolor(cell_tint)
             tbl[i, OFFTARGET_COL_IDX].set_facecolor(cell_tint)
-            tbl[i, 6].set_text_props(family="monospace")
+            tbl[i, SEQUENCE_COL_IDX].set_text_props(family="monospace")
 
-        # Gene-group demarcation: thicken the border between rows whose Gene
-        # column differs from the previous row (rows are clustered by gene).
-        n_cols = len(col_labels)
-        for i in range(1, len(best)):
-            if best[i]["gene"] != best[i - 1]["gene"]:
-                # tbl[i, *] is the last guide of the previous gene; tbl[i+1, *]
-                # is the first of the new gene. Thicken the shared edge.
-                for j in range(n_cols):
-                    tbl[i,     j].set_linewidth(1.8)
-                    tbl[i + 1, j].set_linewidth(1.8)
-                    tbl[i,     j].set_edgecolor("#222222")
-                    tbl[i + 1, j].set_edgecolor("#222222")
+        # ── Visually merge cells within consecutive same-value runs ───────
+        # Rows are pre-sorted by (tier_rank, gene, score desc) so values
+        # cluster into contiguous spans in both the Tier and Gene columns.
+        # We hide horizontal edges within each span so the column reads as
+        # one tall cell, with the value placed only on the middle row.
+        n_cols   = len(col_labels)
+        TIER_COL = 0
+        GENE_COL = 1
+
+        def _merge_spans(col_idx, key_fn, italic=False):
+            """Hide internal horizontal edges in `col_idx` for each contiguous
+            run of rows where `key_fn(row)` is constant."""
+            if not best:
+                return
+            spans = []
+            s = 1
+            for i in range(1, len(best)):
+                if key_fn(best[i]) != key_fn(best[i - 1]):
+                    spans.append((s, i))
+                    s = i + 1
+            spans.append((s, len(best)))
+
+            for start, end in spans:
+                middle = (start + end) // 2
+                for r in range(start, end + 1):
+                    cell = tbl[r, col_idx]
+                    if r == middle:
+                        cell.get_text().set_va("center")
+                        if italic:
+                            cell.set_text_props(va="center", style="italic")
+                        else:
+                            cell.set_text_props(va="center", ha="center")
+                    else:
+                        cell.get_text().set_text("")
+                    # Hide horizontal edges INSIDE the span
+                    if start == end:
+                        cell.visible_edges = "TBLR"
+                    elif r == start:
+                        cell.visible_edges = "TLR"
+                    elif r == end:
+                        cell.visible_edges = "BLR"
+                    else:
+                        cell.visible_edges = "LR"
+
+        # Tier column: merge by tier label (centered, regular weight)
+        _merge_spans(TIER_COL,
+                     lambda d: DMP_TIER_LABEL.get(d["gene"].split(".")[0], ""),
+                     italic=False)
+        # Gene column: merge by gene id (centered, italic per manuscript style)
+        _merge_spans(GENE_COL, lambda d: d["gene"].split(".")[0], italic=True)
+
 
         # Title above the table (axes coords; va=bottom places it above y=1.0)
         ax_t.text(0.5, 1.13, title,
                   transform=ax_t.transAxes,
                   ha="center", va="bottom", fontsize=10,
-                  fontweight="bold", color=header_color, clip_on=False)
+                  fontweight="bold", color="black", clip_on=False)
 
-        # Tier legend: explains the Score / Off-targets cell tints
+        # Tier legend: explains the Score / Off-targets cell tints. Sits
+        # between the title (y≈1.13) and the table top (y=1.0).
         legend_handles = [
             mpatches.Patch(
                 facecolor=_lighten(STRICT_COLOR, alpha=0.22),
@@ -326,13 +403,13 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
         ax_t.legend(
             handles=legend_handles,
             loc="lower center",
-            bbox_to_anchor=(0.5, 1.0),
+            bbox_to_anchor=(0.5, 1.02),
             ncol=2,
-            fontsize=7.5,
+            fontsize=8,
             frameon=False,
             handlelength=1.4,
             handleheight=1.0,
-            columnspacing=1.4,
+            columnspacing=1.6,
         )
 
     # ── Output directory layout ───────────────────────────────────────────
@@ -407,8 +484,10 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
         },
     ]
 
-    header = ["Gene", "Guide", "Score", "Off-targets", "Strand", "%GC",
-              "Sequence_5to3", "Tier",
+    header = ["Expression_tier", "Gene", "Guide",
+              "Score_CRISPR-P_v2", "Off-targets_Cas-OFFinder",
+              "Strand", "%GC",
+              "Sequence_5to3", "Score_tier",
               "Score_threshold", "Offtarget_threshold"]
 
     # Cache the full candidate list so we can restore it between variants
@@ -425,6 +504,7 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
 
         rows = [
             [
+                DMP_TIER_LABEL.get(d["gene"].split(".")[0], "").replace("\n", " "),
                 d["gene"].split(".")[0],
                 d["label"],
                 f"{d['score']:.4f}",
@@ -452,12 +532,13 @@ def plot_guide_comparison(guides: list[dict], output_dir: str, dpi: int, fmt: st
             # _draw_table renders from the outer-scope `best`, so swap it in
             best = passing
             n_rows     = len(best)
-            fig_height = max(3.0, 1.2 + n_rows * 0.42)
-            fig_t, ax_t = plt.subplots(figsize=(11, fig_height))
-            fig_t.subplots_adjust(top=0.82, bottom=0.01, left=0.005, right=0.995)
+            # Headroom (~14% of fig height) for title + legend stack
+            fig_height = max(3.0, 0.9 + n_rows * 0.30)
+            fig_t, ax_t = plt.subplots(figsize=(10, fig_height))
+            fig_t.subplots_adjust(top=0.84, bottom=0.06, left=0.05, right=0.95)
             _draw_table(fig_t, ax_t, variant=v_label)
             path_t = os.path.join(tables_dir, f"guide_comparison_table{v_suffix}.{fmt}")
-            fig_t.savefig(path_t, dpi=dpi, bbox_inches="tight", pad_inches=0.02)
+            fig_t.savefig(path_t, dpi=dpi, bbox_inches="tight", pad_inches=0.15)
             plt.close(fig_t)
             print(f"  tables/guide_comparison_table{v_suffix}.{fmt} -> {path_t} "
                   f"({len(passing)} of {len(best_for_table)} guides passed "

@@ -6,7 +6,7 @@
 #   A) HMMER-identified sequences — produced by 01_Identification, merged by
 #      02_BLAST_Alignment into single protein/transcript FASTAs.
 #   B) Cross-species query FASTAs — the BLAST query files listed in
-#      [ortholog_blast].query_fastas (02_blast_alignment.toml).
+#      [ortholog_blast].query_fastas (02_blast_ortholog_alignment.toml).
 #
 # Each input_set is a labeled combination of (scope × sequence type).
 # The orchestrator outputs to 04_MSA/<top_folder>/All_Result/<set_name>/<METHOD>_aligned/
@@ -16,19 +16,9 @@
 # ============================================================================
 
 [alignment]
-#methods = ["CLUSTALO"]
-methods = [
-    "CLUSTALO", 
-    "MAFFT", 
-    "MUSCLE", 
-    #"PROBCONS", 
-    #"CLUSTALW"
-]
-
-sequence_types = [
-    "nucleotide",
-    "amino_acid"
-]
+# methods and sequence_types are defined in the shared root config:
+#   04_msa_alignmentCONFIG.toml  →  [alignment]
+# Override here only if this gene group needs a different selection.
 
 # --- Active input sets (comment in/out to select) -------------------------
 # Only sets listed here will be processed.  Section definitions below
@@ -37,8 +27,8 @@ active_input_sets = [
     # — Per-genome: single genome —
     #"per_genome_smel_v4_1_nucleotide",
     #"per_genome_smel_v4_1_amino_acid",
-    #"per_genome_gpe001970_nucleotide",
-    #"per_genome_gpe001970_amino_acid",
+    "per_genome_gpe001970_nucleotide",
+    "per_genome_gpe001970_amino_acid",
 
     # — All eggplant: both genomes merged —
     #"all_eggplant_nucleotide",
@@ -59,6 +49,55 @@ active_input_sets = [
     "selected_v1_full_nucleotide",
     #"selected_v2_reduced_nucleotide",
 
+    # — Selected v1_Full + verified haploid-inducer DMP panel (Chapter II Table 1) —
+    # Built reproducibly by modules/04_multiple_sequence_alignment/build_v1_full_HI_DMPs.sh
+    # which concatenates eggplant per-genome HMMER hits + 14 HI species merged FASTAs
+    # from I_RefSeqs/d_DMP_Query_Fasta/. Re-run that script after updating HI species.
+    "selected_v1_full_HI_DMPs_nucleotide",
+    "selected_v1_full_HI_DMPs_amino_acid",
+
+    # — Selected v3 = v1_Full Selected Crop Species + HI_DMPs panel, deduplicated —
+    # Pre-merged with sequence-content dedup (drops the 7 SmelDMP paralogs and any
+    # cross-source duplicates). Source files live in
+    # 04_MSA/merged_input/Selected/v3_Full_and_HI_DMPs/.
+    #"selected_v3_full_and_HI_DMPs_nucleotide",
+    #"selected_v3_full_and_HI_DMPs_amino_acid",
+
+    # — Selected v4 = per-paralog MSA inputs from BLAST lollipop groups —
+    # One FASTA per anchor SmelDMP × sequence type, holding the anchor plus
+    # all BLAST hits whose Bit Score crosses [blast_groups_msa].bitscore_threshold
+    # (default 200). Built reproducibly by:
+    #   bash modules/04_multiple_sequence_alignment/build_v4_blast_groups.sh
+    # Files live in 04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/.
+    #"selected_v4_blast_groups_01g008730_nucleotide",
+    #"selected_v4_blast_groups_01g008730_amino_acid",
+    
+    #"selected_v4_blast_groups_01g026030_nucleotide",
+    #"selected_v4_blast_groups_01g026030_amino_acid",
+    
+    #"selected_v4_blast_groups_02g013320_nucleotide",
+    #"selected_v4_blast_groups_02g013320_amino_acid",
+    
+    #"selected_v4_blast_groups_04g005390_nucleotide",
+    #"selected_v4_blast_groups_04g005390_amino_acid",
+    
+    #"selected_v4_blast_groups_10g003660_nucleotide",
+    #"selected_v4_blast_groups_10g003660_amino_acid",
+    
+    #"selected_v4_blast_groups_10g017610_nucleotide",
+    #"selected_v4_blast_groups_10g017610_amino_acid",
+    
+    #"selected_v4_blast_groups_12g005350_nucleotide",
+    #"selected_v4_blast_groups_12g005350_amino_acid",
+
+    # — Selected v4 merged: all 7 paralog BLAST groups concatenated, deduped —
+    # Single combined FASTA per sequence type covering the union of all v4
+    # per-paralog BLAST groups (anchor + Bit Score >= 200 hits), deduplicated
+    # by header first-token. Source files live in
+    # 04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/.
+    "selected_v4_blast_groups_merged_nucleotide",
+    "selected_v4_blast_groups_merged_amino_acid",
+
     # — GPE001970 + Selected Crop Species (curated pre-merged) — v1 Full Selected
     #"per_genome_gpe001970_nucleotide_and_selected_crop_species_nucleotide",
     #"per_genome_gpe001970_amino_acid_and_selected_crop_species_amino_acid",
@@ -68,60 +107,13 @@ active_input_sets = [
     #"per_genome_smel_v4_1_amino_acid_and_selected_crop_species_amino_acid",
 ]
 
-# --- HMMER-identified source FASTAs (paths relative to base_dir) ----------
-[alignment.sources]
-hmmer_nucleotide = "02_BLAST_Alignment/hmmer_identified_transcripts.fa"
-hmmer_amino_acid = "02_BLAST_Alignment/hmmer_identified_proteins.fa"
-
-# --- Method-specific parameters (tuned for accuracy) ----------------------
-#
-# Dataset context: DMP family — ~30-40 short sequences (~200-250 aa).
-# Small dataset allows maximum-accuracy settings without prohibitive runtime.
-#
-# Threading rule (CPU=12):
-#   parallel_jobs    = CPU / optimal_threads  (min 1)
-#   threads_per_job  = optimal_threads        (or CPU when optimal >= CPU)
-#   total_cpu_used   = threads_per_job × parallel_jobs
-#
-#   CLUSTALO  optimal=12 → 1 parallel × 12 threads =  12 CPUs  (full utilization)
-#   MAFFT     optimal=12 → 1 parallel × 12 threads =  12 CPUs  (full utilization)
-#   MUSCLE v3 optimal= 1 → 12 parallel × 1 thread  =  12 CPUs  (v3 is single-threaded)
-#   MUSCLE v5 optimal=12 → 1 parallel × 12 threads =  12 CPUs  (v5 multi-threaded)
-#   PROBCONS  optimal= 1 → 12 parallel × 1 thread  =  12 CPUs  (full utilization)
-#   CLUSTALW  optimal= 1 → 12 parallel × 1 thread  =  12 CPUs  (full utilization)
-
-[alignment.clustalo]
-optimal_threads          = 12      # Multi-threaded — runs 1 job at full CPU
-outfmt                   = "fasta"
-full                     = true     # Full distance matrix (not mBed heuristic)
-full_iter                = true     # Full distance matrix on each iteration
-iterations               = 10       # --iter: combined guide-tree + HMM iterations
-max_guidetree_iterations = 10       # Refine guide tree up to 10 times per iter
-max_hmm_iterations       = 10       # Refine HMM up to 10 times per iter
-
-[alignment.mafft]
-optimal_threads = 12               # Multi-threaded — runs 1 job at full CPU
-algorithm       = "--localpair"    # L-INS-i (most accurate); alt: --genafpair, --auto
-maxiterate      = 1000             # Iterate until convergence (capped at 1000)
-ep              = 0.0              # No offset; more sensitive to weakly conserved regions
-anysymbol       = true             # Allow non-standard characters (e.g. 'z') instead of crashing
-
-[alignment.muscle]
-optimal_threads = 1                # MUSCLE v3 is single-threaded — runs CPU parallel jobs (12 at once)
-                                   # Change to 12 if using MUSCLE v5 (multi-threaded)
-maxiters        = 100              # v3: refinement iterations (default 16; 100 is near-maximum accuracy)
-
-[alignment.probcons]
-optimal_threads = 1                # Single-threaded — runs CPU parallel jobs (12 at once)
-consistency     = 5                # -c: consistency transform passes (default 2)
-iterative_ref   = 1000             # -ir: iterative refinement rounds (default 100)
-pre_training    = 20               # -pre: EM pre-training rounds (default 0)
-
-[alignment.clustalw]
-optimal_threads = 1                # Single-threaded — runs CPU parallel jobs (12 at once)
-output          = "FASTA"
-iteration       = "TREE"           # Iterative refinement guided by tree topology
-numiter         = 100               # Number of refinement iterations
+# Shared MSA configuration lives in 04_msa_alignmentCONFIG.toml at the project root:
+#   [alignment]                 methods, sequence_types
+#   [alignment.sources]         hmmer_nucleotide, hmmer_amino_acid
+#   [alignment.clustalo|mafft|muscle|probcons|clustalw]   per-tool tuning
+# The MSA orchestrator deep-merges that file with this one (group-specific
+# values win on conflict). Override any of the above blocks here only if DMP
+# needs a different value.
 
 # --- Input sets -----------------------------------------------------------
 # All paths relative to base_dir (III_RESULT/DMP).  Files are referenced
@@ -139,17 +131,20 @@ numiter         = 100               # Number of refinement iterations
 
 # --- Per-genome: one genome at a time -------------------------------------
 
+# Per-genome HMMER outputs are produced by 01_hmmer_identify.sh under
+# 01_Identification/<genome>/e-value_<E>/c_CD_HIT_Reduced/<PFAM>/  where <E>
+# matches [identification].e_value in 01_hmmer_identifyCONFIG.toml (currently 1e-5).
 [alignment.input_sets.per_genome_smel_v4_1_nucleotide]
-fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
+fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-5/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
 
 [alignment.input_sets.per_genome_smel_v4_1_amino_acid]
-fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
+fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-5/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
 
 [alignment.input_sets.per_genome_gpe001970_nucleotide]
-fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
+fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-5/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
 
 [alignment.input_sets.per_genome_gpe001970_amino_acid]
-fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
+fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-5/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
 
 # --- All eggplant: both genomes merged ------------------------------------
 
@@ -170,19 +165,19 @@ fastas  = ["02_BLAST_Alignment/hmmer_identified_transcripts.fa"]
 
 [alignment.input_sets.per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide]
 merge   = true
-fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
+fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-5/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
 
 [alignment.input_sets.per_genome_smel_v4_1_amino_acid_and_query_species_amino_acid]
 merge   = true
-fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
+fastas  = ["01_Identification/Solanum_melongena_v4.1/e-value_1e-5/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
 
 [alignment.input_sets.per_genome_gpe001970_nucleotide_and_query_species_nucleotide]
 merge   = true
-fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
+fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-5/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_transcripts_cdhit.fa"]
 
 [alignment.input_sets.per_genome_gpe001970_amino_acid_and_query_species_amino_acid]
 merge   = true
-fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-10/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
+fastas  = ["01_Identification/GPE001970_SMEL5/e-value_1e-5/c_CD_HIT_Reduced/PF05078_DMP/PF05078_DMP_proteins_cdhit.fa"]
 
 # --- GPE001970 fixed nucleotide (pre-assembled corrected merged file) -----
 [alignment.input_sets.per_genome_gpe001970_nucleotide_and_query_species_nucleotide_fixed]
@@ -201,6 +196,99 @@ fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_Selecte
 
 [alignment.input_sets.selected_v1_full_nucleotide]
 fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_Selected_Crop_Species_NUCLEOTIDE_Sequence.fasta"]
+
+# Verified haploid-inducer DMP panel (Chapter II Table 1) merged with eggplant
+# GPE001970 HMMER hits. Files generated by:
+#   bash modules/04_multiple_sequence_alignment/build_v1_full_HI_DMPs.sh
+# Re-run that script whenever the HI panel under I_RefSeqs/d_DMP_Query_Fasta/
+# is updated; output writes back to the path below.
+[alignment.input_sets.selected_v1_full_HI_DMPs_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_HI_DMPs_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v1_full_HI_DMPs_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_HI_DMPs_AMINO_ACID_Sequence.fasta"]
+
+# Selected_Crop_Species + HI_DMPs union, deduplicated by sequence content.
+# Counts at last build: AA 70 unique (from 79), NT 66 unique (from 77).
+# Rebuild via: python3 c:/tmp/merge_dedup_fastas.py (or your preferred merger)
+# whenever the v1_Full source FASTAs change.
+[alignment.input_sets.selected_v3_full_and_HI_DMPs_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v3_Full_and_HI_DMPs/per_genome_gpe001970_Full_and_HI_DMPs_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v3_full_and_HI_DMPs_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v3_Full_and_HI_DMPs/per_genome_gpe001970_Full_and_HI_DMPs_AMINO_ACID_Sequence.fasta"]
+
+# --- v4: per-paralog MSA inputs from BLAST lollipop groups ----------------
+# One FASTA per anchor SmelDMP × sequence type. Each holds the anchor plus
+# every BLAST hit whose Bit Score >= [blast_groups_msa].bitscore_threshold.
+# Rebuild via:
+#   bash modules/04_multiple_sequence_alignment/build_v4_blast_groups.sh
+# Tweak [blast_groups_msa] below to change the threshold or paralog set.
+
+[blast_groups_msa]
+bitscore_threshold = 200
+paralog_ids = [
+    "SMEL5_01g008730.1",
+    "SMEL5_01g026030.1",
+    "SMEL5_02g013320.1",
+    "SMEL5_04g005390.1",
+    "SMEL5_10g003660.1",
+    "SMEL5_10g017610.1",
+    "SMEL5_12g005350.1",
+]
+output_dir = "04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200"
+
+[alignment.input_sets.selected_v4_blast_groups_01g008730_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_01g008730.1_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_01g008730_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_01g008730.1_AMINO_ACID_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_01g026030_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_01g026030.1_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_01g026030_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_01g026030.1_AMINO_ACID_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_02g013320_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_02g013320.1_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_02g013320_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_02g013320.1_AMINO_ACID_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_04g005390_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_04g005390.1_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_04g005390_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_04g005390.1_AMINO_ACID_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_10g003660_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_10g003660.1_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_10g003660_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_10g003660.1_AMINO_ACID_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_10g017610_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_10g017610.1_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_10g017610_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_10g017610.1_AMINO_ACID_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_12g005350_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_12g005350.1_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_12g005350_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_12g005350.1_AMINO_ACID_Sequence.fasta"]
+
+# --- v4 merged: union of all 7 paralog BLAST groups, deduped --------------
+# Single combined FASTA per sequence type. Built by the inline merge step
+# alongside build_v4_blast_groups.{sh,py}; keeps anchor order from
+# [blast_groups_msa].paralog_ids and dedupes by header first-token.
+[alignment.input_sets.selected_v4_blast_groups_merged_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_NUCLEOTIDE_Sequence.fasta"]
+
+[alignment.input_sets.selected_v4_blast_groups_merged_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_AMINO_ACID_Sequence.fasta"]
 
 [alignment.input_sets.selected_v2_reduced_nucleotide]
 fastas = ["04_MSA/merged_input/Selected/v2_Reduced/v2_nucleotide.fasta"]

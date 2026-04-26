@@ -48,8 +48,8 @@ if [[ -d "$CONFIG_DIR" ]]; then
     TEMP_FILES+=("$CONFIG_FILE")
     python3 "$MODULES/utils/merge_toml.py" \
         "$PIPELINE_DIR/08_protein_structureCONFIG.toml" \
-        "$CONFIG_DIR/00_common.toml" \
-        "$CONFIG_DIR/h_protein_structure_analysis.toml" > "$CONFIG_FILE"
+        "$CONFIG_DIR/00_common_${GENE_GROUP}.toml" \
+        "$CONFIG_DIR/h_protein_structure_analysis_${GENE_GROUP}.toml" > "$CONFIG_FILE"
 else
     CONFIG_FILE="$PIPELINE_DIR/config/${GENE_GROUP}.toml"
 fi

@@ -2,7 +2,7 @@
 # Shared Defaults: h_Protein_Structure_Analysis
 # ============================================================================
 # Gene-group-specific overrides (e.g. input_nucleotide_fasta) live in
-# config/{GROUP}/h_protein_structure_analysis.toml.
+# config/{GROUP}/h_protein_structure_analysis_{GROUP}.toml.
 
 [protein_structure]
 # Gene groups to process. Comment out entries to skip them.

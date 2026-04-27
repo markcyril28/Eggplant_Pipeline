@@ -1094,7 +1094,9 @@ run_production_md() {
     local NPT_STEPS=$(toml_get "step.production_md.npt_steps" "50000")
     local MD_STEPS=$(toml_get "step.production_md.md_steps" "250000")
     local GPU_ID=$(toml_get "step.production_md.gpu_id" "0")
-    local MAX_THREADS=$(toml_get "step.production_md.max_threads" "0")
+    local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.production_md" \
+        "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
+    local MAX_THREADS=$(toml_get "step.production_md.max_threads" "$PROFILE_THREADS")
     local MAX_HOURS=$(toml_get "step.production_md.max_hours" "5000")
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 

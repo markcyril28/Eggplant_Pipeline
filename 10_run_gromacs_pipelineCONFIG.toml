@@ -119,7 +119,6 @@ md_steps          = 5000000
 
 [gromacs.performance]
 max_threads = 12
-nthreads    = 12
 
 [gromacs.gpu]
 id           = 0
@@ -136,57 +135,6 @@ md_option_b = "-nb gpu -pme gpu -bonded cpu -update gpu"
 
 [gromacs.nvidia_gpu_env]
 CUDA_VISIBLE_DEVICES = "0"
-
-
-# ==============================================================================
-# PIPELINE ORCHESTRATION
-# ==============================================================================
-
-[pipeline]
-# Steps to run, in order. Comment out or remove to skip a step.
-# Available: "quick_stability", "compare_chain_stability", "interface_analysis",
-#            "batch_comparison", "production_md", "visualize_results"
-steps = [
-    "quick_stability",
-    "compare_chain_stability",
-    "interface_analysis",
-    "batch_comparison",
-    "production_md",
-    "visualize_results",
-]
-
-# If true, stop the entire pipeline on the first step failure
-stop_on_error = false
-
-# Auto-generate a timestamped run directory under output_base
-auto_timestamp_dir = true
-
-# Select compute profile: change to "HPC" for cluster runs
-machine = "Local"
-
-# ==============================================================================
-# COMPUTE PROFILES
-# Change machine = "Local" or "HPC" above to select the active thread profile.
-# Per-step [step.*].max_threads values override the profile when non-zero.
-# ==============================================================================
-
-[pipeline.compute.Local]
-# Workstation defaults (e.g., 12-core CPU + single GPU)
-threads                 = 12    # global fallback for unlisted steps
-quick_stability         = 8
-compare_chain_stability = 12
-interface_analysis      = 12
-batch_comparison        = 12
-production_md           = 12
-
-[pipeline.compute.HPC]
-# HPC node defaults (e.g., 64-core CPU + single GPU)
-threads                 = 64    # global fallback for unlisted steps
-quick_stability         = 16
-compare_chain_stability = 64
-interface_analysis      = 32
-batch_comparison        = 32
-production_md           = 64
 
 
 # ==============================================================================

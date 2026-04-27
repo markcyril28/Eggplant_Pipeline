@@ -4,7 +4,7 @@ set -euo pipefail
 # ==============================================================================
 # CONFIGURATION — edit variables below for easy per-run overrides.
 # All other settings (CPU/threads, parallelism, force-rerun) come from TOML.
-# Edit config/PPI/mutatex/a_mutatex.toml to change those settings.
+# Edit 11_mutatex_repo_versionCONFIG.toml to change those settings.
 # ==============================================================================
 
 GENE_GROUP="DMP-HAP2"   # Gene group to process (matches config/PPI/ and III_RESULT/ paths)
@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/modules/PPI/config_parser.sh"
 
 CONFIG_DIR="${SCRIPT_DIR}/config/PPI"
-load_config "${CONFIG_DIR}/mutatex/a_mutatex.toml"
+load_config "${SCRIPT_DIR}/11_mutatex_repo_versionCONFIG.toml"
 
 # ------------------------------------------------------------------------------
 # Bulk-load scalar config (single Python3 invocation instead of 8 forks)

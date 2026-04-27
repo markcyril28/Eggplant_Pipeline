@@ -22,10 +22,10 @@
 
 [paths]
 input_base  = "III_RESULT/DMP-HAP2/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results"
-output_base = "III_RESULT/DMP-HAP2/11_PPI"
+output_base = "III_RESULT/DMP-HAP2/10_PPI"
 
 [paths.results]
-gromacs = "III_RESULT/DMP-HAP2/11_PPI"
+gromacs = "III_RESULT/DMP-HAP2/10_PPI"
 mutatex = "III_RESULT/DMP-HAP2/11_PPI_MutateX"
 
 [paths.datasets]

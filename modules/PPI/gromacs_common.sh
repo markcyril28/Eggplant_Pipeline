@@ -122,7 +122,7 @@ MD_STEPS="${MD_STEPS:-5000000}"
 #------------------------------------------------------------------------------
 
 # Number of threads — auto-detect available cores; callers may override via NTHREADS env var
-NTHREADS="${NTHREADS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
+NTHREADS="${NTHREADS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)}"
 # Synchronize OMP_NUM_THREADS with NTHREADS to prevent mismatch
 # (conda env may set OMP_NUM_THREADS to a different value than -ntomp)
 export OMP_NUM_THREADS="$NTHREADS"

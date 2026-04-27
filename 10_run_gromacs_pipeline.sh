@@ -108,9 +108,6 @@ OUTPUT_BASE=$(toml_get "paths.results.gromacs" "III_RESULT/DMP-HAP2/11_PPI")
 [[ "$INPUT_BASE" != /* ]] && INPUT_BASE="${SCRIPT_DIR}/${INPUT_BASE}"
 [[ "$OUTPUT_BASE" != /* ]] && OUTPUT_BASE="${SCRIPT_DIR}/${OUTPUT_BASE}"
 
-# Load pipeline config (overrides common for pipeline-specific keys)
-load_config "${CONFIG_DIR}/gromacs/gromacs_pipeline.toml"
-
 STOP_ON_ERROR=$(toml_get "pipeline.stop_on_error" "false")
 AUTO_TIMESTAMP=$(toml_get "pipeline.auto_timestamp_dir" "true")
 

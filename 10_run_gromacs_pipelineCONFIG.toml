@@ -1,0 +1,277 @@
+# ==============================================================================
+# GROMACS Pipeline — Combined Configuration
+#
+# PURPOSE: Single config file for the GROMACS PPI pipeline orchestrator
+#          (10_run_gromacs_pipeline.sh). Merges:
+#            - config/PPI/shared/common.toml      (shared defaults)
+#            - config/PPI/gromacs/gromacs_pipeline.toml  (pipeline & step settings)
+#          Original files archived in: config/PPI/gromacs/legacy/
+#
+# TYPICAL WORKFLOW:
+#   Run Step 4 first to screen → pick best structures → run Steps 1+3 for
+#   detailed interface → run Step 2 or 5 for dynamics + stability.
+#
+# Usage: ./10_run_gromacs_pipeline.sh [--steps step1,step2,...] [--dry-run]
+# ==============================================================================
+
+
+# ==============================================================================
+# PATHS
+# ==============================================================================
+
+[paths]
+results_root = "III_RESULT"
+input_base   = "III_RESULT/DMP-HAP2/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results"
+output_base  = "III_RESULT"
+
+[paths.results]
+gromacs = "III_RESULT/DMP-HAP2/11_PPI"
+mutatex = "III_RESULT/DMP-HAP2/11_PPI_MutateX"
+
+[paths.datasets]
+SmelDMP_HAP2 = "."
+# SmelDMP      = "SmelDMP"
+# SmelGRF_GIF  = "SmelGRF-GIF"
+# SmelGIF_SWI2 = "SmelGIF-SWI2"
+
+
+# ==============================================================================
+# ENVIRONMENT
+# ==============================================================================
+
+[environment]
+# conda_env_ppi     = "PPI"
+conda_env_gromacs = "gromacs_CUDA"
+gromacs_cuda_path = "~/miniconda3/envs/gromacs_CUDA"
+
+
+# ==============================================================================
+# GROMACS DEFAULTS
+# Per-step [step.*] sections below override these for individual steps.
+# ==============================================================================
+
+[gromacs]
+forcefield        = "amber99sb-ildn"
+water_model       = "tip3p"
+override_existing = false
+
+[gromacs.box]
+distance = 1.5
+type     = "dodecahedron"
+
+[gromacs.simulation]
+ion_concentration = 0.15
+em_steps          = 50000
+nvt_steps         = 100000
+npt_steps         = 100000
+md_steps          = 5000000
+
+[gromacs.performance]
+max_threads = 12
+nthreads    = 12
+
+[gromacs.gpu]
+id           = 0
+use_gpu      = true
+mdrun_option = "Option_A"  # Full GPU offload (nb+pme+bonded+update on GPU)
+
+[gromacs.gpu.flags]
+# EM: -pme cpu required (steep integrator limitation); -bonded gpu OK on NVIDIA
+em          = "-nb gpu -pme cpu -bonded gpu"
+# MD Option A: full GPU offload (bonded on GPU)
+md_option_a = "-nb gpu -pme gpu -bonded gpu -update gpu"
+# MD Option B: conservative (bonded on CPU)
+md_option_b = "-nb gpu -pme gpu -bonded cpu -update gpu"
+
+[gromacs.nvidia_gpu_env]
+CUDA_VISIBLE_DEVICES = "0"
+
+
+# ==============================================================================
+# PIPELINE ORCHESTRATION
+# ==============================================================================
+
+[pipeline]
+# Steps to run, in order. Comment out or remove to skip a step.
+# Available: "quick_stability", "compare_chain_stability", "interface_analysis",
+#            "batch_comparison", "production_md", "visualize_results"
+steps = [
+    "quick_stability",
+    "compare_chain_stability",
+    "interface_analysis",
+    "batch_comparison",
+    "production_md",
+    "visualize_results",
+]
+
+# If true, stop the entire pipeline on the first step failure
+stop_on_error = false
+
+# Auto-generate a timestamped run directory under output_base
+auto_timestamp_dir = true
+
+
+# ==============================================================================
+# STRUCTURES — loaded from config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml
+# ([ppi_structures].active). Per-step overrides still available below.
+# ==============================================================================
+
+# [structures]
+# Moved to config/DMP-HAP2/h_protein_structure_analysis_DMP-HAP2.toml [ppi_structures]
+
+
+# ==============================================================================
+# STEP 1 — Quick Stability Comparison (GPU+CPU)
+#
+# EM-only run. Computes static structural metrics (RMSD, energy, contact map).
+# Fastest step — use for initial screening of large structure sets.
+# Runtime: minutes per structure.
+# ==============================================================================
+
+[step.quick_stability]
+enabled           = true
+override_existing = false
+box_distance      = 1.5
+em_steps          = 50000
+gpu_id            = 0
+max_threads       = 8
+
+# Uncomment to override structures for this step only:
+# [step.quick_stability.structures]
+# active = [
+#     "SmelGRF-GIF/fold_1_x_1_model_0.pdb",
+#     "SmelGRF-GIF/fold_2_x_1_model_0.pdb",
+# ]
+
+
+# ==============================================================================
+# STEP 2 — Compare Chain Stability (GPU, Full MD)
+#
+# Full MD simulation (NVT + NPT + production MD) for comparing chain stability
+# and computing interaction energies across structures.
+# Runtime: hours per structure.
+# ==============================================================================
+
+[step.compare_chain_stability]
+enabled           = true
+override_existing = false
+mode              = "full"   # full | sim-only | viz-only | compare-only
+box_distance      = 1.5
+ion_concentration = 0.15
+em_steps          = 50000
+nvt_steps         = 100000   # 200 ps
+npt_steps         = 100000   # 200 ps
+md_steps          = 5000000  # 10 ns
+gpu_id            = 0
+max_threads       = 12
+mdrun_option      = "Option_A"
+
+# Uncomment to override structures for this step only:
+# [step.compare_chain_stability.structures]
+# active = [...]
+
+
+# ==============================================================================
+# STEP 3 — Interface Analysis (GPU+CPU)
+#
+# EM-based characterisation of protein-protein interface residues, contacts,
+# and buried surface area.
+# Runtime: minutes per structure.
+# ==============================================================================
+
+[step.interface_analysis]
+enabled           = true
+override_existing = false
+box_distance      = 1.5
+em_steps          = 50000
+gpu_id            = 0
+max_threads       = 12
+
+# Uncomment to override structures for this step only:
+# [step.interface_analysis.structures]
+# active = [
+#     "SmelGRF-GIF/fold_1_x_1_model_0.pdb",
+#     "SmelGRF-GIF/fold_2_x_1_model_0.pdb",
+#     "SmelGIF-SWI2/SmelGIF-SWI2.pdb",
+# ]
+
+
+# ==============================================================================
+# STEP 4 — Batch Comparison (GPU+CPU)
+#
+# Ranks all structures in a dataset by EM energy and RMSD. Run first to
+# screen a large set and select candidates for Steps 1, 2, 3, and 5.
+# Runtime: minutes per dataset.
+# ==============================================================================
+
+[step.batch_comparison]
+enabled           = true
+override_existing = false
+em_steps          = 50000
+box_distance      = 1.5
+box_type          = "cubic"
+gpu_id            = 0
+max_threads       = 12
+
+[step.batch_comparison.datasets]
+# Dataset folder names (subdirs of paths.input_base).
+# NOTE: CIF files are nested in subdirs; batch_comparison uses maxdepth 1.
+# To batch-compare all DMP-HAP2 structures, copy/symlink CIFs to a flat dir.
+active = [
+    # "SmelGRF-GIF",
+    # "SmelDMP",
+    # "SmelGIF-SWI2",
+]
+
+
+# ==============================================================================
+# STEP 5 — Production MD (Full GPU Offload)
+#
+# Long MD simulation with full GPU offload for in-depth dynamics analysis.
+# Runs:  gmx mdrun -deffnm md -v -maxh <max_hours> -ntmpi 1
+#                   -nb gpu -pme gpu -bonded gpu -update gpu
+# EM:    gmx mdrun -deffnm em -v -ntmpi 1
+#                   -nb gpu -pme cpu -bonded gpu
+# Runtime: hours to days per structure.
+# ==============================================================================
+
+[step.production_md]
+enabled           = true
+override_existing = false
+mode              = "full"   # full | sim-only | md-only
+box_distance      = 1.2
+ion_concentration = 0.15
+em_steps          = 5000
+nvt_steps         = 50000    # 100 ps
+npt_steps         = 50000    # 100 ps
+md_steps          = 250000   # 500 ps
+gpu_id            = 0
+max_threads       = 12
+max_hours         = 5000     # wall-clock hour limit for production MD (-maxh)
+
+# Uncomment to override structures for this step only:
+# [step.production_md.structures]
+# active = [...]
+
+
+# ==============================================================================
+# STEP 6 — Visualize Results (CPU-only, post-processing)
+#
+# Re-generates plots, visualization scripts, and statistics from existing
+# simulation outputs (steps 1-5). No GROMACS runs or GPU needed.
+# Runtime: seconds.
+# ==============================================================================
+
+[step.visualize_results]
+enabled           = true
+override_existing = false
+dpi               = 600
+plot_format       = "png"    # png | svg | pdf
+max_contact_pairs = 50
+generate_pymol    = true
+generate_vmd      = true
+generate_chimerax = true
+
+# Limit to specific source steps; comment out to process all found outputs:
+# [step.visualize_results.source_steps]
+# active = ["compare_chain_stability", "interface_analysis", "production_md"]

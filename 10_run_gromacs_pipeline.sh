@@ -110,6 +110,7 @@ OUTPUT_BASE=$(toml_get "paths.results.gromacs" "III_RESULT/DMP-HAP2/11_PPI")
 
 STOP_ON_ERROR=$(toml_get "pipeline.stop_on_error" "false")
 AUTO_TIMESTAMP=$(toml_get "pipeline.auto_timestamp_dir" "true")
+MACHINE=$(toml_get "pipeline.machine" "Local")
 
 # Build steps list: CLI > inline list > config
 STEPS=()
@@ -274,7 +275,9 @@ run_quick_stability() {
     local OVERRIDE_EXISTING=$(toml_get "step.quick_stability.override_existing" "false")
     local BOX_DISTANCE=$(toml_get "step.quick_stability.box_distance" "1.0")
     local EM_STEPS=$(toml_get "step.quick_stability.em_steps" "10000")
-    local MAX_THREADS=$(toml_get "step.quick_stability.max_threads" "0")
+    local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.quick_stability" \
+        "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
+    local MAX_THREADS=$(toml_get "step.quick_stability.max_threads" "$PROFILE_THREADS")
     local GPU_ID=$(toml_get "step.quick_stability.gpu_id" "0")
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
@@ -446,7 +449,9 @@ run_compare_chain_stability() {
     local NPT_STEPS=$(toml_get "step.compare_chain_stability.npt_steps" "100000")
     local MD_STEPS=$(toml_get "step.compare_chain_stability.md_steps" "5000000")
     local GPU_ID=$(toml_get "step.compare_chain_stability.gpu_id" "0")
-    local MAX_THREADS=$(toml_get "step.compare_chain_stability.max_threads" "0")
+    local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.compare_chain_stability" \
+        "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
+    local MAX_THREADS=$(toml_get "step.compare_chain_stability.max_threads" "$PROFILE_THREADS")
     local MDRUN_OPTION=$(toml_get "step.compare_chain_stability.mdrun_option" "Option_A")
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
@@ -635,7 +640,8 @@ run_compare_chain_stability() {
         if [[ "$USE_GPU" == true ]]; then
             ie_gpu_flags="-gpu_id $GPU_ID -nb gpu"
         fi
-        $GMX_BIN mdrun -s ie.tpr -rerun md.xtc -e ie.edr $ie_gpu_flags 2>&1 | tee logs/mdrun_ie.log || true
+        export OMP_NUM_THREADS="$NTHREADS"
+        $GMX_BIN mdrun -s ie.tpr -rerun md.xtc -e ie.edr -ntmpi 1 -ntomp "$NTHREADS" $ie_gpu_flags 2>&1 | tee logs/mdrun_ie.log || true
         echo -e "Coul-SR:ChainA-ChainB\nLJ-SR:ChainA-ChainB\n\n" | $GMX_BIN energy -f ie.edr -o interaction_energy.xvg 2>&1 | tee logs/energy_ie.log || true
         popd > /dev/null
     }
@@ -815,7 +821,9 @@ run_interface_analysis() {
     local BOX_DISTANCE=$(toml_get "step.interface_analysis.box_distance" "1.0")
     local EM_STEPS=$(toml_get "step.interface_analysis.em_steps" "5000")
     local GPU_ID=$(toml_get "step.interface_analysis.gpu_id" "0")
-    local MAX_THREADS=$(toml_get "step.interface_analysis.max_threads" "0")
+    local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.interface_analysis" \
+        "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
+    local MAX_THREADS=$(toml_get "step.interface_analysis.max_threads" "$PROFILE_THREADS")
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
     local PDB_FILES=()
@@ -937,7 +945,9 @@ run_batch_comparison() {
     local BOX_DISTANCE=$(toml_get "step.batch_comparison.box_distance" "0.8")
     local BOX_TYPE=$(toml_get "step.batch_comparison.box_type" "cubic")
     local GPU_ID=$(toml_get "step.batch_comparison.gpu_id" "0")
-    local MAX_THREADS=$(toml_get "step.batch_comparison.max_threads" "0")
+    local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.batch_comparison" \
+        "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
+    local MAX_THREADS=$(toml_get "step.batch_comparison.max_threads" "$PROFILE_THREADS")
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
     local DATASETS=()

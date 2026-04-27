@@ -1,5 +1,5 @@
 # ==============================================================================
-# GROMACS Pipeline — Combined Configuration
+# GROMACS Pipeline - Combined Configuration
 #
 # PURPOSE: Single config file for the GROMACS PPI pipeline orchestrator
 #          (10_run_gromacs_pipeline.sh). Merges:
@@ -7,9 +7,12 @@
 #            - config/PPI/gromacs/gromacs_pipeline.toml  (pipeline & step settings)
 #          Original files archived in: config/PPI/gromacs/legacy/
 #
-# TYPICAL WORKFLOW:
-#   Run Step 4 first to screen → pick best structures → run Steps 1+3 for
-#   detailed interface → run Step 2 or 5 for dynamics + stability.
+# RECOMMENDED MANUAL WORKFLOW (not the default pipeline.steps order):
+#   Run Step 4 first to screen large structure sets -> pick best structures ->
+#   run Steps 1+3 for detailed interface analysis ->
+#   run Step 2 for chain stability comparison ->
+#   run Step 5 for in-depth production MD on the top candidates.
+# The default [pipeline].steps array runs in numeric order 1-6 for convenience.
 #
 # Usage: ./10_run_gromacs_pipeline.sh [--steps step1,step2,...] [--dry-run]
 # ==============================================================================

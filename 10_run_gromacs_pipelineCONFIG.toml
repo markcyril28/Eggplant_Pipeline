@@ -110,6 +110,33 @@ stop_on_error = false
 # Auto-generate a timestamped run directory under output_base
 auto_timestamp_dir = true
 
+# Select compute profile: change to "HPC" for cluster runs
+machine = "Local"
+
+# ==============================================================================
+# COMPUTE PROFILES
+# Change machine = "Local" or "HPC" above to select the active thread profile.
+# Per-step [step.*].max_threads values override the profile when non-zero.
+# ==============================================================================
+
+[pipeline.compute.Local]
+# Workstation defaults (e.g., 12-core CPU + single GPU)
+threads                 = 12    # global fallback for unlisted steps
+quick_stability         = 8
+compare_chain_stability = 12
+interface_analysis      = 12
+batch_comparison        = 12
+production_md           = 12
+
+[pipeline.compute.HPC]
+# HPC node defaults (e.g., 64-core CPU + single GPU)
+threads                 = 64    # global fallback for unlisted steps
+quick_stability         = 16
+compare_chain_stability = 64
+interface_analysis      = 32
+batch_comparison        = 32
+production_md           = 64
+
 
 # ==============================================================================
 # STRUCTURES — loaded from config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml

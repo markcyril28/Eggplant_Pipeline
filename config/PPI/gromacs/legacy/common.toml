@@ -1,0 +1,61 @@
+# ==============================================================================
+# Common Configuration — Shared across all PPI pipeline scripts
+#
+# These are default values. Per-script configs can override any setting.
+# ==============================================================================
+
+[paths]
+results_root = "III_RESULT"
+input_base   = "III_RESULT/DMP-HAP2/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results"
+output_base  = "III_RESULT"
+
+[paths.results]
+gromacs = "III_RESULT/DMP-HAP2/11_PPI"
+mutatex = "III_RESULT/DMP-HAP2/11_PPI_MutateX"
+
+[paths.datasets]
+SmelDMP_HAP2 = "."
+# SmelDMP      = "SmelDMP"
+# SmelGRF_GIF  = "SmelGRF-GIF"
+# SmelGIF_SWI2 = "SmelGIF-SWI2"
+
+[environment]
+#conda_env_ppi     = "PPI"
+conda_env_gromacs = "gromacs_CUDA"
+gromacs_cuda_path = "~/miniconda3/envs/gromacs_CUDA"
+
+[gromacs]
+forcefield        = "amber99sb-ildn"
+water_model       = "tip3p"
+override_existing = false
+
+[gromacs.box]
+distance = 1.5
+type     = "dodecahedron"
+
+[gromacs.simulation]
+ion_concentration = 0.15
+em_steps          = 50000
+nvt_steps         = 100000
+npt_steps         = 100000
+md_steps          = 5000000
+
+[gromacs.performance]
+max_threads = 12
+nthreads    = 12
+
+[gromacs.gpu]
+id           = 0
+use_gpu      = true
+mdrun_option = "Option_A"  # Full GPU offload (nb+pme+bonded+update on GPU)
+
+[gromacs.gpu.flags]
+# EM: -pme cpu required (steep integrator limitation); -bonded gpu OK on NVIDIA
+em          = "-nb gpu -pme cpu -bonded gpu"
+# MD Option A: full GPU offload (bonded on GPU)
+md_option_a = "-nb gpu -pme gpu -bonded gpu -update gpu"
+# MD Option B: conservative (bonded on CPU)
+md_option_b = "-nb gpu -pme gpu -bonded cpu -update gpu"
+
+[gromacs.nvidia_gpu_env]
+CUDA_VISIBLE_DEVICES        = "0"

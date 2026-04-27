@@ -99,8 +99,8 @@ source "${SCRIPT_DIR}/modules/PPI/config_parser.sh"
 
 CONFIG_DIR="${SCRIPT_DIR}/config/PPI"
 
-# Load common defaults
-load_config "${CONFIG_DIR}/shared/common.toml"
+# Load combined pipeline config
+load_config "${SCRIPT_DIR}/10_run_gromacs_pipelineCONFIG.toml"
 INPUT_BASE=$(toml_get "paths.input_base" "III_RESULT/DMP-HAP2/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results")
 OUTPUT_BASE=$(toml_get "paths.results.gromacs" "III_RESULT/DMP-HAP2/11_PPI")
 
@@ -143,13 +143,13 @@ else
     fi
     # Fallback to pipeline config if gene-group config had no structures
     if [[ ${#SHARED_STRUCTURES[@]} -eq 0 ]]; then
-        load_config "${CONFIG_DIR}/gromacs/gromacs_pipeline.toml"
+        load_config "${SCRIPT_DIR}/10_run_gromacs_pipelineCONFIG.toml"
         while IFS= read -r rel_path; do
             [[ -n "$rel_path" ]] && SHARED_STRUCTURES+=("${INPUT_BASE}/${rel_path}")
         done < <(toml_get_array "structures.active")
     fi
     # Restore pipeline config as active
-    load_config "${CONFIG_DIR}/gromacs/gromacs_pipeline.toml"
+    load_config "${SCRIPT_DIR}/10_run_gromacs_pipelineCONFIG.toml"
 fi
 
 # Source common GROMACS functions

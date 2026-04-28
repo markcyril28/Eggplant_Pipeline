@@ -4,57 +4,40 @@ set -euo pipefail
 #######################################################################
 # GROMACS Unified Pipeline
 # Runs all GROMACS PPI analysis steps from a single script.
-# Steps are configured in config/PPI/gromacs/gromacs_pipeline.toml.
+# Steps and parameters are configured in 10_run_gromacs_pipelineCONFIG.toml.
 #
 # Usage:
-#   ./run_gromacs_pipeline.sh                          # Run all enabled steps
-#   ./run_gromacs_pipeline.sh --steps quick_stability,interface_analysis
-#   ./run_gromacs_pipeline.sh --steps compare_chain_stability --mode sim-only
-#   ./run_gromacs_pipeline.sh --dry-run                # Show what would run
-#   ./run_gromacs_pipeline.sh --list                   # List available steps
+#   ./10_run_gromacs_pipeline.sh                          # Run all enabled steps
+#   ./10_run_gromacs_pipeline.sh --steps quick_stability,interface_analysis
+#   ./10_run_gromacs_pipeline.sh --steps compare_chain_stability --mode sim-only
+#   ./10_run_gromacs_pipeline.sh --dry-run                # Show what would run
+#   ./10_run_gromacs_pipeline.sh --list                   # List available steps
 #
 # Output structure (auto-generated):
 #   <output_base>/
-#   └── run_YYYYMMDD_HHMMSS/          (or flat if auto_timestamp_dir=false)
-#       ├── 1_quick_stability/
-#       │   └── <structure_names>/
-#       ├── 2_compare_chain_stability/
-#       │   └── <structure_names>/
-#       ├── 3_interface_analysis/
-#       │   └── <structure_name>/
-#       ├── 4_batch_comparison/
-#       │   └── <dataset_name>/
-#       └── pipeline_summary.txt
+#   |-- run_YYYYMMDD_HHMMSS/          (or flat if auto_timestamp_dir=false)
+#       |-- 1_quick_stability/
+#       |   `-- <structure_names>/
+#       |-- 2_compare_chain_stability/
+#       |   `-- <structure_names>/
+#       |-- 3_interface_analysis/
+#       |   `-- <structure_name>/
+#       |-- 4_batch_comparison/
+#       |   `-- <dataset_name>/
+#       `-- pipeline_summary.txt
 #######################################################################
 
 #------------------------------------------------------------------------------
-# STEPS TO RUN  —  comment/uncomment to toggle individual steps
-# (ignored when --steps is passed on the command line)
+# All run-time settings (gene group, steps to run, structure overrides) live in
+# 10_run_gromacs_pipelineCONFIG.toml. This script intentionally has no inline
+# arrays for those - edit the TOML or pass --steps on the command line.
+#
+# STRUCTURES TO ANALYZE  -  see [structures].active in
+#   10_run_gromacs_pipelineCONFIG.toml (commented-out by default), OR
+#   [ppi_structures].active in
+#   config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml
+# Paths are relative to paths.input_base (10_run_gromacs_pipelineCONFIG.toml).
 #------------------------------------------------------------------------------
-
-INLINE_STEPS=(
-    #"quick_stability"
-    "compare_chain_stability"
-    "interface_analysis"
-    #"batch_comparison"
-    "production_md"
-    "visualize_results"
-)
-
-#------------------------------------------------------------------------------
-# GENE GROUP  —  structures are loaded from config/<GENE_GROUP>/
-#------------------------------------------------------------------------------
-
-GENE_GROUP="DMP-HAP2"
-
-#------------------------------------------------------------------------------
-# STRUCTURES TO ANALYZE  -  override config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml
-# Paths are relative to INPUT_BASE (set in common.toml)
-# Leave empty to use [ppi_structures].active from the gene-group config.
-#------------------------------------------------------------------------------
-
-INLINE_STRUCTURES=(
-)
 
 #------------------------------------------------------------------------------
 # ARGUMENT PARSING
@@ -102,7 +85,7 @@ CONFIG_DIR="${SCRIPT_DIR}/config/PPI"
 # Load combined pipeline config
 load_config "${SCRIPT_DIR}/10_run_gromacs_pipelineCONFIG.toml"
 INPUT_BASE=$(toml_get "paths.input_base" "III_RESULT/DMP-HAP2/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results")
-OUTPUT_BASE=$(toml_get "paths.results.gromacs" "III_RESULT/DMP-HAP2/11_PPI")
+OUTPUT_BASE=$(toml_get "paths.results.gromacs" "III_RESULT/DMP-HAP2/10_PPI")
 
 # Resolve relative paths to absolute (prevents breakage after pushd)
 [[ "$INPUT_BASE" != /* ]] && INPUT_BASE="${SCRIPT_DIR}/${INPUT_BASE}"
@@ -111,44 +94,42 @@ OUTPUT_BASE=$(toml_get "paths.results.gromacs" "III_RESULT/DMP-HAP2/11_PPI")
 STOP_ON_ERROR=$(toml_get "pipeline.stop_on_error" "false")
 AUTO_TIMESTAMP=$(toml_get "pipeline.auto_timestamp_dir" "true")
 MACHINE=$(toml_get "pipeline.machine" "Local")
+GENE_GROUP=$(toml_get "pipeline.gene_group" "DMP-HAP2")
 
-# Build steps list: CLI > inline list > config
+# Force field and water model: read from TOML and export so they win the
+# `${VAR:-default}` assignments inside modules/PPI/gromacs_common.sh.
+FORCEFIELD=$(toml_get "gromacs.forcefield" "amber99sb-ildn")
+WATERMODEL=$(toml_get "gromacs.water_model" "tip3p")
+export FORCEFIELD WATERMODEL
+
+# Build steps list: CLI overrides TOML
 STEPS=()
 if [[ -n "$CLI_STEPS" ]]; then
     IFS=',' read -ra STEPS <<< "$CLI_STEPS"
-elif [[ ${#INLINE_STEPS[@]} -gt 0 ]]; then
-    STEPS=("${INLINE_STEPS[@]}")
 else
     while IFS= read -r step; do
         [[ -n "$step" ]] && STEPS+=("$step")
     done < <(toml_get_array "pipeline.steps")
 fi
 
-# Build shared structures list: inline list > gene-group config > pipeline config
+# Build shared structures list: gene-group config > pipeline config
 SHARED_STRUCTURES=()
-if [[ ${#INLINE_STRUCTURES[@]} -gt 0 ]]; then
-    for rel_path in "${INLINE_STRUCTURES[@]}"; do
-        SHARED_STRUCTURES+=("${INPUT_BASE}/${rel_path}")
-    done
-else
-    # Load structures from gene-group config (config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml)
-    GENE_STRUCTURES_CONFIG="${SCRIPT_DIR}/config/${GENE_GROUP}/h_protein_structure_analysis_${GENE_GROUP}.toml"
-    if [[ -f "$GENE_STRUCTURES_CONFIG" ]]; then
-        load_config "$GENE_STRUCTURES_CONFIG"
-        while IFS= read -r rel_path; do
-            [[ -n "$rel_path" ]] && SHARED_STRUCTURES+=("${INPUT_BASE}/${rel_path}")
-        done < <(toml_get_array "ppi_structures.active")
-    fi
-    # Fallback to pipeline config if gene-group config had no structures
-    if [[ ${#SHARED_STRUCTURES[@]} -eq 0 ]]; then
-        load_config "${SCRIPT_DIR}/10_run_gromacs_pipelineCONFIG.toml"
-        while IFS= read -r rel_path; do
-            [[ -n "$rel_path" ]] && SHARED_STRUCTURES+=("${INPUT_BASE}/${rel_path}")
-        done < <(toml_get_array "structures.active")
-    fi
-    # Restore pipeline config as active
-    load_config "${SCRIPT_DIR}/10_run_gromacs_pipelineCONFIG.toml"
+GENE_STRUCTURES_CONFIG="${SCRIPT_DIR}/config/${GENE_GROUP}/h_protein_structure_analysis_${GENE_GROUP}.toml"
+if [[ -f "$GENE_STRUCTURES_CONFIG" ]]; then
+    load_config "$GENE_STRUCTURES_CONFIG"
+    while IFS= read -r rel_path; do
+        [[ -n "$rel_path" ]] && SHARED_STRUCTURES+=("${INPUT_BASE}/${rel_path}")
+    done < <(toml_get_array "ppi_structures.active")
 fi
+# Fallback to pipeline config if gene-group config had no structures
+if [[ ${#SHARED_STRUCTURES[@]} -eq 0 ]]; then
+    load_config "${SCRIPT_DIR}/10_run_gromacs_pipelineCONFIG.toml"
+    while IFS= read -r rel_path; do
+        [[ -n "$rel_path" ]] && SHARED_STRUCTURES+=("${INPUT_BASE}/${rel_path}")
+    done < <(toml_get_array "structures.active")
+fi
+# Restore pipeline config as active
+load_config "${SCRIPT_DIR}/10_run_gromacs_pipelineCONFIG.toml"
 
 # Source common GROMACS functions
 source "${SCRIPT_DIR}/modules/PPI/gromacs_common.sh"
@@ -256,7 +237,7 @@ write_manifest() {
     local outdir="$1"; shift
     local -a pdb_list=("$@")
     {
-        echo "# Structure Manifest — maps structure_N to original PDB"
+        echo "# Structure Manifest - maps structure_N to original PDB"
         echo "# Generated: $(date '+%Y-%m-%d %H:%M:%S')"
         for i in "${!pdb_list[@]}"; do
             echo "structure_$((i+1))  $(basename "${pdb_list[$i]}")"
@@ -273,12 +254,13 @@ run_quick_stability() {
 
     # Load settings
     local OVERRIDE_EXISTING=$(toml_get "step.quick_stability.override_existing" "false")
-    local BOX_DISTANCE=$(toml_get "step.quick_stability.box_distance" "1.0")
+    local BOX_DISTANCE=$(toml_get "step.quick_stability.box_distance" "1.5")
     local EM_STEPS=$(toml_get "step.quick_stability.em_steps" "10000")
     local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.quick_stability" \
         "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
     local MAX_THREADS=$(toml_get "step.quick_stability.max_threads" "$PROFILE_THREADS")
     local GPU_ID=$(toml_get "step.quick_stability.gpu_id" "0")
+    local NTHREADS
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
     # Load structures
@@ -328,16 +310,19 @@ run_quick_stability() {
         [[ "$OVERRIDE_EXISTING" == "true" && -d "$outdir" ]] && rm -rf "$outdir"
 
         mkdir -p "$outdir/logs"
-        cd "$outdir"
+        pushd "$outdir" > /dev/null
 
         if ! python3 -m gromacs_utils.cli prepare-structure "$pdb" -o clean.pdb; then
             log_error "Failed to prepare structure: $pdb"
+            popd > /dev/null
             continue
         fi
-        get_chain_info "$pdb" "$outdir"
+        # chain_parser uses PDB column offsets; pass the converted clean.pdb,
+        # not the raw $pdb (which may be a CIF and would parse to garbage).
+        get_chain_info clean.pdb "$outdir"
 
         log "  Generating topology..."
-        echo "1" | $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh > logs/pdb2gmx.log 2>&1
+        $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh > logs/pdb2gmx.log 2>&1
         echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > logs/make_ndx.log 2>&1
         create_chain_index clean.pdb protein.gro index.ndx
 
@@ -355,7 +340,8 @@ run_quick_stability() {
         run_em em logs
 
         if [[ ! -f em.gro ]]; then
-            log_error "EM failed — em.gro not produced for $struct_name"
+            log_error "EM failed - em.gro not produced for $struct_name"
+            popd > /dev/null
             continue
         fi
 
@@ -369,6 +355,7 @@ run_quick_stability() {
 
         extract_metrics "$outdir" metrics.txt
         generate_visualization "$outdir" interface
+        popd > /dev/null
         echo ""
     done
 
@@ -453,6 +440,7 @@ run_compare_chain_stability() {
         "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
     local MAX_THREADS=$(toml_get "step.compare_chain_stability.max_threads" "$PROFILE_THREADS")
     local MDRUN_OPTION=$(toml_get "step.compare_chain_stability.mdrun_option" "Option_A")
+    local NTHREADS
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
     # GPU flag selection
@@ -500,8 +488,10 @@ run_compare_chain_stability() {
     write_manifest "$WORKDIR" "${PDB_LIST[@]}"
     cd "$WORKDIR"
 
-    # GPU detection — use centralized detection from gromacs_common.sh
-    USE_GPU=true
+    # GPU detection - use centralized detection from gromacs_common.sh.
+    # Reset to true at function entry so a previous step's failure does not
+    # disable the GPU here (USE_GPU is exported and shared across steps).
+    local USE_GPU=true
     export USE_GPU
     local GPU_INFO=""
 
@@ -552,10 +542,12 @@ run_compare_chain_stability() {
 
         log_section "Processing: $name"
 
-        if [[ -f "$outdir/md.gro" && -f "$outdir/md.edr" ]]; then
-            log "  ✓ Simulation complete, skipping"
+        if [[ -f "$outdir/md.gro" && -f "$outdir/md.edr" && "$OVERRIDE_EXISTING" != "true" ]]; then
+            log "  Simulation complete, skipping (set override_existing=true to redo)"
             return 0
         fi
+
+        [[ "$OVERRIDE_EXISTING" == "true" && -d "$outdir" ]] && rm -rf "$outdir"
 
         setup_output_dirs "$outdir"
         pushd "$outdir" > /dev/null
@@ -567,7 +559,7 @@ run_compare_chain_stability() {
         fi
 
         log "Generating topology..."
-        echo "1" | $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh 2>&1 | tee logs/pdb2gmx.log
+        $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh 2>&1 | tee logs/pdb2gmx.log
 
         log "Creating index file..."
         echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx 2>&1 | tee logs/make_ndx.log
@@ -589,7 +581,7 @@ run_compare_chain_stability() {
         $GMX_BIN grompp -f em.mdp -c ionized.gro -p topol.top -o em.tpr 2>&1 | tee logs/grompp_em.log
         _try_mdrun "em" "em" "logs"
         if [[ ! -f em.gro ]]; then
-            log_error "EM failed — em.gro not produced for $name"
+            log_error "EM failed - em.gro not produced for $name"
             popd > /dev/null
             return 1
         fi
@@ -599,7 +591,7 @@ run_compare_chain_stability() {
         $GMX_BIN grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -n index.ndx -o nvt.tpr 2>&1 | tee logs/grompp_nvt.log
         _try_mdrun "nvt" "nvt" "logs"
         if [[ ! -f nvt.gro ]]; then
-            log_error "NVT equilibration failed — nvt.gro not produced for $name"
+            log_error "NVT equilibration failed - nvt.gro not produced for $name"
             popd > /dev/null
             return 1
         fi
@@ -608,7 +600,7 @@ run_compare_chain_stability() {
         $GMX_BIN grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -n index.ndx -o npt.tpr 2>&1 | tee logs/grompp_npt.log
         _try_mdrun "npt" "npt" "logs"
         if [[ ! -f npt.gro ]]; then
-            log_error "NPT equilibration failed — npt.gro not produced for $name"
+            log_error "NPT equilibration failed - npt.gro not produced for $name"
             popd > /dev/null
             return 1
         fi
@@ -617,18 +609,18 @@ run_compare_chain_stability() {
         $GMX_BIN grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -n index.ndx -o md.tpr 2>&1 | tee logs/grompp_md.log
         _try_mdrun "md" "md" "logs"
         if [[ ! -f md.gro ]]; then
-            log_error "Production MD failed — md.gro not produced for $name"
+            log_error "Production MD failed - md.gro not produced for $name"
             popd > /dev/null
             return 1
         fi
 
         popd > /dev/null
-        log "✓ MD simulation completed for $name"
+        log "MD simulation completed for $name"
     }
 
     _calculate_interaction_energy() {
         local outdir="$1" name="$2"
-        [[ -f "$outdir/ie.edr" || -f "$outdir/interaction_energy.xvg" ]] && { log "  ✓ IE already calculated"; return 0; }
+        [[ -f "$outdir/ie.edr" || -f "$outdir/interaction_energy.xvg" ]] && { log "  IE already calculated"; return 0; }
         [[ ! -f "$outdir/md.gro" || ! -f "$outdir/md.xtc" ]] && { log_warn "  No MD data, skipping IE"; return 1; }
 
         log "Calculating Interaction Energy: $name"
@@ -648,7 +640,7 @@ run_compare_chain_stability() {
 
     _generate_trajectory_outputs() {
         local outdir="$1" name="$2"
-        [[ -f "$outdir/statistics/md_statistics.json" ]] && { log "  ✓ Trajectory outputs exist"; return 0; }
+        [[ -f "$outdir/statistics/md_statistics.json" ]] && { log "  Trajectory outputs exist"; return 0; }
         [[ ! -f "$outdir/md.tpr" ]] && { log_warn "  No MD data, skipping trajectory outputs"; return 1; }
 
         log "Generating trajectory outputs: $name"
@@ -667,7 +659,7 @@ run_compare_chain_stability() {
 
     _generate_structure_visualization() {
         local outdir="$1" name="$2"
-        [[ -f "$outdir/visualization/visualize_trajectory.pml" || -f "$outdir/visualization/visualize_interface.pml" ]] && { log "  ✓ Visualization exists"; return 0; }
+        [[ -f "$outdir/visualization/visualize_trajectory.pml" || -f "$outdir/visualization/visualize_interface.pml" ]] && { log "  Visualization exists"; return 0; }
         [[ ! -d "$outdir/analysis" ]] && { log_warn "  No analysis dir, skipping viz"; return 1; }
 
         log "Generating visualization for $name..."
@@ -732,14 +724,14 @@ for key, val in data.items():
             done
 
             if [[ $num_structs -gt 2 ]]; then
-                local pdb_args="" struct_args=""
+                local pdb_args=() struct_args=()
                 for i in "${!PDB_LIST[@]}"; do
-                    pdb_args="$pdb_args ${PDB_LIST[$i]}"
-                    struct_args="$struct_args structure_$((i+1))"
+                    pdb_args+=("${PDB_LIST[$i]}")
+                    struct_args+=("structure_$((i+1))")
                 done
                 python3 -m gromacs_utils.md_results_comparator \
                     --workdir "$WORKDIR" --multi \
-                    --pdb-list $pdb_args --struct-dirs $struct_args 2>&1 || true
+                    --pdb-list "${pdb_args[@]}" --struct-dirs "${struct_args[@]}" 2>&1 || true
             fi
         fi
     }
@@ -818,12 +810,13 @@ run_interface_analysis() {
     local step_dir="$1"
 
     local OVERRIDE_EXISTING=$(toml_get "step.interface_analysis.override_existing" "false")
-    local BOX_DISTANCE=$(toml_get "step.interface_analysis.box_distance" "1.0")
-    local EM_STEPS=$(toml_get "step.interface_analysis.em_steps" "5000")
+    local BOX_DISTANCE=$(toml_get "step.interface_analysis.box_distance" "1.5")
+    local EM_STEPS=$(toml_get "step.interface_analysis.em_steps" "50000")
     local GPU_ID=$(toml_get "step.interface_analysis.gpu_id" "0")
     local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.interface_analysis" \
         "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
     local MAX_THREADS=$(toml_get "step.interface_analysis.max_threads" "$PROFILE_THREADS")
+    local NTHREADS
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
     local PDB_FILES=()
@@ -875,7 +868,7 @@ run_interface_analysis() {
             continue
         fi
         log "  Generating topology..."
-        echo "1" | $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh > logs/pdb2gmx.log 2>&1
+        $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh > logs/pdb2gmx.log 2>&1
         echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > logs/make_ndx.log 2>&1
         create_chain_index clean.pdb protein.gro index.ndx
 
@@ -890,7 +883,7 @@ run_interface_analysis() {
         run_em em logs
 
         if [[ ! -f em.gro ]]; then
-            log_error "EM failed — em.gro not produced for $STRUCT_NAME"
+            log_error "EM failed - em.gro not produced for $STRUCT_NAME"
             popd > /dev/null
             continue
         fi
@@ -941,13 +934,14 @@ run_batch_comparison() {
     local step_dir="$1"
 
     local OVERRIDE_EXISTING=$(toml_get "step.batch_comparison.override_existing" "false")
-    local EM_STEPS=$(toml_get "step.batch_comparison.em_steps" "2000")
-    local BOX_DISTANCE=$(toml_get "step.batch_comparison.box_distance" "0.8")
+    local EM_STEPS=$(toml_get "step.batch_comparison.em_steps" "5000")
+    local BOX_DISTANCE=$(toml_get "step.batch_comparison.box_distance" "1.5")
     local BOX_TYPE=$(toml_get "step.batch_comparison.box_type" "cubic")
     local GPU_ID=$(toml_get "step.batch_comparison.gpu_id" "0")
     local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.batch_comparison" \
         "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
     local MAX_THREADS=$(toml_get "step.batch_comparison.max_threads" "$PROFILE_THREADS")
+    local NTHREADS
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
     local DATASETS=()
@@ -1017,9 +1011,9 @@ run_batch_comparison() {
                 continue
             fi
 
-            echo "1" | $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh > pdb2gmx.log 2>&1 || {
+            $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh > pdb2gmx.log 2>&1 || {
                 echo "ERROR" > status.txt
-                log "  ✗ Failed"
+                log "  Failed"
                 echo ""
                 continue
             }
@@ -1034,7 +1028,7 @@ run_batch_comparison() {
             run_em em .
 
             if [[ ! -f em.gro ]]; then
-                log_error "EM failed — em.gro not produced for $struct_name"
+                log_error "EM failed - em.gro not produced for $struct_name"
                 echo "ERROR" > status.txt
                 continue
             fi
@@ -1072,7 +1066,7 @@ run_batch_comparison() {
 #
 # Flags:
 #   -deffnm md    : all I/O files use "md" prefix (md.tpr -> md.xtc, md.edr, md.log)
-#   -v            : verbose – prints step number, time, performance to terminal
+#   -v            : verbose - prints step number, time, performance to terminal
 #   -maxh         : maximum wall-clock runtime in hours; checkpoints and stops at limit
 #   -ntmpi 1      : single thread-MPI rank (one rank per GPU)
 #   -nb gpu       : non-bonded interactions (Coulomb + van der Waals) on GPU
@@ -1097,7 +1091,8 @@ run_production_md() {
     local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.production_md" \
         "$(toml_get "pipeline.compute.${MACHINE}.threads" "0")")
     local MAX_THREADS=$(toml_get "step.production_md.max_threads" "$PROFILE_THREADS")
-    local MAX_HOURS=$(toml_get "step.production_md.max_hours" "5000")
+    local MAX_HOURS=$(toml_get "step.production_md.max_hours" "72")
+    local NTHREADS
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
     # Full GPU offload flags (all four components on GPU)
@@ -1136,8 +1131,10 @@ run_production_md() {
     write_manifest "$WORKDIR" "${PDB_LIST[@]}"
     cd "$WORKDIR"
 
-    # GPU detection — use centralized detection from gromacs_common.sh
-    USE_GPU=true
+    # GPU detection - use centralized detection from gromacs_common.sh.
+    # Reset to true at function entry so a previous step's failure does not
+    # disable the GPU here (USE_GPU is exported and shared across steps).
+    local USE_GPU=true
     export USE_GPU
     local GPU_INFO=""
 
@@ -1199,7 +1196,7 @@ run_production_md() {
         log_section "Processing: $name"
 
         if [[ -f "$outdir/md.gro" && -f "$outdir/md.edr" && "$OVERRIDE_EXISTING" != "true" ]]; then
-            log "  ✓ Simulation complete, skipping"
+            log "  Simulation complete, skipping (set override_existing=true to redo)"
             return 0
         fi
 
@@ -1215,7 +1212,7 @@ run_production_md() {
         fi
 
         log "Generating topology..."
-        echo "1" | $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh 2>&1 | tee logs/pdb2gmx.log
+        $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh 2>&1 | tee logs/pdb2gmx.log
 
         log "Creating index file..."
         echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx 2>&1 | tee logs/make_ndx.log
@@ -1237,7 +1234,7 @@ run_production_md() {
         $GMX_BIN grompp -f em.mdp -c ionized.gro -p topol.top -o em.tpr 2>&1 | tee logs/grompp_em.log
         _try_mdrun_prod "em" "em" "logs"
         if [[ ! -f em.gro ]]; then
-            log_error "EM failed — em.gro not produced for $name"
+            log_error "EM failed - em.gro not produced for $name"
             popd > /dev/null
             return 1
         fi
@@ -1247,7 +1244,7 @@ run_production_md() {
         $GMX_BIN grompp -f nvt.mdp -c em.gro -r em.gro -p topol.top -n index.ndx -o nvt.tpr 2>&1 | tee logs/grompp_nvt.log
         _try_mdrun_prod "nvt" "nvt" "logs"
         if [[ ! -f nvt.gro ]]; then
-            log_error "NVT equilibration failed — nvt.gro not produced for $name"
+            log_error "NVT equilibration failed - nvt.gro not produced for $name"
             popd > /dev/null
             return 1
         fi
@@ -1256,7 +1253,7 @@ run_production_md() {
         $GMX_BIN grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -n index.ndx -o npt.tpr 2>&1 | tee logs/grompp_npt.log
         _try_mdrun_prod "npt" "npt" "logs"
         if [[ ! -f npt.gro ]]; then
-            log_error "NPT equilibration failed — npt.gro not produced for $name"
+            log_error "NPT equilibration failed - npt.gro not produced for $name"
             popd > /dev/null
             return 1
         fi
@@ -1265,18 +1262,18 @@ run_production_md() {
         $GMX_BIN grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -n index.ndx -o md.tpr 2>&1 | tee logs/grompp_md.log
         _try_mdrun_prod "md" "md" "logs"
         if [[ ! -f md.gro ]]; then
-            log_error "Production MD failed — md.gro not produced for $name"
+            log_error "Production MD failed - md.gro not produced for $name"
             popd > /dev/null
             return 1
         fi
 
         popd > /dev/null
-        log "✓ Production MD completed for $name"
+        log "Production MD completed for $name"
     }
 
     _generate_prod_trajectory_outputs() {
         local outdir="$1" name="$2"
-        [[ -f "$outdir/statistics/md_statistics.json" ]] && { log "  ✓ Trajectory outputs exist"; return 0; }
+        [[ -f "$outdir/statistics/md_statistics.json" ]] && { log "  Trajectory outputs exist"; return 0; }
         [[ ! -f "$outdir/md.tpr" ]] && { log_warn "  No MD data, skipping trajectory outputs"; return 1; }
 
         log "Generating trajectory outputs: $name"
@@ -1341,7 +1338,7 @@ run_production_md() {
                 local outdir="$WORKDIR/$sn"
                 local failed=false
                 if [[ ! -f "$outdir/npt.gro" || ! -f "$outdir/npt.cpt" ]]; then
-                    log_error "No NPT checkpoint found for $sn — run full mode first"
+                    log_error "No NPT checkpoint found for $sn - run full mode first"
                     STRUCT_FAIL_COUNT=$((STRUCT_FAIL_COUNT + 1))
                     continue
                 fi
@@ -1350,7 +1347,7 @@ run_production_md() {
                 $GMX_BIN grompp -f md.mdp -c npt.gro -t npt.cpt -p topol.top -n index.ndx -o md.tpr 2>&1 | tee logs/grompp_md.log
                 _try_mdrun_prod "md" "md" "logs"
                 if [[ ! -f md.gro ]]; then
-                    log_error "Production MD failed — md.gro not produced for $sn"
+                    log_error "Production MD failed - md.gro not produced for $sn"
                     failed=true
                     popd > /dev/null
                 else
@@ -1415,7 +1412,7 @@ for key, val in data.items():
 #------------------------------------------------------------------------------
 # STEP 6: VISUALIZE RESULTS
 #
-# Post-processing step — scans existing simulation outputs (steps 1-5) and
+# Post-processing step: scans existing simulation outputs (steps 1-5) and
 # (re)generates matplotlib plots, PyMOL/VMD/ChimeraX scripts, gnuplot renders,
 # contact maps, and statistics.  No GROMACS runs or GPU required.
 #------------------------------------------------------------------------------
@@ -1449,7 +1446,7 @@ run_visualize_results() {
     fi
 
     if [[ ${#SOURCE_STEPS[@]} -eq 0 ]]; then
-        log_warn "No prior step outputs found in $RUN_DIR — nothing to visualize"
+        log_warn "No prior step outputs found in $RUN_DIR - nothing to visualize"
         return 0
     fi
 
@@ -1500,7 +1497,7 @@ run_visualize_results() {
                 [[ -d "$workdir/plots" ]] && [[ $(find "$workdir/plots" -name "*.${PLOT_FORMAT}" 2>/dev/null | head -1) ]] && has_plots=true
                 [[ -d "$workdir/visualization" ]] && [[ $(find "$workdir/visualization" -name '*.pml' -o -name '*.vmd' -o -name '*.cxc' 2>/dev/null | head -1) ]] && has_viz=true
                 if [[ "$has_plots" == true && "$has_viz" == true ]]; then
-                    log "  ✓ $wname — visualization already exists, skipping"
+                    log "  ✓ $wname - visualization already exists, skipping"
                     TOTAL_VIZ=$((TOTAL_VIZ + 1))
                     continue
                 fi
@@ -1566,7 +1563,7 @@ plot_focused_contact_map('analysis/interface_residues.txt', 'plots/contact_map_f
     for source_step in "${SOURCE_STEPS[@]}"; do
         local prefix="${STEP_PREFIX[$source_step]:-$source_step}"
         local source_dir="$RUN_DIR/$prefix"
-        find "$source_dir" -path '*/plots/*.'"$PLOT_FORMAT" -exec cp -n {} "$consolidated_dir/" \; 2>/dev/null || true
+        find "$source_dir" -path "*/plots/*.${PLOT_FORMAT}" -exec cp -n {} "$consolidated_dir/" \; 2>/dev/null || true
     done
     local plot_count=$(find "$consolidated_dir" -name "*.${PLOT_FORMAT}" 2>/dev/null | wc -l)
 
@@ -1597,7 +1594,7 @@ run_pipeline() {
     echo ""
 
     if [[ "$DRY_RUN" == true ]]; then
-        echo "=== DRY RUN — No simulations will be executed ==="
+        echo "=== DRY RUN - No simulations will be executed ==="
         echo ""
         for step in "${STEPS[@]}"; do
             local enabled=$(toml_get "step.${step}.enabled" "true")

@@ -77,8 +77,8 @@ optimal_threads = 12
 binary = "raxml-ng"
 seed = 12345
 mode = "all"
-bs_trees = 5000
-search_replicates = 5000
+bs_trees = 10000
+search_replicates = 10000
 redo = true
 
 [phylogenetics.raxml.nucleotide]

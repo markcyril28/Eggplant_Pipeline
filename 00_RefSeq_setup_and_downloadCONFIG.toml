@@ -8,11 +8,11 @@ operations = [
     "EXTRACT_DMP_LOCAL",
     "DOWNLOAD_DMP_HI_GENES",      # 14 verified haploid-inducer species (HIR table)
     "MERGE_DMP_HI_GENES",
-    #"DOWNLOAD_DMP_FAMILY",         # broader DMP gene family for phylogenetic context
-    #"MERGE_DMP_FAMILY",
-    #"DOWNLOAD_SMEL_UNITO",
-    #"EXTRACT_TRANSCRIPTS",
-    #"DOWNLOAD_CROP_GENOMES",
+    "DOWNLOAD_DMP_FAMILY",         # broader DMP gene family for phylogenetic context
+    "MERGE_DMP_FAMILY",
+    "DOWNLOAD_SMEL_UNITO",
+    "EXTRACT_TRANSCRIPTS",
+    "DOWNLOAD_CROP_GENOMES",
 ]
 
 max_parallel         = "auto"   # CPU-bound jobs (gffread, merges); "auto" = $(nproc)

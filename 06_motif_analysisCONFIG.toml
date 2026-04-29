@@ -6,7 +6,7 @@
 
 [pipeline]
 machine      = "Local"   # "Local" | "HPC" — picks the compute profile below
-overwrite    = true
+overwrite    = false
 # Gene groups to run; each needs a config/{GROUP}/ directory.
 gene_groups = [
     "DMP",
@@ -15,7 +15,7 @@ gene_groups = [
 ]
 
 operations = [
-    #"RUN_READY_DATABASE",
+    "RUN_READY_DATABASE",
     "RUN_MEME_SUITE_Analysis",
     "RUN_JPEG_Export",
 ]

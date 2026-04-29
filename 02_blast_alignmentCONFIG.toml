@@ -38,7 +38,7 @@ force_reindex = false        # Force rebuild of BLAST databases (skip cache chec
 operations = [
     #"blastn",               # BLASTn: nucleotide query vs nucleotide DB (identification + ortholog)
     #"blastx",              # BLASTx: nucleotide query vs protein DB (translated ortholog)
-    #"blastp",               # BLASTp: protein query vs protein DB (ortholog alignment)
+    "blastp",               # BLASTp: protein query vs protein DB (ortholog alignment)
     #"visualize_heatmap",        # Fig 1  - cross-species % identity heatmap
     #"visualize_heatmap_evalue", # Fig 1b - % identity + E-value overlay heatmap
     "visualize_lollipop",       # Fig 3  - per-gene top-hits lollipop (Bit Score)

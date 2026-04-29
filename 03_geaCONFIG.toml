@@ -44,7 +44,7 @@ regenerate    = false
 #   Post-Processing     -> RNA-SeqMAP/run_post_processing.sh         (TPM, counts, matrices)
 #   Concordance_Analysis -> RNA-SeqMAP/run_concordance_analysis.sh   (cross-method/cross-genome)
 operations = [
-    #"Alignment",
+    "Alignment",
     "Post-Processing",
     "Concordance_Analysis",
 ]

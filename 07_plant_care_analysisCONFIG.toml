@@ -51,11 +51,11 @@ dpi       = 600
 operations = [
     "GTF_extraction",
     "Extraction_of_sequence_with_upstream_and_downstream",
-    #"PlantCARE_post_processing",        # Unzipping of results from PlantCARE website. 
-    #"PlantCARE_matrix_generation",
-    #"PlantCARE_heatmap_generation",
-    #"PlantCARE_combined_heatmap",
-    #"PlantCARE_groups_heatmap",
+    "PlantCARE_post_processing",        # Unzipping of results from PlantCARE website. 
+    "PlantCARE_matrix_generation",
+    "PlantCARE_heatmap_generation",
+    "PlantCARE_combined_heatmap",
+    "PlantCARE_groups_heatmap",
 ]
 
 [plantcare.compute.Local]

@@ -59,8 +59,8 @@ optimal_threads = 12
 # IQ-TREE2 enforces a hard minimum of 1000 replicates for both UFBoot (-bb) and
 # SH-aLRT (-alrt); values below 1000 cause "#replicates must be >= 1000" exit 2.
 # Set to 0 to disable that branch, or any integer >= 1000.
-bootstrap = 5000
-alrt = 5000
+bootstrap = 10000
+alrt = 10000
 model = "MFP+MERGE"
 nucleotide_model = "GTR+F+R4"
 protein_model    = "LG+F+R4"

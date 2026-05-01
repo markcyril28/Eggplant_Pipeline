@@ -13,6 +13,7 @@ operations = [
     "DOWNLOAD_SMEL_UNITO",
     "EXTRACT_TRANSCRIPTS",
     "DOWNLOAD_CROP_GENOMES",
+    "DOWNLOAD_HIR_GENOME_ASSEMBLIES",  # full genome assemblies per Table 2 (Chapter II)
 ]
 
 max_parallel         = "auto"   # CPU-bound jobs (gffread, merges); "auto" = $(nproc)
@@ -42,8 +43,24 @@ dmp_query_subdir     = "d_DMP_Query_Fasta"
 #   St, Nt,
 #   Bo, Bju    NCBI Gene DB (locus/symbol not in nuccore directly)
 #   Gm, Cl, Cs Phytozome primary (Glyma/Cla97/CsaV3 IDs); NCBI Gene DB fallback
-#   Gh         NCBI Gene DB (CottonGen HAU IDs cross-referenced)
+#   Gh         CottonGen ZJU-improved v2.1 IDs (Gh_AxxGxxxx format from Long et al., 2024)
 #   Os         NCBI nuccore by MSU7 locus (LOC_Os format)
+#
+# Canonical reference assemblies per Table 2 (Chapter II, Review of Literature):
+#   Zea mays              B73 RefGen_v4                       (MaizeGDB)
+#   Arabidopsis thaliana  TAIR10                              (TAIR)
+#   Solanum lycopersicum  SL3.0 / ITAG3.2                     (Sol Genomics Network)
+#   Solanum tuberosum     DM v6.1                             (Spud DB)
+#   Nicotiana tabacum     Nitab4.5                            (Sol Genomics Network)
+#   Brassica napus        Darmor-bzh v4.1, annotation v5      (BnaOmics / Genoscope)
+#   Brassica oleracea     TO1000DH3 v1.0                      (BnaOmics / Ensembl Plants)
+#   Brassica juncea       T84-66 AABB chromosome-scale        (Paritosh et al., 2021)
+#   Citrullus lanatus     97103 v2                            (Cucurbit Genomics Database)
+#   Cucumis sativus       Chinese Long v3                     (Cucurbit Genomics Database)
+#   Medicago truncatula   Mt4.0v1                             (Phytozome)
+#   Glycine max           Williams 82 Wm82.a2.v1              (Phytozome / SoyBase)
+#   Gossypium hirsutum    TM-1 ZJU-improved v2.1              (CottonGen)
+#   Oryza sativa          Nipponbare MSU Release 7            (Rice Genome Annotation Project)
 [dmp_hi_genes]
 dirs = [
     "Arabidopsis_thaliana",
@@ -190,7 +207,7 @@ path = "II_INPUTS/DMP_HI_registry.tsv"
 # running the stage. If both are absent the Phytozome steps are skipped and the
 # scripts fall back to NCBI gene DB where possible.
 [phytozome]
-jgi_user     = "mrmercado3@up.edu.ph"   # JGI account email
+jgi_user     = ""   # JGI account email
 jgi_password = ""   # JGI account password
 
 # Solanum melongena Unito Genomics mirror (https://solgenomics.net/ftp/unito_genomics/)
@@ -202,3 +219,175 @@ extract_transcripts_path = "a_Smel_RefSeqs/unito_genomics/extract_transcripts.sh
 # Existing crop-species genome downloader (in I_RefSeqs/)
 [crop_genomes]
 downloader_path = "RefSeq_Downloader.sh"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HIR GENOME ASSEMBLIES  (Table 2, Chapter II Review of Literature)
+# ─────────────────────────────────────────────────────────────────────────────
+# Full reference genome assemblies for the 17 species reported in Table 2 as
+# carriers of experimentally verified haploid-inducer (HIR) genes. These are
+# the *exact* assemblies cited in the manuscript (DMP, MTL/PLA1, PLD, KPL,
+# pPLAIIγ rows), not generic "latest" RefSeq builds. Used by the
+# DOWNLOAD_HIR_GENOME_ASSEMBLIES operation.
+#
+# Index-aligned arrays. Each row downloads the genome FASTA, CDS, transcript,
+# and protein files (where available) into a per-assembly subdirectory of
+# I_RefSeqs/<crop_genomes_subdir>/<family>/<species_assembly>/.
+#
+# download_method values:
+#   wget         direct HTTPS/FTP fetch via wget (default)
+#   ncbi_efetch  NCBI eutils efetch by accession (single-record retrieval)
+#   phytozome    JGI Phytozome/PhytoMine (requires phytozome.jgi_user/password)
+#   manual       no programmatic mirror; flagged as needing operator action
+#
+# requires_login flags assemblies behind authentication gates (Phytozome).
+[hir_genome_assemblies]
+species_short = [
+    "Zm", "At", "Sl", "St", "Nt",
+    "Bna", "Bo", "Bju", "Cl", "Cs",
+    "Mt", "Gm", "Gh", "Os", "Si",
+    "Ta", "Sc",
+]
+species_full = [
+    "Zea_mays",
+    "Arabidopsis_thaliana",
+    "Solanum_lycopersicum",
+    "Solanum_tuberosum",
+    "Nicotiana_tabacum",
+    "Brassica_napus",
+    "Brassica_oleracea",
+    "Brassica_juncea",
+    "Citrullus_lanatus",
+    "Cucumis_sativus",
+    "Medicago_truncatula",
+    "Glycine_max",
+    "Gossypium_hirsutum",
+    "Oryza_sativa",
+    "Setaria_italica",
+    "Triticum_aestivum",
+    "Saccharum_spp",
+]
+assembly_label = [
+    "B73_RefGen_v4",
+    "TAIR10",
+    "SL3.0_ITAG3.2",
+    "DM_v6.1",
+    "Nitab4.5",
+    "Darmor-bzh_v4.1",
+    "TO1000DH3_v1.0",
+    "T84-66_AABB",
+    "97103_v2",
+    "ChineseLong_v3",
+    "Mt4.0v1",
+    "Wm82.a2.v1",
+    "TM-1_ZJU_v2.1",
+    "Nipponbare_MSU7",
+    "Setaria_italica_v2.2",
+    "ChineseSpring_IWGSC_RefSeq_v1.0",
+    "GenBank_PP789590",
+]
+source_db = [
+    "MaizeGDB",
+    "TAIR",
+    "Sol_Genomics_Network",
+    "Spud_DB",
+    "Sol_Genomics_Network",
+    "Ensembl_Plants",
+    "Ensembl_Plants",
+    "BnaOmics",
+    "Cucurbit_Genomics_Database",
+    "Cucurbit_Genomics_Database",
+    "Phytozome",
+    "Phytozome",
+    "CottonGen",
+    "Rice_Genome_Annotation_Project",
+    "Phytozome",
+    "URGI_INRAE_IWGSC",
+    "NCBI_GenBank",
+]
+download_method = [
+    "wget",        # Zm
+    "wget",        # At
+    "wget",        # Sl
+    "wget",        # St
+    "wget",        # Nt
+    "wget",        # Bna  (Ensembl Plants mirror; AST_PRJEB5043_v1 = Darmor-bzh v4.1)
+    "wget",        # Bo
+    "manual",      # Bju  (no public mirror; download from Paritosh et al., 2021 Suppl.)
+    "wget",        # Cl
+    "wget",        # Cs
+    "phytozome",   # Mt
+    "phytozome",   # Gm
+    "manual",      # Gh   (CottonGen download portal requires browser session)
+    "wget",        # Os
+    "phytozome",   # Si
+    "wget",        # Ta
+    "ncbi_efetch", # Sc  (single GenBank record, no genome assembly)
+]
+requires_login = [
+    false, false, false, false, false,   # Zm, At, Sl, St, Nt
+    false, false, false, false, false,   # Bna, Bo, Bju, Cl, Cs
+    true,  true,  false, false, true,    # Mt(Phytozome), Gm(Phytozome), Gh, Os, Si(Phytozome)
+    false, false,                        # Ta, Sc
+]
+# Direct download URL for each assembly's primary FASTA bundle (genome / CDS /
+# protein / transcript). Multiple URLs per species are space-separated; the
+# downloader fetches each into the same target directory.
+download_urls = [
+    # Zm  B73 RefGen_v4
+    "https://download.maizegdb.org/Zm-B73-REFERENCE-GRAMENE-4.0/Zm-B73-REFERENCE-GRAMENE-4.0.fa.gz https://download.maizegdb.org/Zm-B73-REFERENCE-GRAMENE-4.0/Zm-B73-REFERENCE-GRAMENE-4.0_Zm00001d.2.cds.fa.gz https://download.maizegdb.org/Zm-B73-REFERENCE-GRAMENE-4.0/Zm-B73-REFERENCE-GRAMENE-4.0_Zm00001d.2.protein.fa.gz",
+    # At  TAIR10
+    "https://www.arabidopsis.org/api/download-files/download?filePath=Genes/TAIR10_genome_release/TAIR10_chromosome_files/TAIR10_chr_all.fas.gz https://www.arabidopsis.org/api/download-files/download?filePath=Sequences/Araport11_blastsets/Araport11_cds_20240409.gz https://www.arabidopsis.org/api/download-files/download?filePath=Sequences/Araport11_blastsets/Araport11_pep_20240409.gz",
+    # Sl  SL3.0 / ITAG3.2  (genome FASTA delivered as tar.gz; CDS/protein are uncompressed)
+    "https://solgenomics.net/ftp/tomato_genome/assembly/build_3.00/S_lycopersicum_chromosomes.3.00.fa.tar.gz https://solgenomics.net/ftp/tomato_genome/annotation/ITAG3.2_release/ITAG3.2_CDS.fasta https://solgenomics.net/ftp/tomato_genome/annotation/ITAG3.2_release/ITAG3.2_proteins.fasta",
+    # St  DM v6.1  (SpudDB path is /data/dm_v61/, files use .hc_gene_models.{cds,pep}.fa.gz)
+    "https://spuddb.uga.edu/data/dm_v61/DM_1-3_516_R44_potato_genome_assembly.v6.1.fa.gz https://spuddb.uga.edu/data/dm_v61/DM_1-3_516_R44_potato.v6.1.hc_gene_models.cds.fa.gz https://spuddb.uga.edu/data/dm_v61/DM_1-3_516_R44_potato.v6.1.hc_gene_models.pep.fa.gz",
+    # Nt  Nitab4.5  (annotation files are uncompressed .fasta; cDNA replaces CDS in this release)
+    "https://solgenomics.net/ftp/genomes/Nicotiana_tabacum/edwards_et_al_2017/assembly/Nitab-v4.5_genome_Chr_Edwards2017.fasta.gz https://solgenomics.net/ftp/genomes/Nicotiana_tabacum/edwards_et_al_2017/annotation/Nitab-v4.5_cDNA_Edwards2017.fasta https://solgenomics.net/ftp/genomes/Nicotiana_tabacum/edwards_et_al_2017/annotation/Nitab-v4.5_proteins_Edwards2017.fasta",
+    # Bna Darmor-bzh v4.1  (Ensembl Plants mirror; AST_PRJEB5043_v1 = same Chalhoub 2014 Darmor-bzh v4.1)
+    "https://ftp.ensemblgenomes.org/pub/plants/release-58/fasta/brassica_napus/dna/Brassica_napus.AST_PRJEB5043_v1.dna.toplevel.fa.gz https://ftp.ensemblgenomes.org/pub/plants/release-58/fasta/brassica_napus/cds/Brassica_napus.AST_PRJEB5043_v1.cds.all.fa.gz https://ftp.ensemblgenomes.org/pub/plants/release-58/fasta/brassica_napus/pep/Brassica_napus.AST_PRJEB5043_v1.pep.all.fa.gz",
+    # Bo  TO1000DH3 v1.0
+    "https://ftp.ensemblgenomes.org/pub/plants/release-58/fasta/brassica_oleracea/dna/Brassica_oleracea.BOL.dna.toplevel.fa.gz https://ftp.ensemblgenomes.org/pub/plants/release-58/fasta/brassica_oleracea/cds/Brassica_oleracea.BOL.cds.all.fa.gz https://ftp.ensemblgenomes.org/pub/plants/release-58/fasta/brassica_oleracea/pep/Brassica_oleracea.BOL.pep.all.fa.gz",
+    # Bju T84-66 AABB chromosome-scale (Paritosh et al., 2021) - manual download required
+    "MANUAL: https://onlinelibrary.wiley.com/doi/10.1111/pbi.13492 (request data via Plant Biotechnology Journal supplementary or contact corresponding author Pental D.)",
+    # Cl  97103 v2  (file names use _CDS_v2 / _pep_v2 suffixes)
+    "http://cucurbitgenomics.org/ftp/genome/watermelon/97103/v2/97103_genome_v2.fa.gz http://cucurbitgenomics.org/ftp/genome/watermelon/97103/v2/97103_CDS_v2.fa.gz http://cucurbitgenomics.org/ftp/genome/watermelon/97103/v2/97103_pep_v2.fa.gz http://cucurbitgenomics.org/ftp/genome/watermelon/97103/v2/97103_gene_v2.gff3.gz",
+    # Cs  Chinese Long v3  (file names use ChineseLong_*_v3 prefix)
+    "http://cucurbitgenomics.org/ftp/genome/cucumber/Chinese_long/v3/ChineseLong_genome_v3.fa.gz http://cucurbitgenomics.org/ftp/genome/cucumber/Chinese_long/v3/ChineseLong_CDS_v3.fa.gz http://cucurbitgenomics.org/ftp/genome/cucumber/Chinese_long/v3/ChineseLong_pep_v3.fa.gz http://cucurbitgenomics.org/ftp/genome/cucumber/Chinese_long/v3/ChineseLong_v3.gff3.gz",
+    # Mt  Mt4.0v1 (Phytozome login required)
+    "PHYTOZOME: Mtruncatula_Mt4_0v1 (assembly + annotation v1) — fetched via JGI portal API",
+    # Gm  Williams 82 Wm82.a2.v1 (Phytozome login required)
+    "PHYTOZOME: Gmax_Wm82_a2_v1 (assembly v2 + annotation v1) — fetched via JGI portal API",
+    # Gh  TM-1 ZJU-improved v2.1 - manual download (CottonGen download portal requires browser session)
+    "MANUAL: https://www.cottongen.org/species/Gossypium_hirsutum/ZJU-AD1_v2.1 (navigate to 'Datasets' panel; direct file URLs require an active CottonGen session)",
+    # Os  Nipponbare MSU Release 7  (use osa1_r7.asm.chrs.fa.gz for chromosomes 1-12 only)
+    "https://rice.uga.edu/osa1r7_download/osa1_r7.asm.chrs.fa.gz https://rice.uga.edu/osa1r7_download/osa1_r7.all_models.cds.fa.gz https://rice.uga.edu/osa1r7_download/osa1_r7.all_models.pep.fa.gz https://rice.uga.edu/osa1r7_download/osa1_r7.all_models.cdna.fa.gz",
+    # Si  Setaria italica v2.2 (Phytozome login required)
+    "PHYTOZOME: Sitalica_v2_2 (assembly v2 + annotation v2) — fetched via JGI portal API",
+    # Ta  Chinese Spring IWGSC RefSeq v1.0
+    "https://urgi.versailles.inra.fr/download/iwgsc/IWGSC_RefSeq_Assemblies/v1.0/iwgsc_refseqv1.0_all_chromosomes.zip https://urgi.versailles.inra.fr/download/iwgsc/IWGSC_RefSeq_Annotations/v1.0/iwgsc_refseqv1.0_HighConf_CDS_2017Mar13.fa.zip https://urgi.versailles.inra.fr/download/iwgsc/IWGSC_RefSeq_Annotations/v1.0/iwgsc_refseqv1.0_HighConf_PROTEIN_2017Mar13.fa.zip",
+    # Sc  Saccharum spp. — single GenBank record (ScMTL only, no genome assembly)
+    "NCBI_EFETCH: PP789590",
+]
+# Output subdirectory under <output.refseq_root>/<output.crop_genomes_subdir>/.
+# Subdirectory is created if absent; existing files honor [pipeline].overwrite.
+output_subdirs = [
+    "02_Poaceae_Grasses/Zea_mays_B73_RefGen_v4",
+    "04_Brassicaceae/Arabidopsis_thaliana_TAIR10",
+    "09_Solanaceae_Nightshades/Solanum_lycopersicum_SL3.0_ITAG3.2",
+    "09_Solanaceae_Nightshades/Solanum_tuberosum_DM_v6.1",
+    "09_Solanaceae_Nightshades/Nicotiana_tabacum_Nitab4.5",
+    "04_Brassicaceae/Brassica_napus_Darmor-bzh_v4.1",
+    "04_Brassicaceae/Brassica_oleracea_TO1000DH3_v1.0",
+    "04_Brassicaceae/Brassica_juncea_T84-66_AABB",
+    "11_Cucurbitaceae/Citrullus_lanatus_97103_v2",
+    "11_Cucurbitaceae/Cucumis_sativus_ChineseLong_v3",
+    "05_Fabaceae_Legumes/Medicago_truncatula_Mt4.0v1",
+    "05_Fabaceae_Legumes/Glycine_max_Wm82.a2.v1",
+    "08_Malvaceae_Cotton/Gossypium_hirsutum_TM-1_ZJU_v2.1",
+    "02_Poaceae_Grasses/Oryza_sativa_Nipponbare_MSU7",
+    "02_Poaceae_Grasses/Setaria_italica_v2.2",
+    "02_Poaceae_Grasses/Triticum_aestivum_ChineseSpring_IWGSC_RefSeq_v1.0",
+    "02_Poaceae_Grasses/Saccharum_spp_GenBank_PP789590",
+]
+# Note: 11_Cucurbitaceae directory does not yet exist under
+# I_RefSeqs/b_Various_Crop_Species_Genomes/; SETUP_DIRS will create it.

@@ -95,6 +95,8 @@ STOP_ON_ERROR=$(toml_get "pipeline.stop_on_error" "false")
 AUTO_TIMESTAMP=$(toml_get "pipeline.auto_timestamp_dir" "true")
 MACHINE=$(toml_get "pipeline.machine" "Local")
 GENE_GROUP=$(toml_get "pipeline.gene_group" "DMP-HAP2")
+# Global overwrite default — per-step [step.*].override_existing overrides this
+GLOBAL_OVERRIDE=$(toml_get "pipeline.override_existing" "false")
 
 # Force field and water model: read from TOML and export so they win the
 # `${VAR:-default}` assignments inside modules/PPI/gromacs_common.sh.

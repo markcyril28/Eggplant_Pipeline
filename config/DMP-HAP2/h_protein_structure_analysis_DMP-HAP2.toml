@@ -12,13 +12,16 @@
 # ============================================================================
 
 [ppi_structures]
-# DMP-HAP2 AlphaFold3 predictions (GPE001970_SMEL5)
+# DMP-HAP2 AlphaFold3 predictions (GPE001970_SMEL5).
+# One structure per SmelDMP paralog (7 total). The 04g005390_1 entry uses
+# model_4 because that is the only AlphaFold3 output mirrored from the server
+# for this paralog (other paralogs have model_0). Updated 2026-05-02 after the
+# 2026-04-29 server run failed on missing model_0/model_1 paths for 04g005390_1.
 active = [
     "hap2_and_smel5_01g008730_1/fold_hap2_and_smel5_01g008730_1_2026_04_08_02_36_model_0.cif",
     "hap2_and_smel5_01g026030_1/fold_hap2_and_smel5_01g026030_1_2026_04_08_02_37_model_0.cif",
     "hap2_and_smel5_02g013320_1/fold_hap2_and_smel5_02g013320_1_2026_04_08_02_38_model_0.cif",
-    "hap2_and_smel5_04g005390_1/fold_hap2_and_smel5_04g005390_1_2026_04_08_02_38_model_0.cif",
-    "hap2_and_smel5_04g005390_1_model_1/fold_hap2_and_smel5_04g005390_1_2026_04_08_02_38_model_1.cif",
+    "hap2_and_smel5_04g005390_1_model_4/fold_hap2_and_smel5_04g005390_1_2026_04_08_02_38_model_4.cif",
     "hap2_and_smel5_10g003660_1/fold_hap2_and_smel5_10g003660_1_2026_04_08_02_39_model_0.cif",
     "hap2_and_smel5_10g017610_1/fold_hap2_and_smel5_10g017610_1_2026_04_08_02_40_model_0.cif",
     "hap2_and_smel5_12g005350_1/fold_hap2_and_smel5_12g005350_1_2026_04_08_02_40_model_0.cif",

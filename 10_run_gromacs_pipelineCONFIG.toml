@@ -43,11 +43,17 @@ steps = [
 # If true, stop the entire pipeline on the first step failure
 stop_on_error = true
 
+# Global overwrite default for all steps.
+# true  = wipe and rerun existing output directories
+# false = skip steps whose outputs already exist (default)
+# Per-step [step.*].override_existing overrides this value.
+override_existing = true
+
 # Auto-generate a timestamped run directory under output_base
 auto_timestamp_dir = true
 
 # Select compute profile: change to "HPC" for cluster runs
-machine = "Local"
+machine = "HPC"
 
 # ==============================================================================
 # COMPUTE PROFILES

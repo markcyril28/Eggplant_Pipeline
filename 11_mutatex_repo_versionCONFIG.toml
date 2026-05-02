@@ -30,8 +30,8 @@ max_parallel_pdbs  = 0   # 0 = auto from CPU count
 
 [settings]
 # Non-machine-specific runtime parameters.
-nruns              = 3
-force_rerun        = false
+nruns              = 5
+force_rerun        = true
 # Per-PDB timeout in hours (prevents infinite hangs). 0 = no timeout.
 per_pdb_timeout_hours = 48
 # Parallel workers for post-processing Python scripts (extraction + visualization).

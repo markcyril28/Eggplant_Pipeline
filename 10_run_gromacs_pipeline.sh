@@ -112,6 +112,20 @@ WRITE_PDB_TRAJ=$(toml_get "gromacs.trajectory.write_pdb_trajectory" "false")
 PDB_TRAJ_STRIDE=$(toml_get "gromacs.trajectory.pdb_trajectory_stride" "10")
 PROMOTE_RAW_OUTPUTS=$(toml_get "gromacs.trajectory.promote_raw_outputs" "true")
 
+# VMD movie rendering controls (Step 6)
+VIDEO_ENABLED=$(toml_get "gromacs.video.enabled" "false")
+VIDEO_VMD_BIN=$(toml_get "gromacs.video.vmd_bin" "vmd")
+VIDEO_FFMPEG_BIN=$(toml_get "gromacs.video.ffmpeg_bin" "ffmpeg")
+VIDEO_WIDTH=$(toml_get "gromacs.video.width" "1280")
+VIDEO_HEIGHT=$(toml_get "gromacs.video.height" "720")
+VIDEO_FPS=$(toml_get "gromacs.video.fps" "24")
+VIDEO_FRAME_STRIDE=$(toml_get "gromacs.video.frame_stride" "1")
+VIDEO_ROTATE_PER_FRAME=$(toml_get "gromacs.video.rotate_per_frame" "0.0")
+VIDEO_RENDER_MODE=$(toml_get "gromacs.video.render_mode" "snapshot")
+VIDEO_CRF=$(toml_get "gromacs.video.crf" "20")
+VIDEO_PRESET=$(toml_get "gromacs.video.preset" "medium")
+VIDEO_KEEP_FRAMES=$(toml_get "gromacs.video.keep_frames" "false")
+
 # Build steps list: CLI overrides TOML
 STEPS=()
 if [[ -n "$CLI_STEPS" ]]; then
@@ -285,6 +299,113 @@ _emit_video_assets() {
             -o "$trajdir/md_traj.pdb" -skip "$stride" -pbc mol \
             >> logs/trjconv.log 2>&1 || true
     fi
+}
+
+#------------------------------------------------------------------------------
+# HELPER: Render a headless VMD movie (TGA frames) and encode it with ffmpeg.
+#
+# Inputs (all relative to $workdir):
+#   trajectories/md_center.xtc        (preferred)  or  md.xtc fallback
+#   structures/final_structure.pdb    (preferred)  or  md.gro fallback
+#
+# Outputs:
+#   visualization/visualize_movie.vmd
+#   video/frames/frame_NNNNN.tga      (auto-removed unless VIDEO_KEEP_FRAMES)
+#   video/<workdir_name>_movie.mp4
+#
+# No-op when VIDEO_ENABLED != true or vmd / ffmpeg are not on PATH.
+#------------------------------------------------------------------------------
+
+_render_vmd_movie() {
+    local workdir="$1"
+
+    [[ "$VIDEO_ENABLED" == "true" ]] || return 0
+
+    if ! command -v "$VIDEO_VMD_BIN" >/dev/null 2>&1; then
+        log_warn "  Video render: '$VIDEO_VMD_BIN' not found on PATH, skipping"
+        return 0
+    fi
+    if ! command -v "$VIDEO_FFMPEG_BIN" >/dev/null 2>&1; then
+        log_warn "  Video render: '$VIDEO_FFMPEG_BIN' not found on PATH, skipping"
+        return 0
+    fi
+
+    local traj=""
+    if   [[ -f "$workdir/trajectories/md_center.xtc" ]]; then traj="trajectories/md_center.xtc"
+    elif [[ -f "$workdir/trajectories/md.xtc"        ]]; then traj="trajectories/md.xtc"
+    elif [[ -f "$workdir/md.xtc"                     ]]; then traj="md.xtc"
+    else
+        log_warn "  Video render: no trajectory found in $workdir, skipping"
+        return 0
+    fi
+
+    local topo=""
+    if   [[ -f "$workdir/structures/final_structure.pdb" ]]; then topo="structures/final_structure.pdb"
+    elif [[ -f "$workdir/structures/md.gro"              ]]; then topo="structures/md.gro"
+    elif [[ -f "$workdir/md.gro"                         ]]; then topo="md.gro"
+    else
+        log_warn "  Video render: no topology found in $workdir, skipping"
+        return 0
+    fi
+
+    local wname; wname=$(basename "$workdir")
+    local video_dir="$workdir/video"
+    local frames_dir="$video_dir/frames"
+    local mp4_out="$video_dir/${wname}_movie.mp4"
+
+    if [[ -f "$mp4_out" && "$OVERRIDE_EXISTING" != "true" ]]; then
+        log "  Video already exists: $mp4_out (override_existing=false)"
+        return 0
+    fi
+
+    mkdir -p "$frames_dir" "$workdir/visualization"
+
+    log "  Generating VMD movie script for $wname..."
+    python3 -m gromacs_utils.visualization_generator \
+        --workdir "$workdir" --type movie \
+        --trajectory-file "$traj" --pdb-file "$topo" \
+        --frames-dir "video/frames" \
+        --width "$VIDEO_WIDTH" --height "$VIDEO_HEIGHT" \
+        --stride "$VIDEO_FRAME_STRIDE" \
+        --rotate-per-frame "$VIDEO_ROTATE_PER_FRAME" \
+        --render-mode "$VIDEO_RENDER_MODE" \
+        >> "$workdir/logs/vmd_movie.log" 2>&1 || {
+            log_warn "  Failed to generate VMD movie script"; return 1; }
+
+    log "  Rendering frames with VMD (headless)..."
+    pushd "$workdir" > /dev/null
+    if ! "$VIDEO_VMD_BIN" -dispdev text -e visualization/visualize_movie.vmd \
+            >> logs/vmd_movie.log 2>&1; then
+        log_warn "  VMD render failed (see logs/vmd_movie.log)"
+        popd > /dev/null
+        return 1
+    fi
+    popd > /dev/null
+
+    local frame_count
+    frame_count=$(find "$frames_dir" -maxdepth 1 -name 'frame_*.tga' 2>/dev/null | wc -l)
+    if (( frame_count == 0 )); then
+        log_warn "  No frames produced; check logs/vmd_movie.log"
+        return 1
+    fi
+    log "  Rendered $frame_count frames; encoding MP4 with ffmpeg..."
+
+    if ! "$VIDEO_FFMPEG_BIN" -y -hide_banner -loglevel warning \
+            -framerate "$VIDEO_FPS" \
+            -i "$frames_dir/frame_%05d.tga" \
+            -c:v libx264 -preset "$VIDEO_PRESET" -crf "$VIDEO_CRF" \
+            -pix_fmt yuv420p \
+            -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2" \
+            "$mp4_out" >> "$workdir/logs/vmd_movie.log" 2>&1; then
+        log_warn "  ffmpeg encoding failed (see logs/vmd_movie.log)"
+        return 1
+    fi
+
+    if [[ "$VIDEO_KEEP_FRAMES" != "true" ]]; then
+        rm -rf "$frames_dir"
+    fi
+
+    log "  Movie: $mp4_out"
 }
 
 #------------------------------------------------------------------------------
@@ -1598,6 +1719,10 @@ plot_focused_contact_map('analysis/interface_residues.txt', 'plots/contact_map_f
             fi
 
             popd > /dev/null
+
+            # Headless VMD -> ffmpeg movie (no-op when [gromacs.video].enabled = false)
+            _render_vmd_movie "$workdir" || true
+
             TOTAL_VIZ=$((TOTAL_VIZ + 1))
         done
 

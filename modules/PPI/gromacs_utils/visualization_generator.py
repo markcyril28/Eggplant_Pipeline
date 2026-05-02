@@ -226,6 +226,88 @@ render TachyonInternal interface_view_vmd.tga
         
         return script
     
+    def generate_vmd_movie_script(self,
+                                  trajectory_file: str = "trajectories/md_center.xtc",
+                                  pdb_file: str = "structures/final_structure.pdb",
+                                  frames_dir: str = "video/frames",
+                                  output_file: Optional[Path] = None,
+                                  width: int = 1280,
+                                  height: int = 720,
+                                  stride: int = 1,
+                                  rotate_per_frame: float = 0.0,
+                                  render_mode: str = "TachyonInternal") -> str:
+        """
+        Generate a self-contained VMD script that renders every frame to a TGA
+        file and quits. Designed for headless use:
+
+            vmd -dispdev text -e visualize_movie.vmd
+
+        Args:
+            trajectory_file:  .xtc/.trr to load
+            pdb_file:         .pdb topology reference
+            frames_dir:       directory (relative to workdir) for frame TGAs
+            output_file:      optional path to write the script
+            width, height:    render canvas size
+            stride:           render every Nth frame (>=1)
+            rotate_per_frame: degrees of y-axis rotation between frames
+            render_mode:      VMD render method (TachyonInternal | snapshot)
+
+        Returns:
+            Script content as string.
+        """
+        stride = max(int(stride), 1)
+        script = f'''# VMD Movie Render Script (headless)
+# Run with: vmd -dispdev text -e visualize_movie.vmd
+
+# Load structure and trajectory
+mol new {pdb_file} type pdb waitfor all
+mol addfile {trajectory_file} type xtc waitfor all
+
+# Display / canvas
+display projection Orthographic
+display depthcue off
+display resize {width} {height}
+color Display Background white
+axes location Off
+
+# Cartoon rep coloured by chain
+mol delrep 0 top
+mol representation NewCartoon
+mol color Chain
+mol selection {{protein}}
+mol addrep top
+
+# Wrap and centre on protein
+package require pbctools
+pbc wrap -compound res -centersel "protein" -center com -all
+
+# Frame output dir
+file mkdir {frames_dir}
+
+set num_frames [molinfo top get numframes]
+puts "Rendering $num_frames frames at stride {stride} -> {frames_dir}/"
+
+set out 0
+for {{set i 0}} {{$i < $num_frames}} {{incr i {stride}}} {{
+    animate goto $i
+    if {{ {rotate_per_frame:.4f} != 0.0 }} {{
+        rotate y by {rotate_per_frame:.4f}
+    }}
+    set fname [format "{frames_dir}/frame_%05d.tga" $out]
+    render {render_mode} $fname
+    incr out
+}}
+
+puts "Done. Wrote $out frames."
+quit
+'''
+
+        if output_file:
+            with open(output_file, 'w') as f:
+                f.write(script)
+
+        return script
+
     def generate_vmd_trajectory(self, trajectory_file: str = "md_protein.xtc",
                                 pdb_file: str = "final_structure.pdb",
                                 output_file: Optional[Path] = None) -> str:
@@ -380,11 +462,20 @@ save interface_chimerax.png width 1920 height 1080 supersample 3
         pymol_file = viz_dir / 'visualize_trajectory.pml'
         self.generate_pymol_trajectory(trajectory_file, pdb_file, pymol_file)
         files['pymol'] = pymol_file
-        
+
         vmd_file = viz_dir / 'visualize_trajectory.vmd'
         self.generate_vmd_trajectory(trajectory_file, pdb_file, vmd_file)
         files['vmd'] = vmd_file
-        
+
+        # Headless render-and-quit script for video pipelines
+        movie_file = viz_dir / 'visualize_movie.vmd'
+        self.generate_vmd_movie_script(
+            trajectory_file=trajectory_file,
+            pdb_file=pdb_file,
+            output_file=movie_file,
+        )
+        files['vmd_movie'] = movie_file
+
         return files
 
 
@@ -627,8 +718,22 @@ def main():
     
     parser = argparse.ArgumentParser(description="Generate visualization scripts")
     parser.add_argument("--workdir", required=True, help="Working directory")
-    parser.add_argument("--type", choices=['interface', 'trajectory', 'plots', 'all'],
+    parser.add_argument("--type", choices=['interface', 'trajectory', 'plots', 'movie', 'all'],
                         default='all', help="Type of visualization to generate")
+    parser.add_argument("--trajectory-file", default="trajectories/md_center.xtc",
+                        help="Trajectory file for movie/trajectory scripts (relative to workdir)")
+    parser.add_argument("--pdb-file", default="structures/final_structure.pdb",
+                        help="PDB topology for movie/trajectory scripts (relative to workdir)")
+    parser.add_argument("--frames-dir", default="video/frames",
+                        help="Where the movie script writes frame TGAs")
+    parser.add_argument("--width", type=int, default=1280)
+    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--stride", type=int, default=1,
+                        help="Render every Nth trajectory frame")
+    parser.add_argument("--rotate-per-frame", type=float, default=0.0,
+                        help="Y-axis rotation between frames (degrees)")
+    parser.add_argument("--render-mode", default="TachyonInternal",
+                        help="VMD render method (TachyonInternal, snapshot, etc.)")
     args = parser.parse_args()
     
     workdir = Path(args.workdir)
@@ -653,6 +758,24 @@ def main():
         print("Generated gnuplot scripts:")
         for name, path in files.items():
             print(f"  {name}: {path}")
+
+    if args.type in ['movie', 'all']:
+        viz_gen = VisualizationGenerator(workdir)
+        viz_dir = workdir / 'visualization'
+        viz_dir.mkdir(exist_ok=True)
+        movie_file = viz_dir / 'visualize_movie.vmd'
+        viz_gen.generate_vmd_movie_script(
+            trajectory_file=args.trajectory_file,
+            pdb_file=args.pdb_file,
+            frames_dir=args.frames_dir,
+            output_file=movie_file,
+            width=args.width,
+            height=args.height,
+            stride=args.stride,
+            rotate_per_frame=args.rotate_per_frame,
+            render_mode=args.render_mode,
+        )
+        print(f"Generated movie script: {movie_file}")
 
 
 if __name__ == "__main__":

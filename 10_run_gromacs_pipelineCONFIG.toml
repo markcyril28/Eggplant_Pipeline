@@ -58,7 +58,18 @@ machine = "HPC"
 # ==============================================================================
 # COMPUTE PROFILES
 # Change machine = "Local" or "HPC" above to select the active thread profile.
-# Per-step [step.*].max_threads values override the profile when non-zero.
+# Per-step [step.*].max_threads values take precedence; if a per-step key is
+# omitted, the profile value below is used; setting it to 0 falls back to nproc.
+#
+# IMPORTANT (single-GPU scaling ceiling): every step launches
+#   gmx mdrun -ntmpi 1 -ntomp $NTHREADS
+# i.e. one MPI rank per GPU. GROMACS single-rank GPU runs plateau around
+# 16-24 OpenMP threads for typical PPI systems (50-200k atoms); past that,
+# PME/FFT cost and L3 cache contention erase gains and mdrun prints
+# "Highly inefficient parallelization" warnings. Setting NTHREADS=64 on a
+# single-GPU node is measurably SLOWER than NTHREADS=16-24, not faster.
+# Structures are processed sequentially within a step, so the unused cores
+# are capped by GROMACS scaling, not by these values.
 # ==============================================================================
 
 [pipeline.compute.Local]
@@ -71,13 +82,15 @@ batch_comparison        = 12
 production_md           = 12
 
 [pipeline.compute.HPC]
-# HPC node defaults (e.g., 64-core CPU + single GPU)
+# HPC node defaults (64-core CPU + single GPU). Tuned to GROMACS single-rank
+# scaling ceiling - see note above. Raise production_md to 32 only for systems
+# > 200k atoms; lower to 12 for very small complexes.
 threads                 = 64    # global fallback for unlisted steps
-quick_stability         = 16
-compare_chain_stability = 64
-interface_analysis      = 32
-batch_comparison        = 32
-production_md           = 64
+quick_stability         = 16    # EM only (steep, PME on CPU); plateaus ~16
+compare_chain_stability = 16    # full MD, single GPU; plateaus ~16
+interface_analysis      = 16    # EM + IE rerun on CPU
+batch_comparison        = 16    # light screening EM (5k steps)
+production_md           = 24    # long MD, full GPU offload (PME GPU); slight DD headroom
 
 
 # ==============================================================================
@@ -137,6 +150,38 @@ pdb_trajectory_stride = 10
 promote_raw_outputs  = true
 
 
+# ------------------------------------------------------------------------------
+# Headless VMD video rendering (Step 6: visualize_results)
+#
+# Renders a per-workdir MP4 from trajectories/md_center.xtc using:
+#   1. VMD (headless: vmd -dispdev text -e visualize_movie.vmd)
+#   2. ffmpeg (TGA frames -> H.264 MP4)
+#
+# Both binaries must be on PATH. Set enabled = false to skip.
+# Output: <workdir>/video/<workdir_name>_movie.mp4
+# ------------------------------------------------------------------------------
+
+[gromacs.video]
+enabled         = true
+vmd_bin         = "vmd"
+ffmpeg_bin      = "ffmpeg"
+width           = 1280
+height          = 720
+fps             = 24
+# Render every Nth trajectory frame (1 = all frames; raise for shorter videos)
+frame_stride    = 5
+# Optional Y-axis rotation between frames (degrees); 0 = no rotation
+rotate_per_frame = 0.0
+# VMD render method: "TachyonInternal" (high quality, slow) or "snapshot" (fast)
+render_mode     = "snapshot"
+# H.264 quality (lower CRF = higher quality / larger file; 18-28 is typical)
+crf             = 20
+# H.264 preset: ultrafast, fast, medium, slow, veryslow
+preset          = "medium"
+# Keep the per-frame TGAs after MP4 encoding (true = debug; false = clean up)
+keep_frames     = false
+
+
 # ==============================================================================
 # STRUCTURES - loaded from config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml
 # ([ppi_structures].active). Per-step overrides still available below.
@@ -160,7 +205,7 @@ override_existing = false
 box_distance      = 1.5
 em_steps          = 10000
 gpu_id            = 0
-max_threads       = 8
+max_threads       = 16    # 64-thread server, single GPU; EM plateaus here
 
 # Uncomment to override structures for this step only:
 # [step.quick_stability.structures]
@@ -189,7 +234,7 @@ nvt_steps         = 100000   # 200 ps
 npt_steps         = 100000   # 200 ps
 md_steps          = 5000000  # 10 ns
 gpu_id            = 0
-max_threads       = 12
+max_threads       = 16    # 64-thread server, single GPU; full-MD plateau
 mdrun_option      = "Option_A"
 
 # Uncomment to override structures for this step only:
@@ -211,7 +256,7 @@ override_existing = false
 box_distance      = 1.5
 em_steps          = 50000
 gpu_id            = 0
-max_threads       = 12
+max_threads       = 16    # 64-thread server, single GPU; EM + IE rerun
 
 # Uncomment to override structures for this step only:
 # [step.interface_analysis.structures]
@@ -238,7 +283,7 @@ em_steps          = 5000
 box_distance      = 1.5
 box_type          = "cubic"
 gpu_id            = 0
-max_threads       = 12
+max_threads       = 16    # 64-thread server, single GPU; light screening EM
 
 [step.batch_comparison.datasets]
 # Dataset folder names (subdirs of paths.input_base).
@@ -275,7 +320,7 @@ nvt_steps         = 250000     # 500 ps
 npt_steps         = 250000     # 500 ps
 md_steps          = 50000000   # 100 ns
 gpu_id            = 0
-max_threads       = 12
+max_threads       = 24    # 64-thread server, single GPU; full GPU offload, slight DD headroom
 max_hours         = 72         # wall-clock cap for production MD (-maxh); raise for longer runs
 
 # Uncomment to override structures for this step only:

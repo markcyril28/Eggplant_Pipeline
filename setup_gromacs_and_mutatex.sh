@@ -462,12 +462,14 @@ install_dependencies() {
 
     if $_need_conda; then
         log "Installing all conda dependencies (single solver pass)..."
+        # vmd: required by Step 6 visualize_results for headless MP4 movie rendering
+        # ffmpeg: encodes the per-frame TGAs that VMD writes into H.264 MP4
         $PKG_MGR install -y -c conda-forge \
             cmake ninja make pkg-config fftw libiconv \
             openmpi openmpi-mpicc \
             numpy scipy pandas matplotlib seaborn biopython networkx \
             pillow imageio imageio-ffmpeg scikit-learn scikit-image \
-            tqdm pyyaml h5py gnuplot ffmpeg \
+            tqdm pyyaml h5py gnuplot ffmpeg vmd \
             || {
                 [ "$GPU_BACKEND" = "HIP" ] && log_error "Failed to install required dependencies."
                 log_warn "Some optional packages unavailable; retrying with essential packages only..."
@@ -476,6 +478,8 @@ install_dependencies() {
                     openmpi openmpi-mpicc \
                     numpy scipy pandas matplotlib seaborn biopython \
                     networkx pillow tqdm pyyaml h5py
+                log_warn "VMD/ffmpeg not installed by fallback path. Install manually with:"
+                log_warn "  $PKG_MGR install -n $ENV_NAME -c conda-forge vmd ffmpeg"
             }
     else
         log "Conda dependencies already installed, skipping."
@@ -1180,6 +1184,20 @@ verify_installation() {
 import numpy, scipy, pandas, matplotlib, MDAnalysis
 print('All Python packages OK')
 " || log_error "Some Python packages failed to import"
+
+    # Check video-rendering tools (Step 6 visualize_results)
+    log "Checking video tools (VMD + ffmpeg)..."
+    if command -v vmd &> /dev/null; then
+        log "VMD: $(vmd -h 2>&1 | head -1 || echo 'available')"
+    else
+        log_warn "vmd not found in $ENV_NAME; Step 6 video rendering will be skipped."
+        log_warn "  Install with: $PKG_MGR install -n $ENV_NAME -c conda-forge vmd"
+    fi
+    if command -v ffmpeg &> /dev/null; then
+        log "ffmpeg: $(ffmpeg -version 2>&1 | head -1)"
+    else
+        log_warn "ffmpeg not found in $ENV_NAME; movie encoding will be skipped."
+    fi
 
     log "Installation verified successfully!"
 

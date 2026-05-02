@@ -211,6 +211,34 @@ declare -A STEP_PREFIX=(
 # HELPER: Load per-step structures or fall back to shared list
 #------------------------------------------------------------------------------
 
+# Slot limiter: block until <limit> background jobs are running, then return
+# so the caller can dispatch one more. Shared across all parallel-dispatch
+# steps (quick_stability, interface_analysis, batch_comparison).
+wait_for_slot() {
+    local limit="$1"
+    while (( $(jobs -rp | wc -l) >= limit )); do sleep 0.5; done
+}
+
+# Compute the parallel-structure slot count for a step. Honours an explicit
+# config value (>0) or auto-derives from CPU budget: floor(TOTAL_CPUS / NTHREADS).
+# Args: <config_value> <nthreads>
+# Echoes the resolved slot count (>= 1).
+compute_parallel_slots() {
+    local cfg="$1"
+    local nthreads="$2"
+    local cpus
+    cpus=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+    (( cpus < 1 )) && cpus=1
+    local slots
+    if (( cfg > 0 )); then
+        slots=$cfg
+    else
+        slots=$(( cpus / (nthreads > 0 ? nthreads : 1) ))
+        (( slots < 1 )) && slots=1
+    fi
+    echo "$slots"
+}
+
 load_step_structures() {
     local step_name="$1"
     local -n _out_arr=$2  # nameref to output array
@@ -426,6 +454,11 @@ run_quick_stability() {
     local NTHREADS
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
+    # Parallel-structure dispatch (auto-derive from CPU budget when 0)
+    local PARALLEL_CFG=$(toml_get "step.quick_stability.parallel_structures" "0")
+    local PARALLEL_STRUCTS
+    PARALLEL_STRUCTS=$(compute_parallel_slots "$PARALLEL_CFG" "$NTHREADS")
+
     # Load structures
     local PDB_LIST=()
     load_step_structures "quick_stability" PDB_LIST
@@ -449,6 +482,7 @@ run_quick_stability() {
         log "  Structure $((i+1)): $(basename "${PDB_LIST[$i]}")"
     done
     log "Output: $OUTPUT_DIR"
+    log "Parallelism: ${PARALLEL_STRUCTS} structures x ${NTHREADS} threads"
     echo ""
 
     mkdir -p "$OUTPUT_DIR"
@@ -456,71 +490,98 @@ run_quick_stability() {
     check_gromacs || return 1
     check_python_modules || return 1
 
-    # Process each structure
-    for i in "${!PDB_LIST[@]}"; do
-        local struct_num=$((i+1))
-        local struct_name="structure_${struct_num}"
-        local pdb="${PDB_LIST[$i]}"
-        local outdir="$OUTPUT_DIR/$struct_name"
-
-        log "Processing $struct_name: $(basename "$pdb")"
+    # Per-structure pipeline body — runs inside a subshell so cwd, traps, and
+    # GROMACS state stay isolated across parallel jobs.
+    _qs_process_one() {
+        local pdb="$1"
+        local outdir="$2"
+        local struct_name
+        struct_name=$(basename "$outdir")
 
         if [[ "$OVERRIDE_EXISTING" != "true" && -f "$outdir/metrics.txt" && -f "$outdir/em.gro" ]]; then
-            log "  ✓ Already processed, skipping"
-            continue
+            log "  [${struct_name}] already processed, skipping"
+            return 0
         fi
 
         [[ "$OVERRIDE_EXISTING" == "true" && -d "$outdir" ]] && rm -rf "$outdir"
-
         mkdir -p "$outdir/logs"
-        pushd "$outdir" > /dev/null
 
-        if ! python3 -m gromacs_utils.cli prepare-structure "$pdb" -o clean.pdb; then
-            log_error "Failed to prepare structure: $pdb"
-            popd > /dev/null
-            continue
+        log "  [${struct_name}] start: $(basename "$pdb")"
+
+        (
+            set -uo pipefail
+            cd "$outdir" || exit 1
+
+            if ! python3 -m gromacs_utils.cli prepare-structure "$pdb" -o clean.pdb; then
+                log_error "[${struct_name}] prepare-structure failed: $pdb"
+                exit 1
+            fi
+            # chain_parser uses PDB column offsets; pass clean.pdb (raw may be CIF).
+            get_chain_info clean.pdb "$outdir"
+
+            $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro \
+                -water "$WATERMODEL" -ff "$FORCEFIELD" -ignh > logs/pdb2gmx.log 2>&1
+            echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > logs/make_ndx.log 2>&1
+            create_chain_index clean.pdb protein.gro index.ndx
+
+            $GMX_BIN editconf -f protein.gro -o boxed.gro -c \
+                -d "$BOX_DISTANCE" -bt dodecahedron > logs/editconf.log 2>&1
+            $GMX_BIN solvate -cp boxed.gro -cs spc216.gro -o solvated.gro -p topol.top \
+                > logs/solvate.log 2>&1
+
+            python3 -m gromacs_utils.cli generate-mdp em -o em.mdp \
+                --em-steps "$EM_STEPS" --em-tolerance 10.0
+
+            $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o ions.tpr -maxwarn 2 \
+                > logs/grompp_ions.log 2>&1
+            echo "SOL" | $GMX_BIN genion -s ions.tpr -o ionized.gro -p topol.top \
+                -pname NA -nname CL -neutral > logs/genion.log 2>&1
+
+            $GMX_BIN grompp -f em.mdp -c ionized.gro -p topol.top -o em.tpr > logs/grompp_em.log 2>&1
+            run_em em logs
+
+            if [[ ! -f em.gro ]]; then
+                log_error "[${struct_name}] EM failed - em.gro not produced"
+                exit 1
+            fi
+
+            echo -e "Potential\nCoul-SR\nLJ-SR\nPressure\n\n" | $GMX_BIN energy \
+                -f em.edr -o energies.xvg > logs/energy.log 2>&1 || true
+            echo -e "ChainA\nChainB" | $GMX_BIN hbond -s em.tpr -f em.gro -n index.ndx \
+                -num hbonds.xvg > logs/hbond.log 2>&1 || true
+            echo -e "ChainA\nChainB" | $GMX_BIN mindist -s em.tpr -f em.gro -n index.ndx \
+                -od mindist.xvg -on numcont.xvg -d 0.6 > logs/mindist.log 2>&1 || true
+            echo "Protein" | $GMX_BIN sasa -s em.tpr -f em.gro -o sasa.xvg \
+                > logs/sasa.log 2>&1 || true
+            echo "ChainA" | $GMX_BIN sasa -s em.tpr -f em.gro -n index.ndx -o sasa_chainA.xvg \
+                > logs/sasa_a.log 2>&1 || true
+            echo "ChainB" | $GMX_BIN sasa -s em.tpr -f em.gro -n index.ndx -o sasa_chainB.xvg \
+                > logs/sasa_b.log 2>&1 || true
+
+            extract_metrics "$outdir" metrics.txt
+            generate_visualization "$outdir" interface
+        )
+        local rc=$?
+        if (( rc == 0 )); then
+            log "  [${struct_name}] done"
+        else
+            log_warn "  [${struct_name}] failed (rc=$rc)"
         fi
-        # chain_parser uses PDB column offsets; pass the converted clean.pdb,
-        # not the raw $pdb (which may be a CIF and would parse to garbage).
-        get_chain_info clean.pdb "$outdir"
+        return $rc
+    }
 
-        log "  Generating topology..."
-        $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh > logs/pdb2gmx.log 2>&1
-        echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > logs/make_ndx.log 2>&1
-        create_chain_index clean.pdb protein.gro index.ndx
+    # Dispatch with bounded parallelism
+    local effective_parallel=$PARALLEL_STRUCTS
+    (( effective_parallel > ${#PDB_LIST[@]} )) && effective_parallel=${#PDB_LIST[@]}
+    log "Dispatching ${#PDB_LIST[@]} structures (${effective_parallel} parallel slots)"
 
-        log "  Setting up simulation box..."
-        $GMX_BIN editconf -f protein.gro -o boxed.gro -c -d $BOX_DISTANCE -bt dodecahedron > logs/editconf.log 2>&1
-        $GMX_BIN solvate -cp boxed.gro -cs spc216.gro -o solvated.gro -p topol.top > logs/solvate.log 2>&1
-
-        python3 -m gromacs_utils.cli generate-mdp em -o em.mdp --em-steps $EM_STEPS --em-tolerance 10.0
-
-        $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o ions.tpr -maxwarn 2 > logs/grompp_ions.log 2>&1
-        echo "SOL" | $GMX_BIN genion -s ions.tpr -o ionized.gro -p topol.top -pname NA -nname CL -neutral > logs/genion.log 2>&1
-
-        log "  Running energy minimization (GPU)..."
-        $GMX_BIN grompp -f em.mdp -c ionized.gro -p topol.top -o em.tpr > logs/grompp_em.log 2>&1
-        run_em em logs
-
-        if [[ ! -f em.gro ]]; then
-            log_error "EM failed - em.gro not produced for $struct_name"
-            popd > /dev/null
-            continue
-        fi
-
-        log "  Extracting metrics..."
-        echo -e "Potential\nCoul-SR\nLJ-SR\nPressure\n\n" | $GMX_BIN energy -f em.edr -o energies.xvg > logs/energy.log 2>&1 || true
-        echo -e "ChainA\nChainB" | $GMX_BIN hbond -s em.tpr -f em.gro -n index.ndx -num hbonds.xvg > logs/hbond.log 2>&1 || true
-        echo -e "ChainA\nChainB" | $GMX_BIN mindist -s em.tpr -f em.gro -n index.ndx -od mindist.xvg -on numcont.xvg -d 0.6 > logs/mindist.log 2>&1 || true
-        echo "Protein" | $GMX_BIN sasa -s em.tpr -f em.gro -o sasa.xvg > logs/sasa.log 2>&1 || true
-        echo "ChainA" | $GMX_BIN sasa -s em.tpr -f em.gro -n index.ndx -o sasa_chainA.xvg > logs/sasa_a.log 2>&1 || true
-        echo "ChainB" | $GMX_BIN sasa -s em.tpr -f em.gro -n index.ndx -o sasa_chainB.xvg > logs/sasa_b.log 2>&1 || true
-
-        extract_metrics "$outdir" metrics.txt
-        generate_visualization "$outdir" interface
-        popd > /dev/null
-        echo ""
+    for i in "${!PDB_LIST[@]}"; do
+        local struct_num=$((i+1))
+        local struct_name="structure_${struct_num}"
+        wait_for_slot "$effective_parallel"
+        _qs_process_one "${PDB_LIST[$i]}" "$OUTPUT_DIR/$struct_name" &
     done
+    wait
 
     # Compare results
     log "Comparing results..."
@@ -990,6 +1051,11 @@ run_interface_analysis() {
     local NTHREADS
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
+    # Parallel-structure dispatch (auto-derive from CPU budget when 0)
+    local PARALLEL_CFG=$(toml_get "step.interface_analysis.parallel_structures" "0")
+    local PARALLEL_STRUCTS
+    PARALLEL_STRUCTS=$(compute_parallel_slots "$PARALLEL_CFG" "$NTHREADS")
+
     local PDB_FILES=()
     load_step_structures "interface_analysis" PDB_FILES
 
@@ -1005,92 +1071,124 @@ run_interface_analysis() {
     for pdb in "${PDB_FILES[@]}"; do
         log "  - $(basename "$pdb")"
     done
+    log "Parallelism: ${PARALLEL_STRUCTS} structures x ${NTHREADS} threads"
     echo ""
 
-    local PROCESSED=0
+    # Status tracking via filesystem (works across parallel subshells, unlike arrays)
+    local IA_STATUS_DIR
+    IA_STATUS_DIR=$(mktemp -d)
+    trap "rm -rf '$IA_STATUS_DIR'" RETURN
 
-    for PDB_INPUT in "${PDB_FILES[@]}"; do
+    # Per-structure pipeline body — runs inside a subshell so cwd, traps, and
+    # GROMACS state stay isolated across parallel jobs.
+    _ia_process_one() {
+        local pdb_input="$1"
         local STRUCT_NAME
-        STRUCT_NAME=$(shorten_pdb_name "$PDB_INPUT")
+        STRUCT_NAME=$(shorten_pdb_name "$pdb_input")
         local WORKDIR="${step_dir}/${STRUCT_NAME}"
 
-        log_section "Processing: $STRUCT_NAME"
-        log "Output: $WORKDIR"
-
         if [[ "$OVERRIDE_EXISTING" != "true" && -f "$WORKDIR/interface_metrics.json" ]]; then
-            log "  ✓ Already processed, skipping"
-            PROCESSED=$((PROCESSED + 1))
-            continue
+            log "  [${STRUCT_NAME}] already processed, skipping"
+            echo "OK" > "$IA_STATUS_DIR/${STRUCT_NAME}.status"
+            return 0
         fi
 
         [[ "$OVERRIDE_EXISTING" == "true" && -d "$WORKDIR" ]] && rm -rf "$WORKDIR"
 
         mkdir -p "$WORKDIR"
-        pushd "$WORKDIR" > /dev/null
-        setup_output_structure "$WORKDIR"
 
-        local START_T=$(date +%s)
+        log "  [${STRUCT_NAME}] start"
+        local start_t; start_t=$(date +%s)
 
-        # Prepare structure
-        log "Preparing structure..."
-        if ! python3 -m gromacs_utils.cli prepare-structure "$PDB_INPUT" -o clean.pdb; then
-            log_error "Failed to prepare structure: $PDB_INPUT"
-            popd > /dev/null
-            continue
-        fi
-        log "  Generating topology..."
-        $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh > logs/pdb2gmx.log 2>&1
-        echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > logs/make_ndx.log 2>&1
-        create_chain_index clean.pdb protein.gro index.ndx
+        (
+            set -uo pipefail
+            cd "$WORKDIR" || exit 1
+            setup_output_structure "$WORKDIR"
 
-        log "  Solvating..."
-        $GMX_BIN editconf -f protein.gro -o boxed.gro -c -d $BOX_DISTANCE -bt dodecahedron > logs/editconf.log 2>&1
-        $GMX_BIN solvate -cp boxed.gro -cs spc216.gro -o solvated.gro -p topol.top > logs/solvate.log 2>&1
+            if ! python3 -m gromacs_utils.cli prepare-structure "$pdb_input" -o clean.pdb; then
+                log_error "[${STRUCT_NAME}] prepare-structure failed: $pdb_input"
+                exit 1
+            fi
+            $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro \
+                -water "$WATERMODEL" -ff "$FORCEFIELD" -ignh > logs/pdb2gmx.log 2>&1
+            echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > logs/make_ndx.log 2>&1
+            create_chain_index clean.pdb protein.gro index.ndx
 
-        python3 -m gromacs_utils.cli generate-mdp em -o em.mdp --em-steps $EM_STEPS --em-tolerance 100.0
+            $GMX_BIN editconf -f protein.gro -o boxed.gro -c \
+                -d "$BOX_DISTANCE" -bt dodecahedron > logs/editconf.log 2>&1
+            $GMX_BIN solvate -cp boxed.gro -cs spc216.gro -o solvated.gro -p topol.top \
+                > logs/solvate.log 2>&1
 
-        log "  Running energy minimization..."
-        $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o em.tpr -maxwarn 2 > logs/grompp.log 2>&1
-        run_em em logs
+            python3 -m gromacs_utils.cli generate-mdp em -o em.mdp \
+                --em-steps "$EM_STEPS" --em-tolerance 100.0
 
-        if [[ ! -f em.gro ]]; then
-            log_error "EM failed - em.gro not produced for $STRUCT_NAME"
-            popd > /dev/null
-            continue
-        fi
+            $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o em.tpr -maxwarn 2 \
+                > logs/grompp.log 2>&1
+            run_em em logs
 
-        # GROMACS analysis
-        log "Running GROMACS analysis tools..."
-        echo -e "ChainA\nChainB" | $GMX_BIN mindist -s em.tpr -f em.gro -n index.ndx -od analysis/mindist.xvg -on analysis/numcont.xvg -d 0.6 > logs/mindist.log 2>&1 || true
-        echo -e "ChainA\nChainB" | $GMX_BIN hbond -s em.tpr -f em.gro -n index.ndx -num analysis/hbonds.xvg > logs/hbond.log 2>&1 || true
-        echo "Protein" | $GMX_BIN sasa -s em.tpr -f em.gro -o analysis/sasa_complex.xvg > logs/sasa_complex.log 2>&1 || true
-        echo "ChainA" | $GMX_BIN sasa -s em.tpr -f em.gro -n index.ndx -o analysis/sasa_chainA.xvg > logs/sasa_A.log 2>&1 || true
-        echo "ChainB" | $GMX_BIN sasa -s em.tpr -f em.gro -n index.ndx -o analysis/sasa_chainB.xvg > logs/sasa_B.log 2>&1 || true
-        echo -e "Potential\nCoul-SR\nLJ-SR\n\n" | $GMX_BIN energy -f em.edr -o analysis/energies.xvg > logs/energy.log 2>&1 || true
+            if [[ ! -f em.gro ]]; then
+                log_error "[${STRUCT_NAME}] EM failed - em.gro not produced"
+                exit 1
+            fi
 
-        # Contact map and interface report
-        log "Generating contact map..."
-        python3 -m gromacs_utils.contact_map --workdir "$WORKDIR" --gro em.gro --pdb clean.pdb
-        log "Generating interface report..."
-        python3 -m gromacs_utils.interface_analyzer --workdir "$WORKDIR" --name "$STRUCT_NAME" --output "$WORKDIR"
+            echo -e "ChainA\nChainB" | $GMX_BIN mindist -s em.tpr -f em.gro -n index.ndx \
+                -od analysis/mindist.xvg -on analysis/numcont.xvg -d 0.6 \
+                > logs/mindist.log 2>&1 || true
+            echo -e "ChainA\nChainB" | $GMX_BIN hbond -s em.tpr -f em.gro -n index.ndx \
+                -num analysis/hbonds.xvg > logs/hbond.log 2>&1 || true
+            echo "Protein" | $GMX_BIN sasa -s em.tpr -f em.gro -o analysis/sasa_complex.xvg \
+                > logs/sasa_complex.log 2>&1 || true
+            echo "ChainA" | $GMX_BIN sasa -s em.tpr -f em.gro -n index.ndx \
+                -o analysis/sasa_chainA.xvg > logs/sasa_A.log 2>&1 || true
+            echo "ChainB" | $GMX_BIN sasa -s em.tpr -f em.gro -n index.ndx \
+                -o analysis/sasa_chainB.xvg > logs/sasa_B.log 2>&1 || true
+            echo -e "Potential\nCoul-SR\nLJ-SR\n\n" | $GMX_BIN energy -f em.edr \
+                -o analysis/energies.xvg > logs/energy.log 2>&1 || true
 
-        generate_visualization "$WORKDIR" interface
-        echo "Protein" | $GMX_BIN trjconv -s em.tpr -f em.gro -o structures/structure_minimized.pdb > logs/trjconv.log 2>&1 || true
+            python3 -m gromacs_utils.contact_map --workdir "$WORKDIR" --gro em.gro --pdb clean.pdb
+            python3 -m gromacs_utils.interface_analyzer --workdir "$WORKDIR" \
+                --name "$STRUCT_NAME" --output "$WORKDIR"
 
-        log "Generating plots..."
-        run_gnuplot_scripts plots
-        python3 -m gromacs_utils.cli generate-plots contact -i analysis/contact_map.txt -o plots/contact_map_heatmap.png 2>&1 || true
-        python3 -c "
+            generate_visualization "$WORKDIR" interface
+            echo "Protein" | $GMX_BIN trjconv -s em.tpr -f em.gro \
+                -o structures/structure_minimized.pdb > logs/trjconv.log 2>&1 || true
+
+            run_gnuplot_scripts plots
+            python3 -m gromacs_utils.cli generate-plots contact \
+                -i analysis/contact_map.txt -o plots/contact_map_heatmap.png 2>&1 || true
+            python3 -c "
 from gromacs_utils.plotting import plot_focused_contact_map
 plot_focused_contact_map('analysis/interface_residues.txt', 'plots/contact_map_focused.png', max_pairs=50)
 " 2>&1 || true
+        )
+        local rc=$?
+        local end_t; end_t=$(date +%s)
+        if (( rc == 0 )); then
+            log "  [${STRUCT_NAME}] done in $((end_t - start_t))s"
+            echo "OK" > "$IA_STATUS_DIR/${STRUCT_NAME}.status"
+        else
+            log_warn "  [${STRUCT_NAME}] failed (rc=$rc)"
+            echo "ERROR" > "$IA_STATUS_DIR/${STRUCT_NAME}.status"
+        fi
+        return $rc
+    }
 
-        popd > /dev/null
+    # Dispatch with bounded parallelism
+    local effective_parallel=$PARALLEL_STRUCTS
+    (( effective_parallel > ${#PDB_FILES[@]} )) && effective_parallel=${#PDB_FILES[@]}
+    log "Dispatching ${#PDB_FILES[@]} structures (${effective_parallel} parallel slots)"
 
-        local END_T=$(date +%s)
-        log "  ✓ Completed in $((END_T - START_T)) seconds"
-        PROCESSED=$((PROCESSED + 1))
-        echo ""
+    for PDB_INPUT in "${PDB_FILES[@]}"; do
+        wait_for_slot "$effective_parallel"
+        _ia_process_one "$PDB_INPUT" &
+    done
+    wait
+
+    # Tally status from per-structure files
+    local PROCESSED=0
+    for status_file in "$IA_STATUS_DIR"/*.status; do
+        [[ -f "$status_file" ]] || continue
+        [[ "$(< "$status_file")" == "OK" ]] && PROCESSED=$((PROCESSED + 1))
     done
 
     log_section "Interface Analysis Complete"
@@ -1115,6 +1213,11 @@ run_batch_comparison() {
     local NTHREADS
     NTHREADS=$(( MAX_THREADS > 0 ? MAX_THREADS : $(nproc) ))
 
+    # Parallel-structure dispatch (auto-derive from CPU budget when 0)
+    local PARALLEL_CFG=$(toml_get "step.batch_comparison.parallel_structures" "0")
+    local PARALLEL_STRUCTS
+    PARALLEL_STRUCTS=$(compute_parallel_slots "$PARALLEL_CFG" "$NTHREADS")
+
     local DATASETS=()
     while IFS= read -r ds; do
         [[ -n "$ds" ]] && DATASETS+=("$ds")
@@ -1129,7 +1232,84 @@ run_batch_comparison() {
     check_python_modules || return 1
 
     log "Datasets: ${DATASETS[*]}"
+    log "Parallelism: ${PARALLEL_STRUCTS} structures x ${NTHREADS} threads"
     echo ""
+
+    # Per-structure pipeline run inside a subshell so cwd, traps, and GROMACS
+    # state stay isolated across parallel jobs. All per-call settings come from
+    # the enclosing function's locals and are captured by the subshell at fork.
+    _bc_process_one() {
+        local struct_file="$1"
+        local output_dir="$2"
+        local struct_name struct_dir
+        struct_name=$(basename "$struct_file" | sed 's/\.[^.]*$//')
+        struct_dir="$output_dir/$struct_name"
+
+        if [[ "$OVERRIDE_EXISTING" != "true" && -f "$struct_dir/metrics.json" && -f "$struct_dir/em.gro" ]]; then
+            log "  [${struct_name}] already processed, skipping"
+            echo "OK" > "$struct_dir/status.txt"
+            return 0
+        fi
+
+        [[ "$OVERRIDE_EXISTING" == "true" && -d "$struct_dir" ]] && rm -rf "$struct_dir"
+        mkdir -p "$struct_dir"
+
+        log "  [${struct_name}] start"
+
+        (
+            set -uo pipefail
+            cd "$struct_dir" || exit 1
+
+            if ! python3 -m gromacs_utils.cli prepare-structure "$struct_file" -o clean.pdb; then
+                log_error "[${struct_name}] prepare-structure failed"
+                echo "ERROR" > status.txt
+                exit 1
+            fi
+
+            if ! $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro \
+                    -water "$WATERMODEL" -ff "$FORCEFIELD" -ignh > pdb2gmx.log 2>&1; then
+                log_error "[${struct_name}] pdb2gmx failed"
+                echo "ERROR" > status.txt
+                exit 1
+            fi
+
+            echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > make_ndx.log 2>&1
+            $GMX_BIN editconf -f protein.gro -o boxed.gro -c \
+                -d "$BOX_DISTANCE" -bt "$BOX_TYPE" > editconf.log 2>&1
+            $GMX_BIN solvate -cp boxed.gro -cs spc216.gro -o solvated.gro -p topol.top \
+                > solvate.log 2>&1
+
+            python3 -m gromacs_utils.cli generate-mdp em -o em.mdp \
+                --em-steps "$EM_STEPS" --em-tolerance 500.0
+
+            $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o em.tpr -maxwarn 3 \
+                > grompp.log 2>&1
+            run_em em .
+
+            if [[ ! -f em.gro ]]; then
+                log_error "[${struct_name}] EM failed - em.gro not produced"
+                echo "ERROR" > status.txt
+                exit 1
+            fi
+
+            echo -e "Potential\n\n" | $GMX_BIN energy -f em.edr -o energy.xvg \
+                > energy.log 2>&1 || true
+            echo "Protein" | $GMX_BIN gyrate -s em.tpr -f em.gro -o gyrate.xvg \
+                > gyrate.log 2>&1 || true
+            echo "Protein" | $GMX_BIN sasa -s em.tpr -f em.gro -o sasa.xvg \
+                > sasa.log 2>&1 || true
+
+            python3 -m gromacs_utils.cli extract-metrics --workdir . -o metrics.json
+            echo "OK" > status.txt
+        )
+        local rc=$?
+        if (( rc == 0 )); then
+            log "  [${struct_name}] done"
+        else
+            log_warn "  [${struct_name}] failed (see ${struct_dir}/status.txt)"
+        fi
+        return $rc
+    }
 
     for dataset_name in "${DATASETS[@]}"; do
         local input_dir="${INPUT_BASE}/${dataset_name}"
@@ -1145,7 +1325,6 @@ run_batch_comparison() {
         fi
 
         mkdir -p "$output_dir"
-        cd "$output_dir"
 
         mapfile -t STRUCTURES < <(find "$input_dir" -maxdepth 1 -type f \( -name "*.pdb" -o -name "*.cif" \) | sort)
 
@@ -1159,62 +1338,19 @@ run_batch_comparison() {
 
         local ds_start=$(date +%s)
 
+        # Dispatch with bounded parallelism. Cap at the number of structures
+        # so we never spawn idle slots, and stay within PARALLEL_STRUCTS.
+        local effective_parallel=$PARALLEL_STRUCTS
+        (( effective_parallel > ${#STRUCTURES[@]} )) && effective_parallel=${#STRUCTURES[@]}
+        log "Dispatching ${#STRUCTURES[@]} structures (${effective_parallel} parallel slots)"
+
         for struct_file in "${STRUCTURES[@]}"; do
-            local struct_name=$(basename "$struct_file" | sed 's/\.[^.]*$//')
-            local struct_dir="$output_dir/$struct_name"
-
-            log "Analyzing: $struct_name"
-
-            if [[ "$OVERRIDE_EXISTING" != "true" && -f "$struct_dir/metrics.json" && -f "$struct_dir/em.gro" ]]; then
-                log "  ✓ Already processed, skipping"
-                echo "OK" > "$struct_dir/status.txt"
-                continue
-            fi
-
-            [[ "$OVERRIDE_EXISTING" == "true" && -d "$struct_dir" ]] && rm -rf "$struct_dir"
-
-            mkdir -p "$struct_dir"
-            cd "$struct_dir"
-
-            if ! python3 -m gromacs_utils.cli prepare-structure "$struct_file" -o clean.pdb; then
-                log_error "Failed to prepare structure: $struct_file"
-                echo "ERROR" > status.txt
-                continue
-            fi
-
-            $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro -water $WATERMODEL -ff $FORCEFIELD -ignh > pdb2gmx.log 2>&1 || {
-                echo "ERROR" > status.txt
-                log "  Failed"
-                echo ""
-                continue
-            }
-
-            echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > make_ndx.log 2>&1
-            $GMX_BIN editconf -f protein.gro -o boxed.gro -c -d $BOX_DISTANCE -bt $BOX_TYPE > editconf.log 2>&1
-            $GMX_BIN solvate -cp boxed.gro -cs spc216.gro -o solvated.gro -p topol.top > solvate.log 2>&1
-
-            python3 -m gromacs_utils.cli generate-mdp em -o em.mdp --em-steps $EM_STEPS --em-tolerance 500.0
-
-            $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o em.tpr -maxwarn 3 > grompp.log 2>&1
-            run_em em .
-
-            if [[ ! -f em.gro ]]; then
-                log_error "EM failed - em.gro not produced for $struct_name"
-                echo "ERROR" > status.txt
-                continue
-            fi
-
-            echo -e "Potential\n\n" | $GMX_BIN energy -f em.edr -o energy.xvg > energy.log 2>&1 || true
-            echo "Protein" | $GMX_BIN gyrate -s em.tpr -f em.gro -o gyrate.xvg > gyrate.log 2>&1 || true
-            echo "Protein" | $GMX_BIN sasa -s em.tpr -f em.gro -o sasa.xvg > sasa.log 2>&1 || true
-
-            python3 -m gromacs_utils.cli extract-metrics --workdir . -o metrics.json
-            echo "OK" > status.txt
-            log "  ✓ Complete"
-            echo ""
+            wait_for_slot "$effective_parallel"
+            _bc_process_one "$struct_file" "$output_dir" &
         done
+        wait
 
-        # Generate comparison report
+        # Generate comparison report (sequential post-processing)
         log "Generating comparison report for $dataset_name..."
         cd "$output_dir"
         python3 -m gromacs_utils.cli batch-analysis --workdir "$output_dir" --plots
@@ -1222,7 +1358,7 @@ run_batch_comparison() {
 
         local ds_end=$(date +%s)
         log_section "$dataset_name Complete"
-        log "Time: $((ds_end - ds_start))s | Structures: ${#STRUCTURES[@]}"
+        log "Time: $((ds_end - ds_start))s | Structures: ${#STRUCTURES[@]} | Parallel: ${effective_parallel}"
         log "Output: $output_dir"
         head -15 "$output_dir/comparison_report.txt" 2>/dev/null || true
         echo ""

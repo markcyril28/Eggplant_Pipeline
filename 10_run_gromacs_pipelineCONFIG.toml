@@ -206,6 +206,9 @@ box_distance      = 1.5
 em_steps          = 10000
 gpu_id            = 0
 max_threads       = 16    # 64-thread server, single GPU; EM plateaus here
+# Number of structures processed concurrently. 0 = auto: floor(TOTAL_CPUS / max_threads), >= 1.
+# EM-only step. Multiple jobs share the GPU (queue serially); CPU prep parallelizes well.
+parallel_structures = 0
 
 # Uncomment to override structures for this step only:
 # [step.quick_stability.structures]
@@ -257,6 +260,9 @@ box_distance      = 1.5
 em_steps          = 50000
 gpu_id            = 0
 max_threads       = 16    # 64-thread server, single GPU; EM + IE rerun
+# Number of structures processed concurrently. 0 = auto: floor(TOTAL_CPUS / max_threads), >= 1.
+# EM-only step. Multiple jobs share the GPU (queue serially); CPU prep parallelizes well.
+parallel_structures = 0
 
 # Uncomment to override structures for this step only:
 # [step.interface_analysis.structures]
@@ -284,6 +290,15 @@ box_distance      = 1.5
 box_type          = "cubic"
 gpu_id            = 0
 max_threads       = 16    # 64-thread server, single GPU; light screening EM
+# Number of structures processed concurrently within a dataset.
+# 0 = auto: floor(TOTAL_CPUS / max_threads), clamped to >= 1.
+# Recommended: 4 on 64-core HPC (4 x 16 threads = 64 cores).
+# NOTE on GPU contention: with parallel_structures > 1, multiple mdrun jobs
+# share gpu_id and queue serially on the GPU. The wall-clock win comes mainly
+# from the CPU-bound prep phase (pdb2gmx, editconf, solvate, grompp). Lower
+# max_threads (e.g. 8) and raise parallel_structures (e.g. 8) to favour prep
+# parallelism over per-mdrun thread count.
+parallel_structures = 0
 
 [step.batch_comparison.datasets]
 # Dataset folder names (subdirs of paths.input_base).

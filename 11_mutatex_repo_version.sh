@@ -310,16 +310,41 @@ elif (( MAX_PARALLEL_PDBS_CFG > 0 )); then
   (( THREADS_PER_PDB < 1 )) && THREADS_PER_PDB=1
   log_info "Config: ${PARALLEL_PDBS} parallel PDBs × ${THREADS_PER_PDB} FoldX jobs (${TOTAL_CPUS} CPUs)"
 else
-  # Full auto-detect: saturate all CPUs aggressively
-  # FoldX is single-threaded → maximize parallelization.
-  # mutatex -p needs ≥2 parallel FoldX jobs for efficient scheduling.
-  # No hardcoded cap: scales from laptops (12-core) to servers (64+ core).
+  # Full auto-detect: saturate all CPUs aggressively.
+  # FoldX is single-threaded → maximize parallelization at every level.
+  #
+  # Wall time of a (P, T) layout ≈ ceil(N/P) / T (one wave-time per wave).
+  # Subject to P*T ≤ TOTAL_CPUS, T ≥ MIN_FOLDX_JOBS_PER_PDB, 1 ≤ P ≤ N.
+  # Equivalently, minimize work = ceil(N/P) * P (waves * concurrency);
+  # smaller work means fewer "wasted" CPU-slots in the tail wave.
+  #
+  # Greedy max-P (the previous heuristic) loses badly when N does not
+  # divide TOTAL_CPUS/T_min cleanly: e.g. N=7 PDBs on 12 CPUs gave
+  # P=6×T=2 (wall=2 unit-times) instead of optimal P=1×T=12 (wall=7/12).
+  # Scaling from laptops (12-core) to servers (64+ core) with no hardcoded cap.
   MIN_FOLDX_JOBS_PER_PDB=2
-  PARALLEL_PDBS=$(( TOTAL_CPUS / MIN_FOLDX_JOBS_PER_PDB ))
-  (( PARALLEL_PDBS < 1 )) && PARALLEL_PDBS=1
-  (( PARALLEL_PDBS > NUM_PDBS )) && PARALLEL_PDBS=$NUM_PDBS
-  THREADS_PER_PDB=$(( TOTAL_CPUS / PARALLEL_PDBS ))
-  log_info "Auto: ${TOTAL_CPUS} CPUs → ${PARALLEL_PDBS} parallel PDBs × ${THREADS_PER_PDB} FoldX jobs"
+  P_MAX_BY_T=$(( TOTAL_CPUS / MIN_FOLDX_JOBS_PER_PDB ))
+  (( P_MAX_BY_T < 1 )) && P_MAX_BY_T=1
+  P_MAX=$NUM_PDBS
+  (( P_MAX > P_MAX_BY_T )) && P_MAX=$P_MAX_BY_T
+
+  # Seed with P=1, T=TOTAL_CPUS (always valid; tiebreak prefers larger T).
+  PARALLEL_PDBS=1
+  THREADS_PER_PDB=$TOTAL_CPUS
+  BEST_WORK=$(( NUM_PDBS ))   # ceil(N/1) * 1
+
+  for (( _p = 2; _p <= P_MAX; _p++ )); do
+    _t=$(( TOTAL_CPUS / _p ))
+    (( _t < MIN_FOLDX_JOBS_PER_PDB )) && continue
+    _waves=$(( (NUM_PDBS + _p - 1) / _p ))
+    _work=$(( _waves * _p ))
+    # Strictly less work wins; ties keep the larger-T (smaller-P) seed.
+    if (( _work < BEST_WORK )); then
+      PARALLEL_PDBS=$_p; THREADS_PER_PDB=$_t; BEST_WORK=$_work
+    fi
+  done
+  WAVES=$(( (NUM_PDBS + PARALLEL_PDBS - 1) / PARALLEL_PDBS ))
+  log_info "Auto: ${TOTAL_CPUS} CPUs, ${NUM_PDBS} PDBs → ${PARALLEL_PDBS} parallel × ${THREADS_PER_PDB} FoldX jobs (${WAVES} waves)"
 fi
 
 # Per-PDB timeout to prevent infinite hangs (0 = no timeout)
@@ -354,9 +379,10 @@ fi
 # Status tracking via temp directory (works across subshells, unlike arrays)
 STATUS_DIR=$(mktemp -d)
 
-# Slot limiter: wait until a background slot is free
+# Slot limiter: wait until a background slot is free (parameterized).
 wait_for_slot() {
-  while (( $(jobs -rp | wc -l) >= PARALLEL_PDBS )); do
+  local limit="$1"
+  while (( $(jobs -rp | wc -l) >= limit )); do
     sleep 0.5
   done
 }
@@ -496,7 +522,7 @@ printf -v START_TIME '%(%s)T' -1
 log_step "Dispatching ${NUM_PDBS} PDBs (max ${PARALLEL_PDBS} in parallel, ${THREADS_PER_PDB} FoldX jobs each)"
 
 for pdb in "${PDB_FILES[@]}"; do
-  wait_for_slot
+  wait_for_slot "$PARALLEL_PDBS"
   process_single_pdb "$pdb" "$THREADS_PER_PDB" &
 done
 

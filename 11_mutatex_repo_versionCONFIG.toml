@@ -25,7 +25,7 @@ max_parallel_pdbs  = 0   # 0 = auto from CPU count
 
 [pipeline.compute.HPC]
 # 32-core (or larger) HPC node - saturate aggressively
-threads            = 0   # 0 = auto on HPC node
+threads            = 64   # 0 = auto on HPC node
 max_parallel_pdbs  = 0   # 0 = auto from CPU count
 
 [settings]

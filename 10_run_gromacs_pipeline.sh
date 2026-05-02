@@ -255,7 +255,7 @@ run_quick_stability() {
     local step_dir="$1"
 
     # Load settings
-    local OVERRIDE_EXISTING=$(toml_get "step.quick_stability.override_existing" "false")
+    local OVERRIDE_EXISTING=$(toml_get "step.quick_stability.override_existing" "$GLOBAL_OVERRIDE")
     local BOX_DISTANCE=$(toml_get "step.quick_stability.box_distance" "1.5")
     local EM_STEPS=$(toml_get "step.quick_stability.em_steps" "10000")
     local PROFILE_THREADS=$(toml_get "pipeline.compute.${MACHINE}.quick_stability" \
@@ -429,7 +429,7 @@ run_compare_chain_stability() {
     local step_dir="$1"
 
     # Load settings
-    local OVERRIDE_EXISTING=$(toml_get "step.compare_chain_stability.override_existing" "false")
+    local OVERRIDE_EXISTING=$(toml_get "step.compare_chain_stability.override_existing" "$GLOBAL_OVERRIDE")
     local MODE="${CLI_MODE:-$(toml_get "step.compare_chain_stability.mode" "full")}"
     local BOX_DISTANCE=$(toml_get "step.compare_chain_stability.box_distance" "1.5")
     local ION_CONCENTRATION=$(toml_get "step.compare_chain_stability.ion_concentration" "0.15")
@@ -578,6 +578,11 @@ run_compare_chain_stability() {
         log "Adding ions..."
         $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o ions.tpr -maxwarn 2 2>&1 | tee logs/grompp_ions.log
         echo "SOL" | $GMX_BIN genion -s ions.tpr -o ionized.gro -p topol.top -pname NA -nname CL -neutral -conc $ION_CONCENTRATION 2>&1 | tee logs/genion.log
+
+        # Regenerate index from the solvated/ionized system so tc-grps groups
+        # (Protein + Non-Protein) cover all atoms; chain-index re-appends ChainA/ChainB.
+        echo "q" | $GMX_BIN make_ndx -f ionized.gro -o index.ndx 2>&1 | tee logs/make_ndx_ionized.log
+        python3 -m gromacs_utils.cli chain-index --pdb clean.pdb --gro ionized.gro --index index.ndx
 
         log "Running energy minimization..."
         $GMX_BIN grompp -f em.mdp -c ionized.gro -p topol.top -o em.tpr 2>&1 | tee logs/grompp_em.log
@@ -811,7 +816,7 @@ for key, val in data.items():
 run_interface_analysis() {
     local step_dir="$1"
 
-    local OVERRIDE_EXISTING=$(toml_get "step.interface_analysis.override_existing" "false")
+    local OVERRIDE_EXISTING=$(toml_get "step.interface_analysis.override_existing" "$GLOBAL_OVERRIDE")
     local BOX_DISTANCE=$(toml_get "step.interface_analysis.box_distance" "1.5")
     local EM_STEPS=$(toml_get "step.interface_analysis.em_steps" "50000")
     local GPU_ID=$(toml_get "step.interface_analysis.gpu_id" "0")
@@ -935,7 +940,7 @@ plot_focused_contact_map('analysis/interface_residues.txt', 'plots/contact_map_f
 run_batch_comparison() {
     local step_dir="$1"
 
-    local OVERRIDE_EXISTING=$(toml_get "step.batch_comparison.override_existing" "false")
+    local OVERRIDE_EXISTING=$(toml_get "step.batch_comparison.override_existing" "$GLOBAL_OVERRIDE")
     local EM_STEPS=$(toml_get "step.batch_comparison.em_steps" "5000")
     local BOX_DISTANCE=$(toml_get "step.batch_comparison.box_distance" "1.5")
     local BOX_TYPE=$(toml_get "step.batch_comparison.box_type" "cubic")
@@ -1081,7 +1086,7 @@ run_production_md() {
     local step_dir="$1"
 
     # Load settings
-    local OVERRIDE_EXISTING=$(toml_get "step.production_md.override_existing" "false")
+    local OVERRIDE_EXISTING=$(toml_get "step.production_md.override_existing" "$GLOBAL_OVERRIDE")
     local MODE="${CLI_MODE:-$(toml_get "step.production_md.mode" "full")}"
     local BOX_DISTANCE=$(toml_get "step.production_md.box_distance" "1.2")
     local ION_CONCENTRATION=$(toml_get "step.production_md.ion_concentration" "0.15")
@@ -1231,6 +1236,11 @@ run_production_md() {
         log "Adding ions..."
         $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o ions.tpr -maxwarn 2 2>&1 | tee logs/grompp_ions.log
         echo "SOL" | $GMX_BIN genion -s ions.tpr -o ionized.gro -p topol.top -pname NA -nname CL -neutral -conc $ION_CONCENTRATION 2>&1 | tee logs/genion.log
+
+        # Regenerate index from the solvated/ionized system so tc-grps groups
+        # (Protein + Non-Protein) cover all atoms; chain-index re-appends ChainA/ChainB.
+        echo "q" | $GMX_BIN make_ndx -f ionized.gro -o index.ndx 2>&1 | tee logs/make_ndx_ionized.log
+        python3 -m gromacs_utils.cli chain-index --pdb clean.pdb --gro ionized.gro --index index.ndx
 
         log "Running energy minimization..."
         $GMX_BIN grompp -f em.mdp -c ionized.gro -p topol.top -o em.tpr 2>&1 | tee logs/grompp_em.log
@@ -1423,7 +1433,7 @@ run_visualize_results() {
     local step_dir="$1"
 
     # Load settings
-    local OVERRIDE_EXISTING=$(toml_get "step.visualize_results.override_existing" "false")
+    local OVERRIDE_EXISTING=$(toml_get "step.visualize_results.override_existing" "$GLOBAL_OVERRIDE")
     local DPI=$(toml_get "step.visualize_results.dpi" "150")
     local PLOT_FORMAT=$(toml_get "step.visualize_results.plot_format" "png")
     local MAX_CONTACT_PAIRS=$(toml_get "step.visualize_results.max_contact_pairs" "50")

@@ -103,6 +103,40 @@ forcefield  = "amber99sb-ildn"
 water_model = "tip3p"
 
 
+# ------------------------------------------------------------------------------
+# Trajectory outputs for visualization / video rendering
+#
+# By default the pipeline writes:
+#   md.gro                                (final frame coordinates)
+#   md.xtc                                (compressed trajectory)
+#   trajectories/md_center.xtc            (centered, PBC-corrected)
+#   structures/final_structure.pdb        (final frame as PDB)
+#
+# This section adds full-precision .trr and a multi-frame .pdb suitable for
+# loading into VMD / PyMOL / ChimeraX for video rendering. Increase strides to
+# trade resolution for file size.
+# ------------------------------------------------------------------------------
+
+[gromacs.trajectory]
+# .xtc save interval in MD steps (compressed coords; small, primary trajectory)
+nstxout_compressed = 500
+# .trr coordinate save interval in MD steps for production MD (0 = disabled).
+# Set to a multiple of nstxout_compressed (e.g., 5000) for a coarse but
+# full-precision .trr alongside the .xtc.
+nstxout_md         = 5000
+# .trr velocity save interval (steps); usually equal to nstxout_md or 0.
+nstvout_md         = 0
+# When true, after production MD runs trjconv to produce a downsampled
+# multi-frame trajectories/md_traj.pdb for direct use in video tools that
+# do not read .xtc/.trr. Stride is the number of XTC frames between PDB frames.
+write_pdb_trajectory = true
+pdb_trajectory_stride = 10
+# When true, copy md.gro / md.xtc / md.trr (if present) into the structured
+# {structures, trajectories} subfolders next to final_structure.pdb so a
+# complete .xtc/.trr/.gro/.pdb set is available for video visualization.
+promote_raw_outputs  = true
+
+
 # ==============================================================================
 # STRUCTURES - loaded from config/<GENE_GROUP>/h_protein_structure_analysis_<GENE_GROUP>.toml
 # ([ppi_structures].active). Per-step overrides still available below.

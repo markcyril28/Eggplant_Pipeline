@@ -104,6 +104,14 @@ FORCEFIELD=$(toml_get "gromacs.forcefield" "amber99sb-ildn")
 WATERMODEL=$(toml_get "gromacs.water_model" "tip3p")
 export FORCEFIELD WATERMODEL
 
+# Trajectory output controls (for .xtc/.trr/.gro/.pdb video visualization)
+NSTXOUT_COMPRESSED=$(toml_get "gromacs.trajectory.nstxout_compressed" "500")
+NSTXOUT_MD=$(toml_get "gromacs.trajectory.nstxout_md" "0")
+NSTVOUT_MD=$(toml_get "gromacs.trajectory.nstvout_md" "0")
+WRITE_PDB_TRAJ=$(toml_get "gromacs.trajectory.write_pdb_trajectory" "false")
+PDB_TRAJ_STRIDE=$(toml_get "gromacs.trajectory.pdb_trajectory_stride" "10")
+PROMOTE_RAW_OUTPUTS=$(toml_get "gromacs.trajectory.promote_raw_outputs" "true")
+
 # Build steps list: CLI overrides TOML
 STEPS=()
 if [[ -n "$CLI_STEPS" ]]; then
@@ -245,6 +253,38 @@ write_manifest() {
             echo "structure_$((i+1))  $(basename "${pdb_list[$i]}")"
         done
     } > "${outdir}/MANIFEST.txt"
+}
+
+#------------------------------------------------------------------------------
+# HELPER: Emit a complete .xtc/.trr/.gro/.pdb asset set for video visualization
+#
+# Called from inside an MD work directory (caller already cd'd via pushd) after
+# md.tpr / md.xtc / md.gro exist. Promotes raw GROMACS outputs into the
+# standardized {structures, trajectories} subfolders and, when configured,
+# writes a downsampled multi-frame .pdb suitable for VMD/PyMOL/ChimeraX video.
+# Safe no-op when toggles are disabled or required inputs are missing.
+#------------------------------------------------------------------------------
+
+_emit_video_assets() {
+    local outdir="$1"
+    local trajdir="${outdir}/trajectories"
+    local structdir="${outdir}/structures"
+    mkdir -p "$trajdir" "$structdir"
+
+    if [[ "$PROMOTE_RAW_OUTPUTS" == "true" ]]; then
+        [[ -f md.gro ]] && cp -f md.gro "$structdir/md.gro"
+        [[ -f md.xtc ]] && cp -f md.xtc "$trajdir/md.xtc"
+        [[ -f md.trr ]] && cp -f md.trr "$trajdir/md.trr"
+    fi
+
+    # Multi-frame PDB for video tools that don't read .xtc/.trr.
+    # Skip if user disabled it, .xtc is missing, or output already exists.
+    if [[ "$WRITE_PDB_TRAJ" == "true" && -f md.xtc && -f md.tpr && ! -f "$trajdir/md_traj.pdb" ]]; then
+        local stride="${PDB_TRAJ_STRIDE:-10}"
+        echo "Protein" | $GMX_BIN trjconv -s md.tpr -f md.xtc \
+            -o "$trajdir/md_traj.pdb" -skip "$stride" -pbc mol \
+            >> logs/trjconv.log 2>&1 || true
+    fi
 }
 
 #------------------------------------------------------------------------------
@@ -573,7 +613,9 @@ run_compare_chain_stability() {
 
         log "Generating MDP files..."
         python3 -m gromacs_utils.cli generate-mdp all -o . \
-            --em-steps $EM_STEPS --nvt-steps $NVT_STEPS --npt-steps $NPT_STEPS --md-steps $MD_STEPS
+            --em-steps $EM_STEPS --nvt-steps $NVT_STEPS --npt-steps $NPT_STEPS --md-steps $MD_STEPS \
+            --nstxout-compressed "$NSTXOUT_COMPRESSED" \
+            --nstxout-md "$NSTXOUT_MD" --nstvout-md "$NSTVOUT_MD"
 
         log "Adding ions..."
         $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o ions.tpr -maxwarn 2 2>&1 | tee logs/grompp_ions.log
@@ -654,6 +696,7 @@ run_compare_chain_stability() {
         pushd "$outdir" > /dev/null
         echo "Protein Protein" | $GMX_BIN trjconv -s md.tpr -f md.xtc -o trajectories/md_center.xtc -center -pbc mol 2>&1 | tee logs/trjconv.log || true
         echo "Protein" | $GMX_BIN trjconv -s md.tpr -f md.gro -o structures/final_structure.pdb >> logs/trjconv.log 2>&1 || true
+        _emit_video_assets "$outdir"
         echo "Backbone Backbone" | $GMX_BIN rms -s md.tpr -f trajectories/md_center.xtc -o analysis/rmsd.xvg -tu ps > logs/rmsd.log 2>&1 || true
         echo "Backbone" | $GMX_BIN rmsf -s md.tpr -f trajectories/md_center.xtc -o analysis/rmsf.xvg -res > logs/rmsf.log 2>&1 || true
         echo "Protein" | $GMX_BIN gyrate -s md.tpr -f trajectories/md_center.xtc -o analysis/gyrate.xvg > logs/gyrate.log 2>&1 || true
@@ -1231,7 +1274,9 @@ run_production_md() {
 
         log "Generating MDP files..."
         python3 -m gromacs_utils.cli generate-mdp all -o . \
-            --em-steps $EM_STEPS --nvt-steps $NVT_STEPS --npt-steps $NPT_STEPS --md-steps $MD_STEPS
+            --em-steps $EM_STEPS --nvt-steps $NVT_STEPS --npt-steps $NPT_STEPS --md-steps $MD_STEPS \
+            --nstxout-compressed "$NSTXOUT_COMPRESSED" \
+            --nstxout-md "$NSTXOUT_MD" --nstvout-md "$NSTVOUT_MD"
 
         log "Adding ions..."
         $GMX_BIN grompp -f em.mdp -c solvated.gro -p topol.top -o ions.tpr -maxwarn 2 2>&1 | tee logs/grompp_ions.log
@@ -1292,6 +1337,7 @@ run_production_md() {
         pushd "$outdir" > /dev/null
         echo "Protein Protein" | $GMX_BIN trjconv -s md.tpr -f md.xtc -o trajectories/md_center.xtc -center -pbc mol 2>&1 | tee logs/trjconv.log || true
         echo "Protein" | $GMX_BIN trjconv -s md.tpr -f md.gro -o structures/final_structure.pdb >> logs/trjconv.log 2>&1 || true
+        _emit_video_assets "$outdir"
         echo "Backbone Backbone" | $GMX_BIN rms -s md.tpr -f trajectories/md_center.xtc -o analysis/rmsd.xvg -tu ps > logs/rmsd.log 2>&1 || true
         echo "Backbone" | $GMX_BIN rmsf -s md.tpr -f trajectories/md_center.xtc -o analysis/rmsf.xvg -res > logs/rmsf.log 2>&1 || true
         echo "Protein" | $GMX_BIN gyrate -s md.tpr -f trajectories/md_center.xtc -o analysis/gyrate.xvg > logs/gyrate.log 2>&1 || true

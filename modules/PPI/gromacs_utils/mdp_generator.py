@@ -38,6 +38,12 @@ class MDPConfig:
     nstenergy: int = 500
     nstlog: int = 500
     nstxout_compressed: int = 500
+
+    # Production-MD overrides for full-precision trajectory.
+    # Default 0 (no .trr) keeps the legacy behavior of relying on .xtc only;
+    # set non-zero to write .trr for video / full-precision visualization.
+    nstxout_md: int = 0
+    nstvout_md: int = 0
     
     # Cutoffs
     rcoulomb: float = 1.2  # nm
@@ -271,8 +277,8 @@ nsteps          = {cfg.md_steps}        ; {cfg.md_steps * cfg.timestep:.0f} ps
 dt              = {cfg.timestep}         ; {cfg.timestep * 1000:.0f} fs timestep
 
 ; Output control
-nstxout         = 0             ; Don't save .trr coordinates (use .xtc)
-nstvout         = 0             ; Don't save .trr velocities
+nstxout         = {cfg.nstxout_md}             ; Full-precision .trr coords (0 = disabled, write .xtc only)
+nstvout         = {cfg.nstvout_md}             ; Full-precision .trr velocities (0 = disabled)
 nstfout         = 0             ; Don't save forces
 nstenergy       = {cfg.nstenergy}           ; Save energies
 nstlog          = {cfg.nstlog}           ; Update log file
@@ -421,15 +427,24 @@ if __name__ == '__main__':
     parser.add_argument('--npt-steps', type=int, default=50000, help='NPT steps')
     parser.add_argument('--md-steps', type=int, default=250000, help='MD steps')
     parser.add_argument('--temperature', type=float, default=300, help='Temperature (K)')
-    
+    parser.add_argument('--nstxout-compressed', type=int, default=500,
+                        help='.xtc coordinate save interval (steps)')
+    parser.add_argument('--nstxout-md', type=int, default=0,
+                        help='.trr coordinate save interval for production MD (0=disabled)')
+    parser.add_argument('--nstvout-md', type=int, default=0,
+                        help='.trr velocity save interval for production MD (0=disabled)')
+
     args = parser.parse_args()
-    
+
     config = MDPConfig(
         em_steps=args.em_steps,
         nvt_steps=args.nvt_steps,
         npt_steps=args.npt_steps,
         md_steps=args.md_steps,
-        temperature=args.temperature
+        temperature=args.temperature,
+        nstxout_compressed=args.nstxout_compressed,
+        nstxout_md=args.nstxout_md,
+        nstvout_md=args.nstvout_md,
     )
     
     if args.type == 'all':

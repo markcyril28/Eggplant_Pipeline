@@ -41,7 +41,10 @@ def cmd_generate_mdp(args):
         nvt_steps=args.nvt_steps,
         npt_steps=args.npt_steps,
         md_steps=args.md_steps,
-        temperature=args.temperature
+        temperature=args.temperature,
+        nstxout_compressed=args.nstxout_compressed,
+        nstxout_md=args.nstxout_md,
+        nstvout_md=args.nstvout_md,
     )
     
     if args.type == 'all':
@@ -277,6 +280,12 @@ def main():
     p.add_argument('--npt-steps', type=int, default=50000)
     p.add_argument('--md-steps', type=int, default=250000)
     p.add_argument('--temperature', type=float, default=300.0)
+    p.add_argument('--nstxout-compressed', type=int, default=500,
+                   help='.xtc save interval in steps')
+    p.add_argument('--nstxout-md', type=int, default=0,
+                   help='.trr coordinate save interval for production MD (0 = disabled)')
+    p.add_argument('--nstvout-md', type=int, default=0,
+                   help='.trr velocity save interval for production MD (0 = disabled)')
     p.set_defaults(func=cmd_generate_mdp)
     
     # extract-metrics

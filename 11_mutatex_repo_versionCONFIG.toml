@@ -5,14 +5,33 @@
 # Values here override common.toml defaults.
 # ==============================================================================
 
-[settings]
+# ==============================================================================
+# Compute profile (mirrors the 05_phylo pattern).
+#
 # FoldX is single-threaded; mutatex -p controls parallel FoldX jobs.
-# 0 = auto-detect: uses all available CPUs, splits across parallel PDB jobs.
-threads            = 8
+# `threads` here = explicit FoldX jobs per PDB; >0 forces 1 PDB at a time.
+# `max_parallel_pdbs` = max PDBs processed concurrently.
+# Either key set to 0 triggers full auto-detect via nproc in the orchestrator.
+#
+# Switch by editing `machine` below; do NOT edit 11_mutatex_repo_version.sh.
+# ==============================================================================
+[pipeline]
+machine = "Local"  # "Local" or "HPC" - selects compute profile below
+
+[pipeline.compute.Local]
+# 12-core laptop / workstation default
+threads            = 0   # 0 = auto-detect; >0 = explicit FoldX jobs per PDB
+max_parallel_pdbs  = 0   # 0 = auto from CPU count
+
+[pipeline.compute.HPC]
+# 32-core (or larger) HPC node - saturate aggressively
+threads            = 0   # 0 = auto on HPC node
+max_parallel_pdbs  = 0   # 0 = auto from CPU count
+
+[settings]
+# Non-machine-specific runtime parameters.
 nruns              = 3
 force_rerun        = false
-# 0 = auto-determined from CPU count and number of PDBs
-max_parallel_pdbs  = 0
 # Per-PDB timeout in hours (prevents infinite hangs). 0 = no timeout.
 per_pdb_timeout_hours = 48
 # Parallel workers for post-processing Python scripts (extraction + visualization).

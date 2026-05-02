@@ -16,19 +16,26 @@ CONFIG_DIR="${SCRIPT_DIR}/config/PPI"
 load_config "${SCRIPT_DIR}/11_mutatex_repo_versionCONFIG.toml"
 
 # ------------------------------------------------------------------------------
-# Bulk-load scalar config (single Python3 invocation instead of 8 forks)
+# Select compute profile (Local vs HPC) - same pattern as 05_phyloCONFIG.toml.
+# Edit `machine` in the TOML to switch profiles; do not edit this script.
+# ------------------------------------------------------------------------------
+MACHINE="$(toml_get "pipeline.machine" "Local")"
+
+# ------------------------------------------------------------------------------
+# Bulk-load scalar config (single Python3 invocation instead of N forks).
+# Compute keys (threads, max_parallel_pdbs) come from the selected machine profile.
 # ------------------------------------------------------------------------------
 eval "$(toml_get_bulk \
     _cfg_env=environment.conda_env:PPI \
     "_cfg_results=paths.results_dir:III_RESULT/${GENE_GROUP}/11_PPI_MutateX" \
-    _cfg_threads=settings.threads:0 \
+    "_cfg_threads=pipeline.compute.${MACHINE}.threads:0" \
     _cfg_nruns=settings.nruns:3 \
     _cfg_force=settings.force_rerun:true \
     _cfg_cleanup=cleanup.enabled:true \
     _cfg_interval=cleanup.worker_interval_seconds:30 \
     _cfg_debug=settings.debug.debug_mode:true \
     _cfg_verbose=settings.debug.verbose_logging:true \
-    _cfg_max_parallel_pdbs=settings.max_parallel_pdbs:0 \
+    "_cfg_max_parallel_pdbs=pipeline.compute.${MACHINE}.max_parallel_pdbs:0" \
     _cfg_timeout_hours=settings.per_pdb_timeout_hours:48 \
     _cfg_pp_workers=settings.post_processing_workers:0 \
 )"
@@ -275,6 +282,8 @@ TOTAL_CPUS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 (( TOTAL_CPUS < 1 )) && TOTAL_CPUS=1
 NUM_PDBS=${#PDB_FILES[@]}
 
+log_info "Compute profile: ${MACHINE} (threads=${THREADS_CFG}, max_parallel_pdbs=${MAX_PARALLEL_PDBS_CFG})"
+
 if (( NUM_PDBS == 0 )); then
   log_error "No active PDB files found. Check [structures].active in $CONFIG_DIR/mutatex/a_mutatex.toml"
   _dump_section "CONFIGURATION ERROR" \
@@ -327,6 +336,7 @@ log_info "Runs per mutation: $NRUNS"
 if [[ "$DEBUG_MODE" == "true" ]]; then
   dump_foldx_info
   _dump_section "PARALLELISM CONFIG" \
+    "Compute profile: $MACHINE" \
     "Total CPUs: $TOTAL_CPUS" \
     "FoldX optimal threads: $FOLDX_OPTIMAL_THREADS (single-threaded)" \
     "Parallel PDBs: $PARALLEL_PDBS" \

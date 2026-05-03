@@ -519,8 +519,11 @@ run_quick_stability() {
             # chain_parser uses PDB column offsets; pass clean.pdb (raw may be CIF).
             get_chain_info clean.pdb "$outdir"
 
+            # Redirect stdin from /dev/null so chain-merge prompts on multi-chain
+            # PDBs fail loudly instead of blocking forever in parallel subshells.
             $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro \
-                -water "$WATERMODEL" -ff "$FORCEFIELD" -ignh > logs/pdb2gmx.log 2>&1
+                -water "$WATERMODEL" -ff "$FORCEFIELD" -ignh \
+                </dev/null > logs/pdb2gmx.log 2>&1
             echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > logs/make_ndx.log 2>&1
             create_chain_index clean.pdb protein.gro index.ndx
 
@@ -1109,8 +1112,11 @@ run_interface_analysis() {
                 log_error "[${STRUCT_NAME}] prepare-structure failed: $pdb_input"
                 exit 1
             fi
+            # Redirect stdin from /dev/null so chain-merge prompts on multi-chain
+            # PDBs fail loudly instead of blocking forever in parallel subshells.
             $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro \
-                -water "$WATERMODEL" -ff "$FORCEFIELD" -ignh > logs/pdb2gmx.log 2>&1
+                -water "$WATERMODEL" -ff "$FORCEFIELD" -ignh \
+                </dev/null > logs/pdb2gmx.log 2>&1
             echo "q" | $GMX_BIN make_ndx -f protein.gro -o index.ndx > logs/make_ndx.log 2>&1
             create_chain_index clean.pdb protein.gro index.ndx
 
@@ -1266,8 +1272,11 @@ run_batch_comparison() {
                 exit 1
             fi
 
+            # Redirect stdin from /dev/null so chain-merge prompts on multi-chain
+            # PDBs fail loudly instead of blocking forever in parallel subshells.
             if ! $GMX_BIN pdb2gmx -f clean.pdb -o protein.gro \
-                    -water "$WATERMODEL" -ff "$FORCEFIELD" -ignh > pdb2gmx.log 2>&1; then
+                    -water "$WATERMODEL" -ff "$FORCEFIELD" -ignh \
+                    </dev/null > pdb2gmx.log 2>&1; then
                 log_error "[${struct_name}] pdb2gmx failed"
                 echo "ERROR" > status.txt
                 exit 1

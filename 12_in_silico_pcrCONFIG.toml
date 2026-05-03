@@ -1,0 +1,118 @@
+# ============================================================================
+# Shared Pipeline Configuration — 12_In_Silico_PCR (MFEprimer + isPcr)
+# ============================================================================
+# Two engines are run side-by-side so results can be cross-validated:
+#
+#   1. MFEprimer-3.0   (https://github.com/quwubin/MFEprimer-3.0)
+#      DOI: 10.1093/nar/gkz351
+#      Conda:  conda install -c bioconda mfeprimer
+#      - k-mer indexed (~9), supports degenerate primers
+#      - reports amplicon coordinates, Tm, dG, dimer/hairpin energies
+#
+#   2. isPcr (UCSC, Jim Kent)  (https://hgdownload.soe.ucsc.edu/admin/exe/)
+#      Source: kent source utilities (BSD-style license)
+#      Binary download:
+#          bash modules/12_in_silico_pcr/download_ispcr.sh
+#      - precompiled binary, no conda package
+#      - blazing fast via .ooc index, outputs amplicon FASTA
+#
+# Consumer:
+#   12_In_Silico_PCR.sh  (primary — reads all keys)
+# ============================================================================
+
+[pipeline]
+gene_groups   = [
+    "DMP",
+    #"HAP2",
+    #"GRF_GIF",
+]
+
+machine       = "Local"   # "Local" or "HPC"
+overwrite     = true
+
+[pipeline.compute.Local]
+threads       = 12
+max_parallel  = 6         # both engines are fast; run multiple jobs at once
+
+[pipeline.compute.HPC]
+threads       = 32
+max_parallel  = 8
+
+
+[general]
+base_dir      = "III_RESULT/DMP"   # interpolated per gene group at runtime
+
+
+# ============================================================================
+# In silico PCR — engine and reaction parameters
+# ============================================================================
+[in_silico_pcr]
+enabled       = true
+
+# ── In silico PCR engines — comment in/out to choose which to run ──────────
+# MFEprimer = thermodynamics-aware k-mer search (bioconda::mfeprimer)
+# isPcr     = UCSC fast amplicon finder (downloaded binary)
+engines       = [
+    "mfeprimer",      # MFEprimer-3.0  — Tm/dG/dimer/hairpin reporting
+    "ispcr",          # UCSC isPcr     — fastest, amplicon FASTA out
+]
+
+# Workflow stages. index_genomes / summarize wrap whichever engines are
+# selected above; comment them out only to skip indexing or summary.
+operations    = [
+    "index_genomes",   # build MFEprimer .ufm + isPcr .ooc per genome
+    "run_engines",     # run every engine listed in `engines = [...]`
+    "summarize",       # combine amplicons per primer set across genomes
+]
+
+# ── Target genomes (parallel arrays — names[i] uses fastas[i]) ─────────────
+[in_silico_pcr.genomes]
+names  = [
+    "Solanum_melongena_v4.1",
+    "GPE001970_SMEL5",
+]
+fastas = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970.fa",
+]
+
+# ── Primer sets ────────────────────────────────────────────────────────────
+# Each primer set is a TSV with header:
+#   primer_id<TAB>forward<TAB>reverse<TAB>expected_size
+# expected_size may be left blank.
+[in_silico_pcr.primers]
+set_names = [
+    "DMP_validation_primers",
+    # "HAP2_validation_primers",
+]
+set_files = [
+    "II_INPUTS/12_PCR_Primers/DMP_validation_primers.tsv",
+    # "II_INPUTS/12_PCR_Primers/HAP2_validation_primers.tsv",
+]
+
+# ── MFEprimer parameters ───────────────────────────────────────────────────
+# Reference: https://www.mfeprimer.com/mfeprimer-3.1/usage.html
+[in_silico_pcr.mfeprimer]
+index_k       = 9       # --k     k-mer size for genome index (8–11; 9 is balanced)
+min_amplicon  = 75      # --min   minimum amplicon size (bp)
+max_amplicon  = 1000    # --max   maximum amplicon size (bp)
+misEnd        = 3       # --misEnd  allowed 3'-end mismatches (0 = strict)
+divalent      = 1.5     # --divalent  Mg2+ concentration (mM)
+monovalent    = 50      # --monovalent  Na+/K+ concentration (mM)
+dntp          = 0.25    # --dntp    dNTP concentration (mM)
+oligo         = 50      # --oligo   primer concentration (nM)
+
+# ── UCSC isPcr parameters ──────────────────────────────────────────────────
+# Reference: kent source / https://users.soe.ucsc.edu/~kent/src/
+[in_silico_pcr.ispcr]
+binary        = "modules/12_in_silico_pcr/bin/isPcr"  # path relative to PIPELINE_DIR
+min_amplicon  = 75      # -minSize=    minimum product size (bp)
+max_amplicon  = 4000    # -maxSize=    maximum product size (bp)
+min_perfect   = 15      # -minPerfect= minimum perfect match at 3' end
+min_good      = 15      # -minGood=    minimum 'good' match (allowing some MM)
+tile_size     = 11      # -tileSize=   index tile size (must match .ooc)
+flip_reverse  = true    # -flipReverse  reverse-complement reverse primer in output
+
+# ── isPcr .ooc index parameters (built once per genome) ────────────────────
+ooc_tile_size = 11      # must equal tile_size above
+ooc_repeat    = 1024    # threshold for marking repeated tiles

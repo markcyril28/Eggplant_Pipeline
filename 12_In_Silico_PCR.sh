@@ -17,8 +17,7 @@
 #
 # Operations (configured via [in_silico_pcr].operations in TOML):
 #   index_genomes  — build MFEprimer index (.ufm) + isPcr .ooc per genome
-#   mfeprimer      — run MFEprimer against each genome
-#   ispcr          — run UCSC isPcr against each genome
+#   run_engines    — run all engines listed in `engines = [...]` (mfeprimer, ispcr)
 #   summarize      — merge per-genome results into one TSV per primer set
 #
 # Output layout under III_RESULT/{GROUP}/12_In_Silico_PCR/{genome}/:
@@ -142,6 +141,8 @@ fi
 
 ISPCR_BIN=$(get_toml in_silico_pcr ispcr binary 2>/dev/null \
     || echo "$PIPELINE_DIR/modules/12_in_silico_pcr/bin/isPcr")
+# Resolve to absolute path if TOML returned a relative value
+[[ "$ISPCR_BIN" != /* ]] && ISPCR_BIN="$PIPELINE_DIR/$ISPCR_BIN"
 
 log_step "In Silico PCR Pipeline: $GENE_GROUP"
 log_info "Operations: ${OPERATIONS[*]}"
@@ -187,6 +188,7 @@ if op_enabled "run_engines" && engine_enabled "mfeprimer"; then
     MFE_MIN_AMPLICON=$(get_toml in_silico_pcr mfeprimer min_amplicon 2>/dev/null || echo "75")
     MFE_MAX_AMPLICON=$(get_toml in_silico_pcr mfeprimer max_amplicon 2>/dev/null || echo "1000")
     MFE_MIS_END=$(get_toml in_silico_pcr mfeprimer misEnd 2>/dev/null || echo "3")
+    MFE_INDEX_K=$(get_toml in_silico_pcr mfeprimer index_k 2>/dev/null || echo "9")
     MFE_DIVALENT=$(get_toml in_silico_pcr mfeprimer divalent 2>/dev/null || echo "1.5")
     MFE_MONOVALENT=$(get_toml in_silico_pcr mfeprimer monovalent 2>/dev/null || echo "50")
     MFE_DNTP=$(get_toml in_silico_pcr mfeprimer dntp 2>/dev/null || echo "0.25")
@@ -211,6 +213,7 @@ if op_enabled "run_engines" && engine_enabled "mfeprimer"; then
                 --min-amplicon "$MFE_MIN_AMPLICON" \
                 --max-amplicon "$MFE_MAX_AMPLICON" \
                 --mis-end      "$MFE_MIS_END" \
+                --index-k      "$MFE_INDEX_K" \
                 --divalent     "$MFE_DIVALENT" \
                 --monovalent   "$MFE_MONOVALENT" \
                 --dntp         "$MFE_DNTP" \
@@ -249,7 +252,7 @@ if op_enabled "run_engines" && engine_enabled "ispcr"; then
             for j in "${!PRIMER_SET_NAMES[@]}"; do
                 set_name="${PRIMER_SET_NAMES[$j]}"
                 primers_tsv="$PIPELINE_DIR/${PRIMER_SET_FILES[$j]}"
-                [[ -f "$primers_tsv" ]] || continue
+                [[ -f "$primers_tsv" ]] || { log_warn "primers TSV not found: $primers_tsv"; continue; }
                 wait_for_slot "$MAX_PARALLEL"
                 bash "$MODULES/12_in_silico_pcr/ispcr_run.sh" \
                     --primers-tsv "$primers_tsv" \

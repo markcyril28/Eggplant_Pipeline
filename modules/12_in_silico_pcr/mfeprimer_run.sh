@@ -13,7 +13,7 @@
 set -euo pipefail
 
 PRIMERS_TSV="" SET_NAME="" INDEX_DIR="" GENOME_NAME="" OUTDIR=""
-MIN_AMP="75" MAX_AMP="1000" MIS_END="3"
+MIN_AMP="75" MAX_AMP="1000" MIS_END="3" INDEX_K="9"
 DIVALENT="1.5" MONOVALENT="50" DNTP="0.25" OLIGO="50"
 THREADS="4" OVERWRITE="true"
 
@@ -32,6 +32,7 @@ while [[ $# -gt 0 ]]; do
         --dntp)         DNTP="$2"; shift 2 ;;
         --oligo)        OLIGO="$2"; shift 2 ;;
         --threads)      THREADS="$2"; shift 2 ;;
+        --index-k)      INDEX_K="$2"; shift 2 ;;
         --overwrite)    OVERWRITE="$2"; shift 2 ;;
         *) echo "[mfeprimer_run] unknown arg: $1" >&2; exit 2 ;;
     esac
@@ -101,9 +102,9 @@ echo "[mfeprimer_run] $MFE_BIN spec  primers=$(grep -c '^>' "$primers_fa") set=$
 "$MFE_BIN" spec \
     -i "$primers_fa" \
     -d "$indexed_fa" \
-    -k "$(basename "$ufm_target" .ufm | awk '{print "9"}')" \
+    -k "$INDEX_K" \
     -S "$MAX_AMP" -s "$MIN_AMP" \
-    -t "$MIS_END" \
+    --misEnd "$MIS_END" \
     --divalent "$DIVALENT" --monovalent "$MONOVALENT" \
     --dntp "$DNTP" --oligo "$OLIGO" \
     -c "$THREADS" \

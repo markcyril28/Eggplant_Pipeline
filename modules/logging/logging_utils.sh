@@ -69,6 +69,11 @@ SPACE_TIME_FILE="${SPACE_TIME_FILE:-$SPACE_TIME_DIR/${RUN_ID}_${PIPELINE_NAME}_c
 ERROR_WARN_FILE="${ERROR_WARN_FILE:-$ERROR_WARN_DIR/${RUN_ID}_${PIPELINE_NAME}_errors_warnings.log}"
 SOFTWARE_FILE="${SOFTWARE_FILE:-$SOFTWARE_CATALOG_DIR/${RUN_ID}_${PIPELINE_NAME}_software_catalog.csv}"
 GPU_LOG_FILE="${GPU_LOG_FILE:-$GPU_LOG_DIR/${RUN_ID}_${PIPELINE_NAME}_gpu.log}"
+# xtrace log: when bash is invoked with -x or `set -x` is active, route trace
+# output (the "+ cmd..." stream) to its own file via BASH_XTRACEFD so it does
+# not pollute the main human-readable log captured by tee.
+XTRACE_LOG_DIR="${XTRACE_LOG_DIR:-${LOG_DIR%/log_files}/xtrace_logs}"
+XTRACE_LOG_FILE="${XTRACE_LOG_FILE:-$XTRACE_LOG_DIR/${RUN_ID}_${PIPELINE_NAME}_xtrace.log}"
 
 # Detect GNU time binary at module load (O(1) per session, avoids per-call PATH lookup)
 # Linux: /usr/bin/time; macOS (Homebrew): gtime; fallback: run command without time wrapper
@@ -185,6 +190,26 @@ _logging_cleanup_bg() {
 	_LOGGING_BG_PIDS=()
 }
 
+_logging_setup_xtrace_redirect() {
+	# When the shell is running with xtrace enabled (bash -x or `set -x`), redirect
+	# the trace stream to its own file via BASH_XTRACEFD so that subsequent
+	# stderr-capture (tee → LOG_FILE) does not record every "+ cmd..." line.
+	# Skip if the user already pinned BASH_XTRACEFD before sourcing.
+	[[ "$-" == *x* ]] || return 0
+	[[ -n "${_LOGGING_XTRACE_FD_OPEN:-}" ]] && return 0
+	[[ -n "${BASH_XTRACEFD:-}" && "$BASH_XTRACEFD" != "5" ]] && return 0
+
+	mkdir -p "${XTRACE_LOG_FILE%/*}" 2>/dev/null || return 0
+	# Open fd 5 in append mode for trace output.
+	if exec 5>>"$XTRACE_LOG_FILE" 2>/dev/null; then
+		BASH_XTRACEFD=5
+		export BASH_XTRACEFD
+		# Informative trace prefix: file:line:function
+		PS4='+ ${BASH_SOURCE##*/}:${LINENO}:${FUNCNAME[0]:-main}: '
+		_LOGGING_XTRACE_FD_OPEN="true"
+	fi
+}
+
 _logging_setup_redirect() {
 	# Redirect stdout to /dev/tty (or /dev/null) BEFORE killing the old tee process.
 	# Without this, fd 1 still points to the dead pipe after the kill, and any
@@ -193,6 +218,9 @@ _logging_setup_redirect() {
 		exec > /dev/tty 2>/dev/null || exec > /dev/null 2>&1
 		_logging_cleanup_bg
 	fi
+
+	# Route bash xtrace output away from stderr before we tee stderr to LOG_FILE.
+	_logging_setup_xtrace_redirect
 
 	if [[ "$log_choice" == "2" ]]; then
 		exec > >(strip_ansi_stream >> "$LOG_FILE") 2>&1
@@ -226,6 +254,8 @@ setup_logging() {
 	ERROR_WARN_FILE="${ERROR_WARN_DIR}/pipeline_${RUN_ID}_errors_warnings.log"
 	SOFTWARE_FILE="${SOFTWARE_CATALOG_DIR}/software_catalog_${RUN_ID}.csv"
 	GPU_LOG_FILE="${GPU_LOG_DIR}/gpu_${RUN_ID}.log"
+	XTRACE_LOG_DIR="${LOG_DIR%/log_files}/xtrace_logs"
+	XTRACE_LOG_FILE="${XTRACE_LOG_DIR}/pipeline_${RUN_ID}_xtrace.log"
 
 	# Create the logs base directory first, then all subdirectories
 	local log_base_dir="${LOG_DIR%/*}"
@@ -280,6 +310,12 @@ teardown_logging() {
 
 	if [[ "${_LOGGING_FDS_SAVED:-}" == "true" ]]; then
 		exec 1>&3 2>&4
+	fi
+
+	# Close the dedicated xtrace fd (opened by _logging_setup_xtrace_redirect)
+	if [[ "${_LOGGING_XTRACE_FD_OPEN:-}" == "true" ]]; then
+		exec 5>&- 2>/dev/null || true
+		_LOGGING_XTRACE_FD_OPEN=""
 	fi
 
 	_logging_cleanup_bg
@@ -353,6 +389,8 @@ switch_log_stage() {
 	ERROR_WARN_FILE="${ERROR_WARN_DIR}/pipeline_${RUN_ID}_errors_warnings.log"
 	SOFTWARE_FILE="${SOFTWARE_CATALOG_DIR}/software_catalog_${RUN_ID}.csv"
 	GPU_LOG_FILE="${GPU_LOG_DIR}/gpu_${RUN_ID}.log"
+	XTRACE_LOG_DIR="${stage_base}/logs/xtrace_logs"
+	XTRACE_LOG_FILE="${XTRACE_LOG_DIR}/pipeline_${RUN_ID}_xtrace.log"
 
 	# Create directories
 	mkdir -p "$LOG_DIR" "$TIME_DIR" "$SPACE_DIR" "$SPACE_TIME_DIR" \

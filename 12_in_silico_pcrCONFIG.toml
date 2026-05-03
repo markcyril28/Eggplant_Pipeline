@@ -40,7 +40,8 @@ max_parallel  = 8
 
 
 [general]
-base_dir      = "III_RESULT/DMP"   # interpolated per gene group at runtime
+# base_dir is computed from GENE_GROUP at runtime in 12_In_Silico_PCR.sh.
+# Do not set here — a hardcoded value would break multi-group runs.
 
 
 # ============================================================================

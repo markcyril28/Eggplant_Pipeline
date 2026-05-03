@@ -32,7 +32,7 @@ gene_group = "DMP-HAP2"
 #            "batch_comparison", "production_md", "visualize_results"
 # Override at the command line with --steps step1,step2,...
 steps = [
-    "quick_stability",
+    #"quick_stability",
     "compare_chain_stability",
     "interface_analysis",
     "batch_comparison",

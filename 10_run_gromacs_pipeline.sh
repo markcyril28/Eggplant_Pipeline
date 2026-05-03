@@ -737,16 +737,25 @@ run_compare_chain_stability() {
         export OMP_NUM_THREADS="$NTHREADS"
         local gmx_cmd
         gmx_cmd=$(_build_mdrun_cmd "$stage" "$deffnm")
+        local _st_ts _st_start _st_end _st_elapsed _st_exit=0
+        printf -v _st_ts '%(%Y-%m-%d %H:%M:%S)T' -1 2>/dev/null || _st_ts=$(date '+%Y-%m-%d %H:%M:%S')
+        printf -v _st_start '%(%s)T' -1
         if $gmx_cmd 2>&1 | tee "${log_dir}/mdrun_${deffnm}.log"; then
-            return 0
-        fi
-        if [[ "$USE_GPU" == true ]]; then
+            _st_exit=0
+        elif [[ "$USE_GPU" == true ]]; then
             log_warn "GPU mdrun failed for $deffnm, retrying CPU-only..."
             $GMX_BIN mdrun -v -deffnm "$deffnm" -ntmpi 1 -ntomp "$NTHREADS" 2>&1 \
                 | tee "${log_dir}/mdrun_${deffnm}_cpu.log"
-            return $?
+            _st_exit=$?
+        else
+            _st_exit=1
         fi
-        return 1
+        printf -v _st_end '%(%s)T' -1
+        _st_elapsed=$(( _st_end - _st_start ))
+        printf '%s,"gmx mdrun %s %s",%d,0,0,0,0,0,0,%d\n' \
+            "$_st_ts" "$stage" "$deffnm" "$_st_elapsed" "$_st_exit" \
+            >> "${SPACE_TIME_FILE:-/dev/null}"
+        return $_st_exit
     }
 
     _process_structure() {

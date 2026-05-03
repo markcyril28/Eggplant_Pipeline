@@ -172,12 +172,16 @@ trap 'wait; teardown_logging' EXIT
 
 if [[ "$LIST_ONLY" == true ]]; then
     echo "Available pipeline steps:"
-    echo "  quick_stability           - Energy minimization comparison (fast)"
-    echo "  compare_chain_stability   - Full MD chain stability comparison (GPU)"
-    echo "  interface_analysis        - Detailed PPI interface analysis"
-    echo "  batch_comparison          - Batch analysis of all structures in dataset folders"
-    echo "  production_md             - Full MD simulation with maximum GPU offload"
-    echo "  visualize_results         - (Re)generate plots and viz scripts from prior outputs"
+    echo "  quick_stability                  - Energy minimization comparison (fast)"
+    echo "  compare_chain_stability          - Full MD chain stability comparison (GPU)"
+    echo "  interface_analysis               - Detailed PPI interface analysis"
+    echo "  batch_comparison                 - Batch analysis of all structures in dataset folders"
+    echo "  production_md                    - Full MD simulation with maximum GPU offload"
+    echo "  visualize_results                - (Re)generate plots and viz scripts from prior outputs"
+    echo "  quick_stability_plots            - Per-step radar/ranking from Step 1 outputs"
+    echo "  compare_chain_stability_plots    - Per-step radar/ranking from Step 2 outputs"
+    echo "  batch_comparison_plots           - Per-step radar/ranking/heatmap from Step 4 outputs"
+    echo "  combined_plots                   - Cross-step combined radar + ranking (all steps)"
     echo ""
     echo "Enabled in config:"
     for step in "${STEPS[@]}"; do

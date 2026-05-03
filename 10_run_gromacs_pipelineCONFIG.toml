@@ -383,3 +383,74 @@ generate_chimerax = true
 # Limit to specific source steps; comment out to process all found outputs:
 # [step.visualize_results.source_steps]
 # active = ["compare_chain_stability", "interface_analysis", "production_md"]
+
+
+# ==============================================================================
+# PER-STEP COMPARISON PLOTS (radar/spider + ranking + heatmap)
+#
+# Each <upstream>_plots step reads the upstream step's structure metrics and
+# regenerates the comparison plots. Safe to re-run; outputs are overwritten
+# when override_existing = true.
+#
+# Outputs land alongside the upstream step's results:
+#   1_quick_stability/<workdir>/comparison_plots/combined_radar.png
+#   2_compare_chain_stability/<workdir>/comparison_plots/md_combined_radar.png
+#   4_batch_comparison/<dataset>/plots/batch_radar.png
+# ==============================================================================
+
+# Step 1 plots: results_comparator on EM-only metrics (potential, gyration,
+# sasa, hbonds, contacts, min_distance). Pairwise + multi-structure radar.
+[step.quick_stability_plots]
+enabled            = true
+override_existing  = true
+comparator_timeout = 600   # seconds per Python subprocess (kills stuck runs)
+
+# Step 2 plots: md_results_comparator on full-MD statistics (rmsd_mean,
+# hbonds_mean, mindist_mean, total_ie_mean, rg_mean). Pairwise + multi radar.
+[step.compare_chain_stability_plots]
+enabled            = true
+override_existing  = true
+comparator_timeout = 600
+
+# Step 4 plots: gromacs_utils.cli generate-plots batch on the dataset CSV.
+# Generates batch_radar.png, batch_ranking.png, comparison_heatmap.png, etc.
+[step.batch_comparison_plots]
+enabled           = true
+override_existing = true
+dpi               = 600
+plot_format       = "png"
+
+
+# ==============================================================================
+# COMBINED PLOTS (cross-step aggregation)
+#
+# Walks every completed simulation/analysis step, joins per-structure metrics
+# by structure name (from each workdir's MANIFEST.txt or batch dataset folder
+# layout), normalizes them to [0,1], and emits ONE combined radar + ranking
+# spanning all steps.
+#
+# Output: <RUN_DIR>/7_combined_plots/
+#   combined_radar_all_steps.png
+#   combined_ranking_all_steps.png
+#   combined_metrics.csv          (raw per-structure × per-step values)
+#   combined_metrics_normalized.csv
+# ==============================================================================
+
+[step.combined_plots]
+enabled           = true
+override_existing = true
+dpi               = 600
+plot_format       = "png"
+# Maximum structures to display in the radar (avoids unreadable overlay).
+# Top N are selected by composite score across all steps.
+max_structures    = 12
+
+# Restrict aggregation to specific upstream steps. Comment out (or leave empty)
+# to auto-detect all completed steps under RUN_DIR.
+# [step.combined_plots.source_steps]
+# active = [
+#     "quick_stability",
+#     "compare_chain_stability",
+#     "batch_comparison",
+#     "production_md",
+# ]

@@ -28,8 +28,21 @@
 gene_group = "DMP-HAP2"
 
 # Steps to run, in order. Comment out an entry to skip the step.
-# Available: "quick_stability", "compare_chain_stability", "interface_analysis",
-#            "batch_comparison", "production_md", "visualize_results"
+#
+# Simulation / analysis steps:
+#   "quick_stability", "compare_chain_stability", "interface_analysis",
+#   "batch_comparison", "production_md", "visualize_results"
+#
+# Per-step comparison plots (radar/spider + ranking + heatmap from one step's
+# outputs). Each runs only if its upstream step's structure dirs already exist:
+#   "quick_stability_plots"          -> radar from Step 1 (EM-only metrics)
+#   "compare_chain_stability_plots"  -> radar from Step 2 (full-MD statistics)
+#   "batch_comparison_plots"         -> radar + ranking + heatmap from Step 4
+#
+# Cross-step aggregation (one combined radar + ranking covering ALL completed
+# steps for the same structure set):
+#   "combined_plots"
+#
 # Override at the command line with --steps step1,step2,...
 steps = [
     #"quick_stability",
@@ -38,6 +51,12 @@ steps = [
     "batch_comparison",
     "production_md",
     "visualize_results",
+    # ---- Per-step plots (comment out to skip the radar/ranking for that step) ----
+    #"quick_stability_plots",
+    "compare_chain_stability_plots",
+    "batch_comparison_plots",
+    # ---- Cross-step combined plots ----
+    "combined_plots",
 ]
 
 # If true, stop the entire pipeline on the first step failure

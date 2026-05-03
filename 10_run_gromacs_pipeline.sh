@@ -614,19 +614,25 @@ run_quick_stability() {
     } > "$summary_file"
     log "Summary: $summary_file"
 
-    # Pairwise comparisons
+    # Pairwise comparisons.
+    # Each comparator is wrapped in `timeout` so a single stuck Python
+    # invocation (NFS read, matplotlib backend, matrix import) cannot block
+    # the whole step. Timeout 124 falls through `|| true` and the loop continues.
+    local CMP_TIMEOUT="${COMPARATOR_TIMEOUT_SECONDS:-600}"
     local num_structs=${#PDB_LIST[@]}
     if [[ $num_structs -ge 2 ]]; then
-        log "Running pairwise comparisons..."
+        log "Running pairwise comparisons (per-call timeout: ${CMP_TIMEOUT}s)..."
         for ((i=0; i<num_structs-1; i++)); do
             for ((j=i+1; j<num_structs; j++)); do
                 local s1="structure_$((i+1))" s2="structure_$((j+1))"
                 if [[ -d "$OUTPUT_DIR/$s1" && -d "$OUTPUT_DIR/$s2" ]]; then
-                    python3 -m gromacs_utils.results_comparator \
-                        --workdir "$OUTPUT_DIR" \
-                        --pdb1 "${PDB_LIST[$i]}" --pdb2 "${PDB_LIST[$j]}" \
-                        --struct1-dir "$s1" --struct2-dir "$s2" \
-                        --output "comparison_$((i+1))_vs_$((j+1)).txt" 2>&1 || true
+                    timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
+                        python3 -m gromacs_utils.results_comparator \
+                            --workdir "$OUTPUT_DIR" \
+                            --pdb1 "${PDB_LIST[$i]}" --pdb2 "${PDB_LIST[$j]}" \
+                            --struct1-dir "$s1" --struct2-dir "$s2" \
+                            --output "comparison_$((i+1))_vs_$((j+1)).txt" 2>&1 || \
+                        log_warn "  comparison $((i+1))_vs_$((j+1)) failed or timed out (rc=$?)"
                 fi
             done
         done
@@ -637,9 +643,11 @@ run_quick_stability() {
                 pdb_args+=("${PDB_LIST[$i]}")
                 struct_args+=("structure_$((i+1))")
             done
-            python3 -m gromacs_utils.results_comparator \
-                --workdir "$OUTPUT_DIR" --multi \
-                --pdb-list "${pdb_args[@]}" --struct-dirs "${struct_args[@]}" 2>&1 || true
+            timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
+                python3 -m gromacs_utils.results_comparator \
+                    --workdir "$OUTPUT_DIR" --multi \
+                    --pdb-list "${pdb_args[@]}" --struct-dirs "${struct_args[@]}" 2>&1 || \
+                log_warn "  multi-structure comparison failed or timed out (rc=$?)"
         fi
     fi
 
@@ -944,16 +952,20 @@ for key, val in data.items():
         } > "$summary_file"
         log "Summary: $summary_file"
 
+        # Per-call timeout so a stuck Python invocation cannot block the step.
+        local CMP_TIMEOUT="${COMPARATOR_TIMEOUT_SECONDS:-600}"
         if [[ $num_structs -ge 2 ]]; then
             for ((i=0; i<num_structs-1; i++)); do
                 for ((j=i+1; j<num_structs; j++)); do
                     local s1="structure_$((i+1))" s2="structure_$((j+1))"
                     if [[ -d "$WORKDIR/$s1" && -d "$WORKDIR/$s2" ]]; then
-                        python3 -m gromacs_utils.md_results_comparator \
-                            --workdir "$WORKDIR" \
-                            --pdb1 "${PDB_LIST[$i]}" --pdb2 "${PDB_LIST[$j]}" \
-                            --struct1-dir "$s1" --struct2-dir "$s2" \
-                            --output "comparison_$((i+1))_vs_$((j+1)).txt" 2>&1 || true
+                        timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
+                            python3 -m gromacs_utils.md_results_comparator \
+                                --workdir "$WORKDIR" \
+                                --pdb1 "${PDB_LIST[$i]}" --pdb2 "${PDB_LIST[$j]}" \
+                                --struct1-dir "$s1" --struct2-dir "$s2" \
+                                --output "comparison_$((i+1))_vs_$((j+1)).txt" 2>&1 || \
+                            log_warn "  comparison $((i+1))_vs_$((j+1)) failed or timed out (rc=$?)"
                     fi
                 done
             done
@@ -964,9 +976,11 @@ for key, val in data.items():
                     pdb_args+=("${PDB_LIST[$i]}")
                     struct_args+=("structure_$((i+1))")
                 done
-                python3 -m gromacs_utils.md_results_comparator \
-                    --workdir "$WORKDIR" --multi \
-                    --pdb-list "${pdb_args[@]}" --struct-dirs "${struct_args[@]}" 2>&1 || true
+                timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
+                    python3 -m gromacs_utils.md_results_comparator \
+                        --workdir "$WORKDIR" --multi \
+                        --pdb-list "${pdb_args[@]}" --struct-dirs "${struct_args[@]}" 2>&1 || \
+                    log_warn "  multi-structure comparison failed or timed out (rc=$?)"
             fi
         fi
     }
@@ -1359,10 +1373,14 @@ run_batch_comparison() {
         done
         wait
 
-        # Generate comparison report (sequential post-processing)
-        log "Generating comparison report for $dataset_name..."
+        # Generate comparison report (sequential post-processing).
+        # Wrapped in timeout so a stuck Python step cannot block the dataset loop.
+        local CMP_TIMEOUT="${COMPARATOR_TIMEOUT_SECONDS:-600}"
+        log "Generating comparison report for $dataset_name (timeout: ${CMP_TIMEOUT}s)..."
         cd "$output_dir"
-        python3 -m gromacs_utils.cli batch-analysis --workdir "$output_dir" --plots
+        timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
+            python3 -m gromacs_utils.cli batch-analysis --workdir "$output_dir" --plots || \
+            log_warn "  batch-analysis failed or timed out (rc=$?)"
         run_gnuplot_scripts "$output_dir/plots"
 
         local ds_end=$(date +%s)

@@ -196,38 +196,41 @@ if op_enabled "index_genomes"; then
     OOC_TILE=$(get_toml in_silico_pcr ispcr ooc_tile_size 2>/dev/null || echo "11")
     OOC_REPEAT=$(get_toml in_silico_pcr ispcr ooc_repeat 2>/dev/null || echo "1024")
 
-    # Build TWO indices per genome:
-    #   - MFEprimer .uni from MFE_FASTAS (transcripts → ~500 MB RAM)
-    #   - isPcr .ooc     from GENOME_FASTAS (full genome → tiny RAM)
-    # Indices live in separate subdirs so paths never collide.
+    # Build per-engine indices ONLY for engines listed in `engines = [...]`.
+    # Indices live in separate subdirs so the two engines never collide.
     for i in "${!GENOME_NAMES[@]}"; do
         gname="${GENOME_NAMES[$i]}"
         full_gfa="$PIPELINE_DIR/${GENOME_FASTAS[$i]}"
         mfe_gfa="$PIPELINE_DIR/${MFE_FASTAS[$i]}"
-        mfe_idx_dir="$PCR_DIR/${gname}/01_Indices/mfeprimer"
-        ooc_idx_dir="$PCR_DIR/${gname}/01_Indices/ispcr"
-        mkdir -p "$mfe_idx_dir" "$ooc_idx_dir"
 
-        # MFEprimer index (smaller FASTA → fits in RAM)
-        bash "$MODULES/12_in_silico_pcr/build_indices.sh" \
-            --engine      mfeprimer \
-            --genome      "$mfe_gfa" \
-            --genome-name "$gname" \
-            --outdir      "$mfe_idx_dir" \
-            --kmer        "$INDEX_K" \
-            --threads     "$CPU" \
-            --overwrite   "$OVERWRITE"
+        # MFEprimer index — skip entirely if mfeprimer is disabled
+        if engine_enabled "mfeprimer"; then
+            mfe_idx_dir="$PCR_DIR/${gname}/01_Indices/mfeprimer"
+            mkdir -p "$mfe_idx_dir"
+            bash "$MODULES/12_in_silico_pcr/build_indices.sh" \
+                --engine      mfeprimer \
+                --genome      "$mfe_gfa" \
+                --genome-name "$gname" \
+                --outdir      "$mfe_idx_dir" \
+                --kmer        "$INDEX_K" \
+                --threads     "$CPU" \
+                --overwrite   "$OVERWRITE"
+        fi
 
-        # isPcr .ooc (full genome — memory-efficient)
-        bash "$MODULES/12_in_silico_pcr/build_indices.sh" \
-            --engine      ispcr \
-            --genome      "$full_gfa" \
-            --genome-name "$gname" \
-            --outdir      "$ooc_idx_dir" \
-            --ooc-tile    "$OOC_TILE" \
-            --ooc-repeat  "$OOC_REPEAT" \
-            --ispcr-bin   "$ISPCR_BIN" \
-            --overwrite   "$OVERWRITE"
+        # isPcr .ooc — skip if ispcr is disabled
+        if engine_enabled "ispcr"; then
+            ooc_idx_dir="$PCR_DIR/${gname}/01_Indices/ispcr"
+            mkdir -p "$ooc_idx_dir"
+            bash "$MODULES/12_in_silico_pcr/build_indices.sh" \
+                --engine      ispcr \
+                --genome      "$full_gfa" \
+                --genome-name "$gname" \
+                --outdir      "$ooc_idx_dir" \
+                --ooc-tile    "$OOC_TILE" \
+                --ooc-repeat  "$OOC_REPEAT" \
+                --ispcr-bin   "$ISPCR_BIN" \
+                --overwrite   "$OVERWRITE"
+        fi
     done
 fi
 

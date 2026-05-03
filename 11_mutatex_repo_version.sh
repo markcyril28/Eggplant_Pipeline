@@ -88,7 +88,7 @@ cleanup_exit() {
     local bg_pids; bg_pids=$(jobs -rp 2>/dev/null)
     [[ -n "$bg_pids" ]] && kill $bg_pids 2>/dev/null
     wait 2>/dev/null
-    teardown_logging
+    safe_teardown_logging
     [[ -d "${STATUS_DIR:-}" ]] && rm -rf "$STATUS_DIR"
 }
 trap 'cleanup_exit' EXIT
@@ -447,6 +447,9 @@ process_single_pdb() {
   # Run mutatex from the output directory (mutatex operates in cwd)
   # Each background job gets its own subshell for cd, so it won't affect others
   local exit_status=0
+  local _st_ts _st_start _st_end _st_elapsed
+  printf -v _st_ts '%(%Y-%m-%d %H:%M:%S)T' -1 2>/dev/null || _st_ts=$(date '+%Y-%m-%d %H:%M:%S')
+  printf -v _st_start '%(%s)T' -1
   if (( PER_PDB_TIMEOUT_SECS > 0 )); then
     ( cd "$outdir" && exec timeout --signal=TERM --kill-after=120 "$PER_PDB_TIMEOUT_SECS" \
         mutatex "$pdb_to_use" \
@@ -473,6 +476,11 @@ process_single_pdb() {
         -B -v -l ) > "$pdb_log" 2>&1
     exit_status=$?
   fi
+  printf -v _st_end '%(%s)T' -1
+  _st_elapsed=$(( _st_end - _st_start ))
+  printf '%s,"mutatex %s",%d,0,0,0,0,0,0,%d\n' \
+      "$_st_ts" "$base_name" "$_st_elapsed" "$exit_status" \
+      >> "${SPACE_TIME_FILE:-/dev/null}"
 
   # Stop cleanup worker (must happen even on failure/timeout)
   if [[ -n "$cleanup_pid" ]]; then

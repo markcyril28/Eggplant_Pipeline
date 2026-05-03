@@ -218,14 +218,14 @@ setup_logging() {
 
 	# Re-derive file paths from directories (in case directories were set after sourcing)
 	# This ensures absolute paths are used when directories are set with absolute paths
-	LOG_FILE="${LOG_DIR}/pipeline_${RUN_ID}_full_log.log"
-	TIME_FILE="${TIME_DIR}/pipeline_${RUN_ID}_time_metrics.csv"
+	LOG_FILE="${LOG_DIR}/${RUN_ID}_${PIPELINE_NAME}_full_log.log"
+	TIME_FILE="${TIME_DIR}/${RUN_ID}_${PIPELINE_NAME}_time_metrics.csv"
 	TIME_TEMP="${TIME_DIR}/.time_temp_${RUN_ID}.txt"
-	SPACE_FILE="${SPACE_DIR}/pipeline_${RUN_ID}_space_metrics.csv"
-	SPACE_TIME_FILE="${SPACE_TIME_DIR}/pipeline_${RUN_ID}_combined_metrics.csv"
-	ERROR_WARN_FILE="${ERROR_WARN_DIR}/pipeline_${RUN_ID}_errors_warnings.log"
-	SOFTWARE_FILE="${SOFTWARE_CATALOG_DIR}/software_catalog_${RUN_ID}.csv"
-	GPU_LOG_FILE="${GPU_LOG_DIR}/gpu_${RUN_ID}.log"
+	SPACE_FILE="${SPACE_DIR}/${RUN_ID}_${PIPELINE_NAME}_space_metrics.csv"
+	SPACE_TIME_FILE="${SPACE_TIME_DIR}/${RUN_ID}_${PIPELINE_NAME}_combined_metrics.csv"
+	ERROR_WARN_FILE="${ERROR_WARN_DIR}/${RUN_ID}_${PIPELINE_NAME}_errors_warnings.log"
+	SOFTWARE_FILE="${SOFTWARE_CATALOG_DIR}/${RUN_ID}_${PIPELINE_NAME}_software_catalog.csv"
+	GPU_LOG_FILE="${GPU_LOG_DIR}/${RUN_ID}_${PIPELINE_NAME}_gpu.log"
 
 	# Create the logs base directory first, then all subdirectories
 	local log_base_dir="${LOG_DIR%/*}"
@@ -345,14 +345,14 @@ switch_log_stage() {
 	GPU_LOG_DIR="${stage_base}/logs/gpu_log"
 
 	# Update file paths
-	LOG_FILE="${LOG_DIR}/pipeline_${RUN_ID}_full_log.log"
-	TIME_FILE="${TIME_DIR}/pipeline_${RUN_ID}_time_metrics.csv"
+	LOG_FILE="${LOG_DIR}/${RUN_ID}_${PIPELINE_NAME}_full_log.log"
+	TIME_FILE="${TIME_DIR}/${RUN_ID}_${PIPELINE_NAME}_time_metrics.csv"
 	TIME_TEMP="${TIME_DIR}/.time_temp_${RUN_ID}.txt"
-	SPACE_FILE="${SPACE_DIR}/pipeline_${RUN_ID}_space_metrics.csv"
-	SPACE_TIME_FILE="${SPACE_TIME_DIR}/pipeline_${RUN_ID}_combined_metrics.csv"
-	ERROR_WARN_FILE="${ERROR_WARN_DIR}/pipeline_${RUN_ID}_errors_warnings.log"
-	SOFTWARE_FILE="${SOFTWARE_CATALOG_DIR}/software_catalog_${RUN_ID}.csv"
-	GPU_LOG_FILE="${GPU_LOG_DIR}/gpu_${RUN_ID}.log"
+	SPACE_FILE="${SPACE_DIR}/${RUN_ID}_${PIPELINE_NAME}_space_metrics.csv"
+	SPACE_TIME_FILE="${SPACE_TIME_DIR}/${RUN_ID}_${PIPELINE_NAME}_combined_metrics.csv"
+	ERROR_WARN_FILE="${ERROR_WARN_DIR}/${RUN_ID}_${PIPELINE_NAME}_errors_warnings.log"
+	SOFTWARE_FILE="${SOFTWARE_CATALOG_DIR}/${RUN_ID}_${PIPELINE_NAME}_software_catalog.csv"
+	GPU_LOG_FILE="${GPU_LOG_DIR}/${RUN_ID}_${PIPELINE_NAME}_gpu.log"
 
 	# Create directories
 	mkdir -p "$LOG_DIR" "$TIME_DIR" "$SPACE_DIR" "$SPACE_TIME_DIR" \

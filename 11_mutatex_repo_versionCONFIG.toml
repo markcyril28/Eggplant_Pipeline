@@ -92,7 +92,7 @@ preserve_patterns = [
 ]
 
 [environment]
-conda_env = "gromacs_CUDA"
+conda_env = "PPI"
 
 [paths]
 # Paths relative to the project root (SCRIPT_DIR)

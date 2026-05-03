@@ -172,12 +172,16 @@ trap 'wait; teardown_logging' EXIT
 
 if [[ "$LIST_ONLY" == true ]]; then
     echo "Available pipeline steps:"
-    echo "  quick_stability           - Energy minimization comparison (fast)"
-    echo "  compare_chain_stability   - Full MD chain stability comparison (GPU)"
-    echo "  interface_analysis        - Detailed PPI interface analysis"
-    echo "  batch_comparison          - Batch analysis of all structures in dataset folders"
-    echo "  production_md             - Full MD simulation with maximum GPU offload"
-    echo "  visualize_results         - (Re)generate plots and viz scripts from prior outputs"
+    echo "  quick_stability                  - Energy minimization comparison (fast)"
+    echo "  compare_chain_stability          - Full MD chain stability comparison (GPU)"
+    echo "  interface_analysis               - Detailed PPI interface analysis"
+    echo "  batch_comparison                 - Batch analysis of all structures in dataset folders"
+    echo "  production_md                    - Full MD simulation with maximum GPU offload"
+    echo "  visualize_results                - (Re)generate plots and viz scripts from prior outputs"
+    echo "  quick_stability_plots            - Per-step radar/ranking from Step 1 outputs"
+    echo "  compare_chain_stability_plots    - Per-step radar/ranking from Step 2 outputs"
+    echo "  batch_comparison_plots           - Per-step radar/ranking/heatmap from Step 4 outputs"
+    echo "  combined_plots                   - Cross-step combined radar + ranking (all steps)"
     echo ""
     echo "Enabled in config:"
     for step in "${STEPS[@]}"; do
@@ -205,6 +209,12 @@ declare -A STEP_PREFIX=(
     [batch_comparison]="4_batch_comparison"
     [production_md]="5_production_md"
     [visualize_results]="6_visualize_results"
+    # Per-step plot regenerators write into their upstream step's directory
+    [quick_stability_plots]="1_quick_stability"
+    [compare_chain_stability_plots]="2_compare_chain_stability"
+    [batch_comparison_plots]="4_batch_comparison"
+    # Cross-step aggregation lands in its own folder
+    [combined_plots]="7_combined_plots"
 )
 
 #------------------------------------------------------------------------------
@@ -614,42 +624,9 @@ run_quick_stability() {
     } > "$summary_file"
     log "Summary: $summary_file"
 
-    # Pairwise comparisons.
-    # Each comparator is wrapped in `timeout` so a single stuck Python
-    # invocation (NFS read, matplotlib backend, matrix import) cannot block
-    # the whole step. Timeout 124 falls through `|| true` and the loop continues.
-    local CMP_TIMEOUT="${COMPARATOR_TIMEOUT_SECONDS:-600}"
-    local num_structs=${#PDB_LIST[@]}
-    if [[ $num_structs -ge 2 ]]; then
-        log "Running pairwise comparisons (per-call timeout: ${CMP_TIMEOUT}s)..."
-        for ((i=0; i<num_structs-1; i++)); do
-            for ((j=i+1; j<num_structs; j++)); do
-                local s1="structure_$((i+1))" s2="structure_$((j+1))"
-                if [[ -d "$OUTPUT_DIR/$s1" && -d "$OUTPUT_DIR/$s2" ]]; then
-                    timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
-                        python3 -m gromacs_utils.results_comparator \
-                            --workdir "$OUTPUT_DIR" \
-                            --pdb1 "${PDB_LIST[$i]}" --pdb2 "${PDB_LIST[$j]}" \
-                            --struct1-dir "$s1" --struct2-dir "$s2" \
-                            --output "comparison_$((i+1))_vs_$((j+1)).txt" 2>&1 || \
-                        log_warn "  comparison $((i+1))_vs_$((j+1)) failed or timed out (rc=$?)"
-                fi
-            done
-        done
-
-        if [[ $num_structs -gt 2 ]]; then
-            local pdb_args=() struct_args=()
-            for i in "${!PDB_LIST[@]}"; do
-                pdb_args+=("${PDB_LIST[$i]}")
-                struct_args+=("structure_$((i+1))")
-            done
-            timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
-                python3 -m gromacs_utils.results_comparator \
-                    --workdir "$OUTPUT_DIR" --multi \
-                    --pdb-list "${pdb_args[@]}" --struct-dirs "${struct_args[@]}" 2>&1 || \
-                log_warn "  multi-structure comparison failed or timed out (rc=$?)"
-        fi
-    fi
+    # NOTE: Pairwise + multi-structure comparison plots (radar/spider, ranking)
+    # have moved to the standalone "quick_stability_plots" step. Enable that
+    # step in [pipeline].steps to regenerate plots without re-running EM.
 
     cat "$summary_file" 2>/dev/null || true
 }
@@ -952,37 +929,10 @@ for key, val in data.items():
         } > "$summary_file"
         log "Summary: $summary_file"
 
-        # Per-call timeout so a stuck Python invocation cannot block the step.
-        local CMP_TIMEOUT="${COMPARATOR_TIMEOUT_SECONDS:-600}"
-        if [[ $num_structs -ge 2 ]]; then
-            for ((i=0; i<num_structs-1; i++)); do
-                for ((j=i+1; j<num_structs; j++)); do
-                    local s1="structure_$((i+1))" s2="structure_$((j+1))"
-                    if [[ -d "$WORKDIR/$s1" && -d "$WORKDIR/$s2" ]]; then
-                        timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
-                            python3 -m gromacs_utils.md_results_comparator \
-                                --workdir "$WORKDIR" \
-                                --pdb1 "${PDB_LIST[$i]}" --pdb2 "${PDB_LIST[$j]}" \
-                                --struct1-dir "$s1" --struct2-dir "$s2" \
-                                --output "comparison_$((i+1))_vs_$((j+1)).txt" 2>&1 || \
-                            log_warn "  comparison $((i+1))_vs_$((j+1)) failed or timed out (rc=$?)"
-                    fi
-                done
-            done
-
-            if [[ $num_structs -gt 2 ]]; then
-                local pdb_args=() struct_args=()
-                for i in "${!PDB_LIST[@]}"; do
-                    pdb_args+=("${PDB_LIST[$i]}")
-                    struct_args+=("structure_$((i+1))")
-                done
-                timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
-                    python3 -m gromacs_utils.md_results_comparator \
-                        --workdir "$WORKDIR" --multi \
-                        --pdb-list "${pdb_args[@]}" --struct-dirs "${struct_args[@]}" 2>&1 || \
-                    log_warn "  multi-structure comparison failed or timed out (rc=$?)"
-            fi
-        fi
+        # NOTE: Pairwise + multi-structure comparison plots (radar/spider,
+        # ranking) have moved to the standalone "compare_chain_stability_plots"
+        # step. Enable that step in [pipeline].steps to regenerate plots
+        # without re-running MD.
     }
 
     # --- Execute based on mode ---
@@ -1373,15 +1323,15 @@ run_batch_comparison() {
         done
         wait
 
-        # Generate comparison report (sequential post-processing).
-        # Wrapped in timeout so a stuck Python step cannot block the dataset loop.
+        # Aggregate per-structure metrics into batch_summary.csv /
+        # comparison_data.csv. Plots (radar, ranking, heatmap) are produced by
+        # the standalone "batch_comparison_plots" step.
         local CMP_TIMEOUT="${COMPARATOR_TIMEOUT_SECONDS:-600}"
-        log "Generating comparison report for $dataset_name (timeout: ${CMP_TIMEOUT}s)..."
+        log "Aggregating metrics for $dataset_name (timeout: ${CMP_TIMEOUT}s)..."
         cd "$output_dir"
         timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
-            python3 -m gromacs_utils.cli batch-analysis --workdir "$output_dir" --plots || \
+            python3 -m gromacs_utils.cli batch-analysis --workdir "$output_dir" || \
             log_warn "  batch-analysis failed or timed out (rc=$?)"
-        run_gnuplot_scripts "$output_dir/plots"
 
         local ds_end=$(date +%s)
         log_section "$dataset_name Complete"
@@ -1919,6 +1869,307 @@ plot_focused_contact_map('analysis/interface_residues.txt', 'plots/contact_map_f
 }
 
 #------------------------------------------------------------------------------
+# STEP 1p: QUICK_STABILITY_PLOTS
+#
+# Standalone post-processing: regenerates pairwise + multi-structure radar /
+# spider / ranking plots for an existing Step 1 run by re-invoking
+# results_comparator on the structure_N/ workdirs already on disk.
+# No GROMACS needed.
+#------------------------------------------------------------------------------
+
+run_quick_stability_plots() {
+    local step_dir="$1"  # 1_quick_stability/  (same dir Step 1 wrote into)
+
+    local STEP_PREFIX_QS="${STEP_PREFIX[quick_stability]:-1_quick_stability}"
+    local UPSTREAM_DIR="$RUN_DIR/$STEP_PREFIX_QS"
+
+    if [[ ! -d "$UPSTREAM_DIR" ]]; then
+        log_warn "No upstream Step 1 outputs at $UPSTREAM_DIR - skipping"
+        return 0
+    fi
+
+    local CMP_TIMEOUT
+    CMP_TIMEOUT=$(toml_get "step.quick_stability_plots.comparator_timeout" "600")
+    check_python_modules || return 1
+
+    # Scan for workdirs (each is a sibling under step_dir containing structure_N/ + MANIFEST.txt)
+    local workdirs=()
+    while IFS= read -r d; do
+        workdirs+=("$d")
+    done < <(find "$UPSTREAM_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+
+    if [[ ${#workdirs[@]} -eq 0 ]]; then
+        log_warn "No workdirs under $UPSTREAM_DIR - nothing to plot"
+        return 0
+    fi
+
+    local processed=0 failed=0
+    for workdir in "${workdirs[@]}"; do
+        local manifest="$workdir/MANIFEST.txt"
+        [[ ! -f "$manifest" ]] && { log "  Skip (no MANIFEST): $(basename "$workdir")"; continue; }
+
+        # Build PDB_LIST + STRUCT_DIRS from MANIFEST
+        local PDB_LIST=() STRUCT_DIRS=()
+        while IFS= read -r line; do
+            [[ "$line" =~ ^# ]] && continue
+            [[ -z "$line" ]] && continue
+            local sn pdb_basename
+            sn=$(awk '{print $1}' <<<"$line")
+            pdb_basename=$(awk '{print $2}' <<<"$line")
+            STRUCT_DIRS+=("$sn")
+            PDB_LIST+=("${INPUT_BASE}/${pdb_basename}")
+        done < "$manifest"
+
+        local n=${#PDB_LIST[@]}
+        (( n < 2 )) && { log "  Skip (<2 structures): $(basename "$workdir")"; continue; }
+
+        log "Plotting workdir: $(basename "$workdir") (${n} structures)"
+
+        # Pairwise comparisons
+        for ((i=0; i<n-1; i++)); do
+            for ((j=i+1; j<n; j++)); do
+                local s1="${STRUCT_DIRS[$i]}" s2="${STRUCT_DIRS[$j]}"
+                if [[ -d "$workdir/$s1" && -d "$workdir/$s2" ]]; then
+                    timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
+                        python3 -m gromacs_utils.results_comparator \
+                            --workdir "$workdir" \
+                            --pdb1 "${PDB_LIST[$i]}" --pdb2 "${PDB_LIST[$j]}" \
+                            --struct1-dir "$s1" --struct2-dir "$s2" \
+                            --output "comparison_$((i+1))_vs_$((j+1)).txt" 2>&1 \
+                        || { log_warn "  pairwise $((i+1))_vs_$((j+1)) failed (rc=$?)"; failed=$((failed+1)); }
+                fi
+            done
+        done
+
+        # Multi-structure radar (only meaningful for >=3)
+        if (( n > 2 )); then
+            timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
+                python3 -m gromacs_utils.results_comparator \
+                    --workdir "$workdir" --multi \
+                    --pdb-list "${PDB_LIST[@]}" --struct-dirs "${STRUCT_DIRS[@]}" 2>&1 \
+                || { log_warn "  multi-structure radar failed (rc=$?)"; failed=$((failed+1)); }
+        fi
+
+        processed=$((processed+1))
+    done
+
+    log "quick_stability_plots: ${processed} workdir(s) processed, ${failed} failure(s)"
+    return 0
+}
+
+
+#------------------------------------------------------------------------------
+# STEP 2p: COMPARE_CHAIN_STABILITY_PLOTS
+#
+# Regenerates radar + ranking plots from an existing Step 2 run by re-invoking
+# md_results_comparator. No GROMACS needed. Reads per-structure
+# statistics/md_statistics.json.
+#------------------------------------------------------------------------------
+
+run_compare_chain_stability_plots() {
+    local step_dir="$1"
+
+    local STEP_PREFIX_CCS="${STEP_PREFIX[compare_chain_stability]:-2_compare_chain_stability}"
+    local UPSTREAM_DIR="$RUN_DIR/$STEP_PREFIX_CCS"
+
+    if [[ ! -d "$UPSTREAM_DIR" ]]; then
+        log_warn "No upstream Step 2 outputs at $UPSTREAM_DIR - skipping"
+        return 0
+    fi
+
+    local CMP_TIMEOUT
+    CMP_TIMEOUT=$(toml_get "step.compare_chain_stability_plots.comparator_timeout" "600")
+    check_python_modules || return 1
+
+    local workdirs=()
+    while IFS= read -r d; do
+        workdirs+=("$d")
+    done < <(find "$UPSTREAM_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+
+    if [[ ${#workdirs[@]} -eq 0 ]]; then
+        log_warn "No workdirs under $UPSTREAM_DIR - nothing to plot"
+        return 0
+    fi
+
+    local processed=0 failed=0
+    for workdir in "${workdirs[@]}"; do
+        local manifest="$workdir/MANIFEST.txt"
+        [[ ! -f "$manifest" ]] && { log "  Skip (no MANIFEST): $(basename "$workdir")"; continue; }
+
+        local PDB_LIST=() STRUCT_DIRS=()
+        while IFS= read -r line; do
+            [[ "$line" =~ ^# ]] && continue
+            [[ -z "$line" ]] && continue
+            local sn pdb_basename
+            sn=$(awk '{print $1}' <<<"$line")
+            pdb_basename=$(awk '{print $2}' <<<"$line")
+            STRUCT_DIRS+=("$sn")
+            PDB_LIST+=("${INPUT_BASE}/${pdb_basename}")
+        done < "$manifest"
+
+        local n=${#PDB_LIST[@]}
+        (( n < 2 )) && { log "  Skip (<2 structures): $(basename "$workdir")"; continue; }
+
+        log "Plotting workdir: $(basename "$workdir") (${n} structures)"
+
+        for ((i=0; i<n-1; i++)); do
+            for ((j=i+1; j<n; j++)); do
+                local s1="${STRUCT_DIRS[$i]}" s2="${STRUCT_DIRS[$j]}"
+                if [[ -d "$workdir/$s1" && -d "$workdir/$s2" ]]; then
+                    timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
+                        python3 -m gromacs_utils.md_results_comparator \
+                            --workdir "$workdir" \
+                            --pdb1 "${PDB_LIST[$i]}" --pdb2 "${PDB_LIST[$j]}" \
+                            --struct1-dir "$s1" --struct2-dir "$s2" \
+                            --output "comparison_$((i+1))_vs_$((j+1)).txt" 2>&1 \
+                        || { log_warn "  pairwise $((i+1))_vs_$((j+1)) failed (rc=$?)"; failed=$((failed+1)); }
+                fi
+            done
+        done
+
+        if (( n > 2 )); then
+            timeout --signal=TERM --kill-after=30 "$CMP_TIMEOUT" \
+                python3 -m gromacs_utils.md_results_comparator \
+                    --workdir "$workdir" --multi \
+                    --pdb-list "${PDB_LIST[@]}" --struct-dirs "${STRUCT_DIRS[@]}" 2>&1 \
+                || { log_warn "  multi-structure radar failed (rc=$?)"; failed=$((failed+1)); }
+        fi
+
+        processed=$((processed+1))
+    done
+
+    log "compare_chain_stability_plots: ${processed} workdir(s) processed, ${failed} failure(s)"
+    return 0
+}
+
+
+#------------------------------------------------------------------------------
+# STEP 4p: BATCH_COMPARISON_PLOTS
+#
+# Regenerates radar + ranking + heatmap from existing Step 4 outputs by
+# calling gromacs_utils.cli generate-plots batch on each dataset's
+# batch_summary.csv (or comparison_data.csv). Also runs gnuplot scripts.
+#------------------------------------------------------------------------------
+
+run_batch_comparison_plots() {
+    local step_dir="$1"
+
+    local STEP_PREFIX_BC="${STEP_PREFIX[batch_comparison]:-4_batch_comparison}"
+    local UPSTREAM_DIR="$RUN_DIR/$STEP_PREFIX_BC"
+
+    if [[ ! -d "$UPSTREAM_DIR" ]]; then
+        log_warn "No upstream Step 4 outputs at $UPSTREAM_DIR - skipping"
+        return 0
+    fi
+
+    local DPI
+    DPI=$(toml_get "step.batch_comparison_plots.dpi" "600")
+    local PLOT_FORMAT
+    PLOT_FORMAT=$(toml_get "step.batch_comparison_plots.plot_format" "png")
+    check_python_modules || return 1
+
+    local datasets=()
+    while IFS= read -r d; do
+        datasets+=("$d")
+    done < <(find "$UPSTREAM_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+
+    if [[ ${#datasets[@]} -eq 0 ]]; then
+        log_warn "No dataset dirs under $UPSTREAM_DIR - nothing to plot"
+        return 0
+    fi
+
+    local processed=0 failed=0
+    for ds in "${datasets[@]}"; do
+        local ds_name; ds_name=$(basename "$ds")
+        local plots_dir="$ds/plots"
+        mkdir -p "$plots_dir"
+
+        # Prefer comparison_data.csv (written by run_batch_analysis); fall back to batch_summary.csv.
+        local csv=""
+        if   [[ -f "$ds/comparison_data.csv" ]]; then csv="$ds/comparison_data.csv"
+        elif [[ -f "$ds/batch_summary.csv"   ]]; then csv="$ds/batch_summary.csv"
+        else
+            log "  Skip ${ds_name}: no comparison_data.csv / batch_summary.csv"
+            continue
+        fi
+
+        log "Plotting dataset: ${ds_name} (csv: $(basename "$csv"))"
+        if python3 -m gromacs_utils.cli generate-plots batch \
+                -i "$csv" -o "$plots_dir" --dpi "$DPI" 2>&1; then
+            processed=$((processed+1))
+        else
+            log_warn "  generate-plots batch failed for ${ds_name} (rc=$?)"
+            failed=$((failed+1))
+        fi
+
+        run_gnuplot_scripts "$plots_dir" 2>&1 || true
+    done
+
+    log "batch_comparison_plots: ${processed} dataset(s) processed, ${failed} failure(s)"
+    return 0
+}
+
+
+#------------------------------------------------------------------------------
+# STEP 7: COMBINED_PLOTS
+#
+# Cross-step aggregation. Walks every completed step (1, 2, 4, 5) under
+# RUN_DIR, joins per-structure metrics by name, normalizes them, and emits a
+# single combined radar + ranking covering all structures across all steps.
+# Implementation lives in gromacs_utils.combined_plots so the bash side
+# stays thin.
+#------------------------------------------------------------------------------
+
+run_combined_plots() {
+    local step_dir="$1"
+
+    local DPI
+    DPI=$(toml_get "step.combined_plots.dpi" "600")
+    local PLOT_FORMAT
+    PLOT_FORMAT=$(toml_get "step.combined_plots.plot_format" "png")
+    local MAX_STRUCTS
+    MAX_STRUCTS=$(toml_get "step.combined_plots.max_structures" "12")
+
+    check_python_modules || return 1
+    mkdir -p "$step_dir"
+
+    # Optional source-step filter (TOML array). When empty -> auto-detect.
+    local source_args=()
+    while IFS= read -r s; do
+        [[ -n "$s" ]] && source_args+=("$s")
+    done < <(toml_get_array "step.combined_plots.source_steps.active")
+
+    local cmd=(python3 -m gromacs_utils.combined_plots
+                --run-dir "$RUN_DIR"
+                --output-dir "$step_dir"
+                --dpi "$DPI"
+                --plot-format "$PLOT_FORMAT"
+                --max-structures "$MAX_STRUCTS")
+
+    # Pass step-prefix overrides so the Python side can locate dirs without
+    # duplicating the STEP_PREFIX map.
+    for name in quick_stability compare_chain_stability interface_analysis \
+                batch_comparison production_md; do
+        local pfx="${STEP_PREFIX[$name]:-$name}"
+        cmd+=(--step-prefix "${name}=${pfx}")
+    done
+
+    if (( ${#source_args[@]} > 0 )); then
+        cmd+=(--source-steps "${source_args[@]}")
+    fi
+
+    log "Running combined_plots: ${cmd[*]}"
+    if "${cmd[@]}"; then
+        log "Combined plots: $step_dir"
+    else
+        log_warn "combined_plots failed (rc=$?)"
+        return 1
+    fi
+    return 0
+}
+
+
+#------------------------------------------------------------------------------
 # PIPELINE RUNNER
 #------------------------------------------------------------------------------
 
@@ -1930,6 +2181,10 @@ declare -A STEP_FUNC=(
     [batch_comparison]=run_batch_comparison
     [production_md]=run_production_md
     [visualize_results]=run_visualize_results
+    [quick_stability_plots]=run_quick_stability_plots
+    [compare_chain_stability_plots]=run_compare_chain_stability_plots
+    [batch_comparison_plots]=run_batch_comparison_plots
+    [combined_plots]=run_combined_plots
 )
 
 run_pipeline() {

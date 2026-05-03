@@ -11,7 +11,7 @@
 set -euo pipefail
 
 GENOME="" GENOME_NAME="" OUTDIR="" KMER="9" OOC_TILE="11" OOC_REPEAT="1024"
-ISPCR_BIN="" OVERWRITE="true" THREADS="1"
+ISPCR_BIN="" OVERWRITE="true" THREADS="1" ENGINE="both"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -23,6 +23,7 @@ while [[ $# -gt 0 ]]; do
         --ooc-repeat)   OOC_REPEAT="$2"; shift 2 ;;
         --ispcr-bin)    ISPCR_BIN="$2"; shift 2 ;;
         --threads)      THREADS="$2"; shift 2 ;;
+        --engine)       ENGINE="$2"; shift 2 ;;     # mfeprimer | ispcr | both
         --overwrite)    OVERWRITE="$2"; shift 2 ;;
         *) echo "[build_indices] unknown arg: $1" >&2; exit 2 ;;
     esac
@@ -45,6 +46,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MFE_BIN="$SCRIPT_DIR/bin/mfeprimer"
 [[ -x "$MFE_BIN" ]] || MFE_BIN=$(command -v mfeprimer 2>/dev/null || echo "")
 
+if [[ "$ENGINE" == "mfeprimer" || "$ENGINE" == "both" ]]; then
 if [[ -n "$MFE_BIN" ]]; then
     if mfe_index_present && [[ "$OVERWRITE" != "true" && "$OVERWRITE" != "True" ]]; then
         echo "[build_indices] [$GENOME_NAME] MFEprimer index exists — skip"
@@ -57,8 +59,10 @@ if [[ -n "$MFE_BIN" ]]; then
 else
     echo "[build_indices] WARN: mfeprimer not found — install via: bash $SCRIPT_DIR/download_mfeprimer.sh" >&2
 fi
+fi
 
 # ── isPcr .ooc (only if binary present) ────────────────────────────────────
+if [[ "$ENGINE" == "ispcr" || "$ENGINE" == "both" ]]; then
 if [[ -x "$ISPCR_BIN" ]]; then
     blat_bin="$(dirname "$ISPCR_BIN")/blat"
     if [[ -f "$ooc_file" && "$OVERWRITE" != "true" && "$OVERWRITE" != "True" ]]; then
@@ -72,4 +76,5 @@ if [[ -x "$ISPCR_BIN" ]]; then
     fi
 else
     echo "[build_indices] [$GENOME_NAME] isPcr binary absent — skipping .ooc"
+fi
 fi

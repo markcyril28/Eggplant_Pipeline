@@ -38,7 +38,10 @@ ufm_link="$OUTDIR/${genome_basename}"
 # Treat either extension as proof the index exists.
 ooc_file="$OUTDIR/${GENOME_NAME}.ooc"
 mfe_index_present() {
-    [[ -f "${ufm_link}.uni" || -f "${ufm_link}.ufm" ]]
+    # MFEprimer v4.x writes <fasta>.primerqc (the big k-mer hash);
+    # v3.x writes <fasta>.uni;  pre-v3 writes <fasta>.ufm.
+    # Treat any of them as proof the index exists.
+    [[ -f "${ufm_link}.primerqc" || -f "${ufm_link}.uni" || -f "${ufm_link}.ufm" ]]
 }
 
 # ── MFEprimer index (build under OUTDIR via a symlink so .ufm sits in OUTDIR)
@@ -55,40 +58,94 @@ if [[ -n "$MFE_BIN" ]]; then
         # ext4 for the many small writes mfeprimer makes; on /mnt/c/ even a
         # 41 MB transcript FASTA can take 10+ minutes and look "stuck."
         # We index in /tmp/ (Linux tmpfs/ext4) then symlink results back.
+        # Stage on Linux ext4 if input lives on the Windows-mounted /mnt/.
+        # MFEprimer index writes a tempfile in CWD then atomically renames
+        # it onto the destination. If CWD is on /mnt/c (9p/NTFS) and the
+        # destination is on /tmp (ext4), Linux rename() fails with
+        # "invalid cross-device link" — so we MUST cd into the stage dir.
+        # We ALSO normalize the FASTA to one-line-per-sequence on staging:
+        # mfeprimer v4.x rejects FASTAs with inconsistent line widths inside
+        # a single sequence with the message "different line length in
+        # sequence: <id>" — and worse, exits 0 anyway, so a bad FASTA
+        # silently produces no .uni index. Single-line sequences are
+        # trivially uniform and avoid the whole problem.
         if [[ "$GENOME" == /mnt/* ]]; then
             stage_dir="/tmp/eggplant_mfe_index/$GENOME_NAME"
             mkdir -p "$stage_dir"
             staged_fa="$stage_dir/$(basename "$GENOME")"
-            if [[ ! -f "$staged_fa" || "$(stat -c %s "$staged_fa" 2>/dev/null || echo 0)" != "$(stat -c %s "$GENOME")" ]]; then
-                echo "[build_indices] [$GENOME_NAME] staging FASTA → $stage_dir (Linux fs)"
-                cp -f "$GENOME" "$staged_fa"
+            src_size=$(stat -c %s "$GENOME")
+            dst_size=$(stat -c %s "$staged_fa" 2>/dev/null || echo 0)
+            # Always re-stage if missing OR markedly different size from
+            # source — normalization shrinks files modestly so we tolerate
+            # up to 10% shrink as "already normalized."
+            need_stage=1
+            if [[ -s "$staged_fa" ]]; then
+                ratio=$(( dst_size * 100 / src_size ))
+                (( ratio >= 85 && ratio <= 105 )) && need_stage=0
             fi
+            if (( need_stage )); then
+                echo "[build_indices] [$GENOME_NAME] normalizing + staging FASTA ($((src_size/1024/1024)) MB) → $stage_dir"
+                # awk: each sequence on a single line, removes any whitespace.
+                awk 'BEGIN{seq=""}
+                     /^>/{if(seq!="") print seq; print; seq=""; next}
+                     {gsub(/[[:space:]]/,"",$0); seq=seq $0}
+                     END{if(seq!="") print seq}' "$GENOME" > "$staged_fa"
+                if [[ ! -s "$staged_fa" ]]; then
+                    echo "[build_indices] [$GENOME_NAME] ERROR: FASTA normalization produced empty file" >&2
+                    exit 1
+                fi
+                normalized_size=$(stat -c %s "$staged_fa")
+                echo "[build_indices] [$GENOME_NAME] normalized: $((normalized_size/1024/1024)) MB"
+            fi
+            run_dir="$stage_dir"
+            relative_fa="$(basename "$staged_fa")"
             target_fa="$staged_fa"
         else
             ln -sf "$GENOME" "$ufm_link"
+            run_dir="$OUTDIR"
+            relative_fa="$(basename "$ufm_link")"
             target_fa="$ufm_link"
         fi
 
-        # Run mfeprimer index with FULL output capture so silent failures
-        # become visible. Without this, set -e propagates a bare non-zero
-        # exit and the orchestrator dies with no error printed.
+        # Memory cap: mfeprimer defaults to 70% of host RAM. On WSL2 with
+        # a 16 GB ceiling that is ~11 GB and OOM-kills under tee buffering.
+        # 50% (~8 GB) leaves headroom for the orchestrator and tee.
         log_file="${target_fa}.index.log"
-        echo "[build_indices] [$GENOME_NAME] $MFE_BIN index -i $target_fa -k $KMER  (GOMAXPROCS=$THREADS)"
+        echo "[build_indices] [$GENOME_NAME] cd $run_dir && $MFE_BIN index -i $relative_fa -k $KMER -c $THREADS -m 50 -f"
         echo "[build_indices] [$GENOME_NAME] live output → $log_file"
         set +e
-        GOMAXPROCS="$THREADS" "$MFE_BIN" index -i "$target_fa" -k "$KMER" -f 2>&1 | tee "$log_file"
+        ( cd "$run_dir" \
+          && GOMAXPROCS="$THREADS" "$MFE_BIN" index \
+              -i "$relative_fa" -k "$KMER" -c "$THREADS" -m 50 -f \
+        ) 2>&1 | tee "$log_file"
         rc=${PIPESTATUS[0]}
         set -e
-        if (( rc != 0 )); then
-            echo "[build_indices] [$GENOME_NAME] ERROR: mfeprimer index exited $rc" >&2
-            echo "[build_indices] last 30 lines of $log_file:" >&2
-            tail -n 30 "$log_file" >&2 || true
-            exit "$rc"
+        # mfeprimer v4.x can return 0 even on indexing failure (e.g. when the
+        # FASTA has variable line widths). Verify a real index file exists
+        # and is non-empty regardless of exit code.
+        index_ok=0
+        for ext in primerqc uni ufm; do
+            [[ -s "${target_fa}.${ext}" ]] && index_ok=1
+        done
+        if (( rc != 0 )) || (( index_ok == 0 )); then
+            echo "[build_indices] [$GENOME_NAME] ERROR: mfeprimer index failed (rc=$rc, no .primerqc/.uni/.ufm)" >&2
+            echo "[build_indices] tee log ($log_file):" >&2
+            tail -n 40 "$log_file" >&2 || true
+            if [[ -s "${target_fa}.log" ]]; then
+                echo "[build_indices] mfeprimer internal log (${target_fa}.log):" >&2
+                tail -n 20 "${target_fa}.log" >&2
+            fi
+            exit 1
         fi
 
-        # Stage results back into OUTDIR (only when staging was used)
+        # Symlink the indexed FASTA + companion files back into OUTDIR so
+        # mfeprimer_run.sh discovers them via the standard search regardless
+        # of where indexing happened. v4.x produces .primerqc, .primerqc.fai,
+        # .fai, .json; older versions produce .uni or .ufm.
         if [[ "$target_fa" == /tmp/* ]]; then
-            for f in "$target_fa" "${target_fa}.uni" "${target_fa}.ufm" "${target_fa}.fai" "${target_fa}.2bit"; do
+            for f in "$target_fa" "${target_fa}.primerqc" "${target_fa}.primerqc.fai" \
+                     "${target_fa}.uni" "${target_fa}.ufm" "${target_fa}.fai" \
+                     "${target_fa}.json" "${target_fa}.2bit"; do
                 [[ -e "$f" ]] && ln -sf "$f" "$OUTDIR/$(basename "$f")"
             done
             echo "[build_indices] [$GENOME_NAME] indexed; symlinks placed in $OUTDIR"

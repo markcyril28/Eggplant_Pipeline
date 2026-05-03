@@ -56,15 +56,19 @@ if [[ ! -x "$MFE_BIN" ]]; then
     fi
 fi
 
-# Locate the indexed FASTA in INDEX_DIR. MFEprimer v3.x emits <fasta>.ufm and
-# v4.x emits <fasta>.uni — check both. The FASTA itself is the value passed to -d.
-idx_target=$(find "$INDEX_DIR" -maxdepth 1 \( -name '*.uni' -o -name '*.ufm' \) | head -1 || true)
+# Locate the indexed FASTA in INDEX_DIR. MFEprimer v4.x writes <fasta>.primerqc
+# (the k-mer database); v3.x writes <fasta>.uni; pre-v3 writes <fasta>.ufm.
+# Check all three. The FASTA itself is the value passed to -d.
+idx_target=$(find "$INDEX_DIR" -maxdepth 1 \
+                  \( -name '*.primerqc' -o -name '*.uni' -o -name '*.ufm' \) \
+                  ! -name '*.fai' | head -1 || true)
 if [[ -z "$idx_target" ]]; then
-    echo "[mfeprimer_run] no MFEprimer index (.uni or .ufm) in $INDEX_DIR — run index_genomes first" >&2
+    echo "[mfeprimer_run] no MFEprimer index (.primerqc/.uni/.ufm) in $INDEX_DIR — run index_genomes first" >&2
     exit 1
 fi
 # Strip whichever extension the index file uses to recover the FASTA path
-indexed_fa="${idx_target%.uni}"
+indexed_fa="${idx_target%.primerqc}"
+indexed_fa="${indexed_fa%.uni}"
 indexed_fa="${indexed_fa%.ufm}"
 
 out_prefix="$OUTDIR/${SET_NAME}__${GENOME_NAME}"
@@ -101,20 +105,27 @@ with open(src, newline='') as fin, open(dst, 'w') as fout:
         fout.write(f">{pid}_F\n{fwd}\n>{pid}_R\n{rev}\n")
 PY
 
-echo "[mfeprimer_run] $MFE_BIN spec  primers=$(grep -c '^>' "$primers_fa") set=$SET_NAME genome=$GENOME_NAME GOMAXPROCS=$THREADS"
-# GOMAXPROCS is the actual cap on Go runtime OS threads. The -c flag is just a
-# logical hint and does NOT bound the scheduler, so without GOMAXPROCS the
-# process spawns nproc worker threads regardless of -c. Set both for safety.
-GOMAXPROCS="$THREADS" "$MFE_BIN" spec \
-    -i "$primers_fa" \
-    -d "$indexed_fa" \
-    -k "$INDEX_K" \
-    -S "$MAX_AMP" -s "$MIN_AMP" \
-    --misEnd "$MIS_END" \
-    --divalent "$DIVALENT" --monovalent "$MONOVALENT" \
-    --dntp "$DNTP" --oligo "$OLIGO" \
-    -c "$THREADS" \
-    -j -o "$out_prefix"
+# If the index is a symlink to a /tmp staged file, follow it back so we run
+# mfeprimer in the same dir the index actually lives in. Same cross-device
+# rename hazard as build_indices: mfeprimer spec also uses tempfile rename.
+real_indexed_fa=$(readlink -f "$indexed_fa")
+spec_run_dir=$(dirname "$real_indexed_fa")
+spec_relative_db=$(basename "$real_indexed_fa")
+
+echo "[mfeprimer_run] cd $spec_run_dir && $MFE_BIN spec  primers=$(grep -c '^>' "$primers_fa") set=$SET_NAME genome=$GENOME_NAME GOMAXPROCS=$THREADS -c $THREADS"
+# GOMAXPROCS caps Go OS threads; -c bounds mfeprimer's worker pool; -m caps
+# RAM usage to leave headroom for the orchestrator on WSL2.
+( cd "$spec_run_dir" \
+  && GOMAXPROCS="$THREADS" "$MFE_BIN" spec \
+      -i "$primers_fa" \
+      -d "$spec_relative_db" \
+      -k "$INDEX_K" \
+      -S "$MAX_AMP" -s "$MIN_AMP" \
+      --misEnd "$MIS_END" \
+      --divalent "$DIVALENT" --monovalent "$MONOVALENT" \
+      --dntp "$DNTP" --oligo "$OLIGO" \
+      -c "$THREADS" \
+      -j -o "$out_prefix" )
 
 # mfeprimer writes <out_prefix> (text), <out_prefix>.json, and <out_prefix>.html
 # Promote a flat TSV summary for downstream merge.

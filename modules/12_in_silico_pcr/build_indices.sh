@@ -36,16 +36,20 @@ ufm_index="${ufm_link}.ufm"
 ooc_file="$OUTDIR/${GENOME_NAME}.ooc"
 
 # ── MFEprimer index (build under OUTDIR via a symlink so .ufm sits in OUTDIR)
-if command -v mfeprimer &>/dev/null; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MFE_BIN="$SCRIPT_DIR/bin/mfeprimer"
+[[ -x "$MFE_BIN" ]] || MFE_BIN=$(command -v mfeprimer 2>/dev/null || echo "")
+
+if [[ -n "$MFE_BIN" ]]; then
     if [[ -f "$ufm_index" && "$OVERWRITE" != "true" && "$OVERWRITE" != "True" ]]; then
         echo "[build_indices] [$GENOME_NAME] MFEprimer index exists — skip"
     else
         ln -sf "$GENOME" "$ufm_link"
-        echo "[build_indices] [$GENOME_NAME] mfeprimer index -i $ufm_link -k $KMER"
-        mfeprimer index -i "$ufm_link" -k "$KMER" -f
+        echo "[build_indices] [$GENOME_NAME] $MFE_BIN index -i $ufm_link -k $KMER"
+        "$MFE_BIN" index -i "$ufm_link" -k "$KMER" -f
     fi
 else
-    echo "[build_indices] WARN: mfeprimer not found in PATH — skipping MFEprimer index" >&2
+    echo "[build_indices] WARN: mfeprimer not found — install via: bash $SCRIPT_DIR/download_mfeprimer.sh" >&2
 fi
 
 # ── isPcr .ooc (only if binary present) ────────────────────────────────────

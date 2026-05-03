@@ -40,9 +40,19 @@ done
 [[ -f "$PRIMERS_TSV" ]] || { echo "[mfeprimer_run] primers TSV missing: $PRIMERS_TSV" >&2; exit 1; }
 mkdir -p "$OUTDIR"
 
-if ! command -v mfeprimer &>/dev/null; then
-    echo "[mfeprimer_run] WARN: mfeprimer not on PATH — skipping $SET_NAME / $GENOME_NAME" >&2
-    exit 0
+# Resolve mfeprimer binary: prefer modules/12_in_silico_pcr/bin/ (download_mfeprimer.sh
+# installs here); fall back to PATH for users with a manual install.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MFE_BIN="$SCRIPT_DIR/bin/mfeprimer"
+if [[ ! -x "$MFE_BIN" ]]; then
+    if command -v mfeprimer &>/dev/null; then
+        MFE_BIN=$(command -v mfeprimer)
+    else
+        echo "[mfeprimer_run] WARN: mfeprimer not found." >&2
+        echo "  Install with: bash $SCRIPT_DIR/download_mfeprimer.sh" >&2
+        echo "  Skipping $SET_NAME / $GENOME_NAME" >&2
+        exit 0
+    fi
 fi
 
 # Locate the .ufm-indexed FASTA inside INDEX_DIR (built by build_indices.sh)
@@ -87,8 +97,8 @@ with open(src, newline='') as fin, open(dst, 'w') as fout:
         fout.write(f">{pid}_F\n{fwd}\n>{pid}_R\n{rev}\n")
 PY
 
-echo "[mfeprimer_run] mfeprimer spec  primers=$(grep -c '^>' "$primers_fa") set=$SET_NAME genome=$GENOME_NAME"
-mfeprimer spec \
+echo "[mfeprimer_run] $MFE_BIN spec  primers=$(grep -c '^>' "$primers_fa") set=$SET_NAME genome=$GENOME_NAME"
+"$MFE_BIN" spec \
     -i "$primers_fa" \
     -d "$indexed_fa" \
     -k "$(basename "$ufm_target" .ufm | awk '{print "9"}')" \

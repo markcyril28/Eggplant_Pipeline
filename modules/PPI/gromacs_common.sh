@@ -365,19 +365,24 @@ run_mdrun() {
         try_gpu=false
     fi
     
+    # `-pin off` is mandatory for parallel-dispatch callers: the default
+    # `-pin auto` makes every concurrent mdrun pin to cores 0..NTHREADS-1,
+    # so N parallel jobs all collide on the same cores and stall.
+    # OS scheduler handles balancing; manual -pinoffset would also work but
+    # would require slot-index tracking that the dispatcher does not expose.
     if [[ "$try_gpu" == true && -n "${GPU_ID:-}" ]]; then
         local gpu_id_flag="-gpu_id $GPU_ID"
         # GROMACS 2025+ requires -ntmpi when using GPU with OpenMP threads
         # gpu_flags must NOT be quoted — it contains multiple separate flags
-        if $GMX_BIN mdrun -v -deffnm "$name" -ntmpi 1 -ntomp "$NTHREADS" $gpu_id_flag $gpu_flags 2>&1 | tee "${log_dir}/mdrun_${name}.log"; then
+        if $GMX_BIN mdrun -v -deffnm "$name" -ntmpi 1 -ntomp "$NTHREADS" -pin off $gpu_id_flag $gpu_flags 2>&1 | tee "${log_dir}/mdrun_${name}.log"; then
             return 0
         else
             log_warn "GPU failed, using CPU..."
         fi
     fi
-    
+
     # CPU-only run
-    $GMX_BIN mdrun -v -deffnm "$name" -ntmpi 1 -ntomp "$NTHREADS" 2>&1 | tee "${log_dir}/mdrun_${name}_cpu.log"
+    $GMX_BIN mdrun -v -deffnm "$name" -ntmpi 1 -ntomp "$NTHREADS" -pin off 2>&1 | tee "${log_dir}/mdrun_${name}_cpu.log"
 }
 
 # Run energy minimization

@@ -33,6 +33,16 @@ if [[ -z "${RUN_ID:-}" ]]; then
 	printf -v RUN_ID '%(%Y%m%d_%H%M%S)T' -1 2>/dev/null || RUN_ID=$(date +%Y%m%d_%H%M%S)
 fi
 
+# Pipeline name for log file identification — derive from the top-level calling
+# script (BASH_SOURCE[-1] = entry point) so log files are named after the program
+# that ran them. Callers can override by setting PIPELINE_NAME before sourcing.
+if [[ -z "${PIPELINE_NAME:-}" ]]; then
+	_caller="${BASH_SOURCE[-1]:-}"
+	_caller="${_caller##*/}"       # basename
+	PIPELINE_NAME="${_caller%.sh}"  # strip .sh extension
+	unset _caller
+fi
+
 # Log directory structure — use PROJECT_ROOT prefix when available so log paths are
 # absolute even when the working directory changes (e.g., Nextflow work directories).
 # Callers like run_post_processing.sh override these with explicit absolute paths.
@@ -50,15 +60,15 @@ SOFTWARE_CATALOG_DIR="${SOFTWARE_CATALOG_DIR:-${_LOG_ROOT}/logs/software_catalog
 GPU_LOG_DIR="${GPU_LOG_DIR:-${_LOG_ROOT}/logs/gpu_log}"
 unset _LOG_ROOT
 
-# Log file paths (derived from directories and RUN_ID)
-LOG_FILE="${LOG_FILE:-$LOG_DIR/pipeline_${RUN_ID}_full_log.log}"
-TIME_FILE="${TIME_FILE:-$TIME_DIR/pipeline_${RUN_ID}_time_metrics.csv}"
+# Log file paths (date-first for chronological sorting, pipeline name as suffix)
+LOG_FILE="${LOG_FILE:-$LOG_DIR/${RUN_ID}_${PIPELINE_NAME}_full_log.log}"
+TIME_FILE="${TIME_FILE:-$TIME_DIR/${RUN_ID}_${PIPELINE_NAME}_time_metrics.csv}"
 TIME_TEMP="${TIME_TEMP:-$TIME_DIR/.time_temp_${RUN_ID}.txt}"
-SPACE_FILE="${SPACE_FILE:-$SPACE_DIR/pipeline_${RUN_ID}_space_metrics.csv}"
-SPACE_TIME_FILE="${SPACE_TIME_FILE:-$SPACE_TIME_DIR/pipeline_${RUN_ID}_combined_metrics.csv}"
-ERROR_WARN_FILE="${ERROR_WARN_FILE:-$ERROR_WARN_DIR/pipeline_${RUN_ID}_errors_warnings.log}"
-SOFTWARE_FILE="${SOFTWARE_FILE:-$SOFTWARE_CATALOG_DIR/software_catalog_${RUN_ID}.csv}"
-GPU_LOG_FILE="${GPU_LOG_FILE:-$GPU_LOG_DIR/gpu_${RUN_ID}.log}"
+SPACE_FILE="${SPACE_FILE:-$SPACE_DIR/${RUN_ID}_${PIPELINE_NAME}_space_metrics.csv}"
+SPACE_TIME_FILE="${SPACE_TIME_FILE:-$SPACE_TIME_DIR/${RUN_ID}_${PIPELINE_NAME}_combined_metrics.csv}"
+ERROR_WARN_FILE="${ERROR_WARN_FILE:-$ERROR_WARN_DIR/${RUN_ID}_${PIPELINE_NAME}_errors_warnings.log}"
+SOFTWARE_FILE="${SOFTWARE_FILE:-$SOFTWARE_CATALOG_DIR/${RUN_ID}_${PIPELINE_NAME}_software_catalog.csv}"
+GPU_LOG_FILE="${GPU_LOG_FILE:-$GPU_LOG_DIR/${RUN_ID}_${PIPELINE_NAME}_gpu.log}"
 
 # Detect GNU time binary at module load (O(1) per session, avoids per-call PATH lookup)
 # Linux: /usr/bin/time; macOS (Homebrew): gtime; fallback: run command without time wrapper

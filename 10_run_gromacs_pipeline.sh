@@ -816,7 +816,7 @@ run_compare_chain_stability() {
         fi
 
         log "Running NPT equilibration..."
-        $GMX_BIN grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -n index.ndx -o npt.tpr 2>&1 | tee logs/grompp_npt.log
+        $GMX_BIN grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -n index.ndx -o npt.tpr -maxwarn 1 2>&1 | tee logs/grompp_npt.log
         _try_mdrun "npt" "npt" "logs"
         if [[ ! -f npt.gro ]]; then
             log_error "NPT equilibration failed - npt.gro not produced for $name"
@@ -1541,7 +1541,7 @@ run_production_md() {
         fi
 
         log "Running NPT equilibration..."
-        $GMX_BIN grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -n index.ndx -o npt.tpr 2>&1 | tee logs/grompp_npt.log
+        $GMX_BIN grompp -f npt.mdp -c nvt.gro -r nvt.gro -t nvt.cpt -p topol.top -n index.ndx -o npt.tpr -maxwarn 1 2>&1 | tee logs/grompp_npt.log
         _try_mdrun_prod "npt" "npt" "logs"
         if [[ ! -f npt.gro ]]; then
             log_error "NPT equilibration failed - npt.gro not produced for $name"

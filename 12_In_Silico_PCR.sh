@@ -85,10 +85,27 @@ else
 fi
 
 # ── Compute profile ───────────────────────────────────────────────────────
+# Autorespect host capacity: even if the TOML says more, never oversubscribe.
+# Total live thread demand is MAX_PARALLEL × THREADS_PER_JOB and must stay
+# <= the number of cores the OS actually reports (nproc).
 MACHINE=$(get_toml pipeline machine 2>/dev/null || echo "Local")
-CPU=$(get_toml pipeline compute "$MACHINE" threads 2>/dev/null || nproc)
+HOST_CPU=$(nproc)
+CPU=$(get_toml pipeline compute "$MACHINE" threads 2>/dev/null || echo "$HOST_CPU")
+if (( CPU > HOST_CPU )); then
+    log_warn "TOML threads=$CPU exceeds host nproc=$HOST_CPU — capping at $HOST_CPU"
+    CPU=$HOST_CPU
+fi
 MAX_PARALLEL=$(get_toml pipeline compute "$MACHINE" max_parallel 2>/dev/null || echo "$CPU")
 (( MAX_PARALLEL < 1 )) && MAX_PARALLEL=1
+if (( MAX_PARALLEL > CPU )); then
+    log_warn "TOML max_parallel=$MAX_PARALLEL exceeds CPU=$CPU — capping at $CPU"
+    MAX_PARALLEL=$CPU
+fi
+# Per-job thread budget: divide total cores by max parallel jobs so that
+# CPU × MAX_PARALLEL never exceeds the host. Was crashing with --threads=$CPU
+# on every parallel mfeprimer call (6×12=72 thread demand on 12 cores).
+THREADS_PER_JOB=$(( CPU / MAX_PARALLEL ))
+(( THREADS_PER_JOB < 1 )) && THREADS_PER_JOB=1
 OVERWRITE=$(get_toml pipeline overwrite 2>/dev/null || echo "true")
 
 BASE_DIR="$PIPELINE_DIR/$(get_toml general base_dir 2>/dev/null || echo "III_RESULT/${GENE_GROUP}")"
@@ -149,6 +166,7 @@ log_info "Operations: ${OPERATIONS[*]}"
 log_info "Engines:    ${ENGINES[*]}"
 log_info "Genomes:    ${GENOME_NAMES[*]}"
 log_info "Primer sets: ${PRIMER_SET_NAMES[*]:-<none>}"
+log_info "Compute:    host=${HOST_CPU}c  CPU=$CPU  MAX_PARALLEL=$MAX_PARALLEL  THREADS_PER_JOB=$THREADS_PER_JOB  (total demand: $(( MAX_PARALLEL * THREADS_PER_JOB ))c)"
 
 # ============================================================================
 # Operation 1: Build per-genome indices (MFEprimer .ufm, isPcr .ooc)
@@ -174,6 +192,7 @@ if op_enabled "index_genomes"; then
             --ooc-tile    "$OOC_TILE" \
             --ooc-repeat  "$OOC_REPEAT" \
             --ispcr-bin   "$ISPCR_BIN" \
+            --threads     "$THREADS_PER_JOB" \
             --overwrite   "$OVERWRITE" &
     done
     wait
@@ -218,7 +237,7 @@ if op_enabled "run_engines" && engine_enabled "mfeprimer"; then
                 --monovalent   "$MFE_MONOVALENT" \
                 --dntp         "$MFE_DNTP" \
                 --oligo        "$MFE_OLIGO" \
-                --threads      "$CPU" \
+                --threads      "$THREADS_PER_JOB" \
                 --overwrite    "$OVERWRITE" &
         done
     done

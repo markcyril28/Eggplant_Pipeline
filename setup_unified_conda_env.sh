@@ -188,6 +188,8 @@ CONDA_PACKAGES=(
     meme
     # CRISPR off-target
     cas-offinder
+    # In silico PCR (stage 12) — MFEprimer-3.0 (isPcr is downloaded separately)
+    mfeprimer
     # General utilities
     wget pandoc
     # Protein structure
@@ -320,6 +322,7 @@ declare -A TOOLS=(
     ["BEDtools"]="bedtools --version 2>&1"
     ["SeqTK"]="seqtk 2>&1 | head -1"
     ["Cas-OFFinder"]="cas-offinder 2>&1 | head -1"
+    ["MFEprimer"]="mfeprimer --version 2>&1 | head -1"
     ["MEME"]="meme --version 2>&1"
     ["gffread"]="gffread --version 2>&1 | head -1"
     ["EMBOSS transeq"]="transeq -version 2>&1 | head -1"
@@ -411,6 +414,11 @@ cat << 'EOF'
   CRISPR Off-Target:
     cas-offinder
 
+  In Silico PCR (stage 12):
+    mfeprimer (conda)
+    isPcr (UCSC) — download with:
+        bash modules/12_in_silico_pcr/download_ispcr.sh
+
   General Utilities:
     wget, pandas, numpy, tomli (TOML config parser for Python <3.11)
 
@@ -423,6 +431,12 @@ cat << 'EOF'
       sudo dpkg -i 1_CONFIG_FILES/mega-cc_12.0.14-1_amd64_beta.deb
       Or via Docker:
       docker build -t megacc -f 9_RESULTS/GRF_GIF/3_BLAST_Alignment_and_Phylogenetic_Analysis/Dockerfile .
+
+  * UCSC isPcr (in silico PCR, stage 12):
+      Precompiled binary, free for non-commercial use.
+      Auto-fetched into modules/12_in_silico_pcr/bin/ via:
+          bash modules/12_in_silico_pcr/download_ispcr.sh
+      Linux/macOS only; on Windows run inside WSL.
 
   * Web-based / External tools (no local install needed):
       - AlphaFold3 Server (alphafoldserver.com)

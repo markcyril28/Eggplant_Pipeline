@@ -33,7 +33,12 @@ GPU_LOG_DIR="${GPU_LOG_DIR:-${PROJECT_ROOT:-${SCRIPT_DIR:-$PWD}}/logs}"
 # Prefer printf builtin over date subprocess for log filename
 if [[ -z "${GPU_LOG_FILE:-}" ]]; then
 	printf -v _gpu_ts_id '%(%Y%m%d_%H%M%S)T' -1 2>/dev/null || _gpu_ts_id=$(date +%Y%m%d_%H%M%S)
-	GPU_LOG_FILE="$GPU_LOG_DIR/gpu_prep_${_gpu_ts_id}.log"
+	# Derive caller name when PIPELINE_NAME not already set by logging_utils.sh
+	if [[ -z "${PIPELINE_NAME:-}" ]]; then
+		_caller="${BASH_SOURCE[-1]:-}"; _caller="${_caller##*/}"
+		PIPELINE_NAME="${_caller%.sh}"; unset _caller
+	fi
+	GPU_LOG_FILE="$GPU_LOG_DIR/${_gpu_ts_id}_${PIPELINE_NAME}_gpu.log"
 	unset _gpu_ts_id
 fi
 GPU_LOG_ENABLED="${GPU_LOG_ENABLED:-true}"

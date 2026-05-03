@@ -241,6 +241,7 @@ pcoupltype      = isotropic
 tau_p           = 2.0           ; Time constant (ps)
 ref_p           = {cfg.pressure}           ; Reference pressure (bar)
 compressibility = 4.5e-5        ; Isothermal compressibility of water
+refcoord_scaling = com          ; Scale reference coords with COM of restraint group
 
 ; Periodic boundary conditions
 pbc             = xyz

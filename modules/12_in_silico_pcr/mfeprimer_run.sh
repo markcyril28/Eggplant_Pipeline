@@ -56,13 +56,16 @@ if [[ ! -x "$MFE_BIN" ]]; then
     fi
 fi
 
-# Locate the .ufm-indexed FASTA inside INDEX_DIR (built by build_indices.sh)
-ufm_target=$(find "$INDEX_DIR" -maxdepth 1 -name '*.ufm' | head -1 || true)
-if [[ -z "$ufm_target" ]]; then
-    echo "[mfeprimer_run] no .ufm index in $INDEX_DIR — run index_genomes first" >&2
+# Locate the indexed FASTA in INDEX_DIR. MFEprimer v3.x emits <fasta>.ufm and
+# v4.x emits <fasta>.uni — check both. The FASTA itself is the value passed to -d.
+idx_target=$(find "$INDEX_DIR" -maxdepth 1 \( -name '*.uni' -o -name '*.ufm' \) | head -1 || true)
+if [[ -z "$idx_target" ]]; then
+    echo "[mfeprimer_run] no MFEprimer index (.uni or .ufm) in $INDEX_DIR — run index_genomes first" >&2
     exit 1
 fi
-indexed_fa="${ufm_target%.ufm}"
+# Strip whichever extension the index file uses to recover the FASTA path
+indexed_fa="${idx_target%.uni}"
+indexed_fa="${indexed_fa%.ufm}"
 
 out_prefix="$OUTDIR/${SET_NAME}__${GENOME_NAME}"
 out_json="${out_prefix}.json"
@@ -98,8 +101,11 @@ with open(src, newline='') as fin, open(dst, 'w') as fout:
         fout.write(f">{pid}_F\n{fwd}\n>{pid}_R\n{rev}\n")
 PY
 
-echo "[mfeprimer_run] $MFE_BIN spec  primers=$(grep -c '^>' "$primers_fa") set=$SET_NAME genome=$GENOME_NAME"
-"$MFE_BIN" spec \
+echo "[mfeprimer_run] $MFE_BIN spec  primers=$(grep -c '^>' "$primers_fa") set=$SET_NAME genome=$GENOME_NAME GOMAXPROCS=$THREADS"
+# GOMAXPROCS is the actual cap on Go runtime OS threads. The -c flag is just a
+# logical hint and does NOT bound the scheduler, so without GOMAXPROCS the
+# process spawns nproc worker threads regardless of -c. Set both for safety.
+GOMAXPROCS="$THREADS" "$MFE_BIN" spec \
     -i "$primers_fa" \
     -d "$indexed_fa" \
     -k "$INDEX_K" \

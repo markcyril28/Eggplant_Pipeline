@@ -52,11 +52,13 @@ else
               | grep -E '"tag_name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
     fi
     if [[ -z "${TAG:-}" ]]; then
-        TAG="v3.3.1"
+        TAG="v4.2.4"
         echo "[download_mfeprimer] Could not resolve latest tag; falling back to $TAG"
     fi
 fi
 VERSION="${TAG#v}"
+# NOTE: The repo is named MFEprimer-3.0 for historical reasons but distributes
+# v4.x binaries since 2022. The release tag drives the asset filename.
 echo "[download_mfeprimer] target: MFEprimer ${TAG} (${OS}-${ARCH})"
 
 # ── Download + extract ─────────────────────────────────────────────────────
@@ -67,7 +69,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 target="$BIN_DIR/mfeprimer"
 if [[ -x "$target" ]]; then
-    have_ver=$("$target" --version 2>&1 | head -1 || echo "")
+    have_ver=$("$target" version 2>&1 | head -1 || echo "")
     echo "[download_mfeprimer] existing binary: $target ($have_ver)"
 fi
 
@@ -85,7 +87,9 @@ gunzip -c "$TMP/$ASSET" > "$target"
 chmod +x "$target"
 
 echo
-"$target" --version 2>&1 | head -3 || true
+# v4.x exposes version as a subcommand; fall back to the help banner if the
+# subcommand was renamed in a future release.
+"$target" version 2>&1 | head -3 || "$target" --help 2>&1 | head -3 || true
 echo
 echo "Installed: $target"
 echo "Add to PATH (optional):  export PATH=\"$BIN_DIR:\$PATH\""

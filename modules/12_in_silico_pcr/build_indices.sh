@@ -11,7 +11,7 @@
 set -euo pipefail
 
 GENOME="" GENOME_NAME="" OUTDIR="" KMER="9" OOC_TILE="11" OOC_REPEAT="1024"
-ISPCR_BIN="" OVERWRITE="true"
+ISPCR_BIN="" OVERWRITE="true" THREADS="1"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -22,6 +22,7 @@ while [[ $# -gt 0 ]]; do
         --ooc-tile)     OOC_TILE="$2"; shift 2 ;;
         --ooc-repeat)   OOC_REPEAT="$2"; shift 2 ;;
         --ispcr-bin)    ISPCR_BIN="$2"; shift 2 ;;
+        --threads)      THREADS="$2"; shift 2 ;;
         --overwrite)    OVERWRITE="$2"; shift 2 ;;
         *) echo "[build_indices] unknown arg: $1" >&2; exit 2 ;;
     esac
@@ -32,8 +33,12 @@ mkdir -p "$OUTDIR"
 
 genome_basename=$(basename "$GENOME")
 ufm_link="$OUTDIR/${genome_basename}"
-ufm_index="${ufm_link}.ufm"
+# MFEprimer v3.x writes <fasta>.ufm; v4.x writes <fasta>.uni alongside .fai/.2bit.
+# Treat either extension as proof the index exists.
 ooc_file="$OUTDIR/${GENOME_NAME}.ooc"
+mfe_index_present() {
+    [[ -f "${ufm_link}.uni" || -f "${ufm_link}.ufm" ]]
+}
 
 # ── MFEprimer index (build under OUTDIR via a symlink so .ufm sits in OUTDIR)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,12 +46,13 @@ MFE_BIN="$SCRIPT_DIR/bin/mfeprimer"
 [[ -x "$MFE_BIN" ]] || MFE_BIN=$(command -v mfeprimer 2>/dev/null || echo "")
 
 if [[ -n "$MFE_BIN" ]]; then
-    if [[ -f "$ufm_index" && "$OVERWRITE" != "true" && "$OVERWRITE" != "True" ]]; then
+    if mfe_index_present && [[ "$OVERWRITE" != "true" && "$OVERWRITE" != "True" ]]; then
         echo "[build_indices] [$GENOME_NAME] MFEprimer index exists — skip"
     else
         ln -sf "$GENOME" "$ufm_link"
-        echo "[build_indices] [$GENOME_NAME] $MFE_BIN index -i $ufm_link -k $KMER"
-        "$MFE_BIN" index -i "$ufm_link" -k "$KMER" -f
+        echo "[build_indices] [$GENOME_NAME] $MFE_BIN index -i $ufm_link -k $KMER (GOMAXPROCS=$THREADS)"
+        # GOMAXPROCS caps the Go runtime so the indexer does not grab all host cores.
+        GOMAXPROCS="$THREADS" "$MFE_BIN" index -i "$ufm_link" -k "$KMER" -f
     fi
 else
     echo "[build_indices] WARN: mfeprimer not found — install via: bash $SCRIPT_DIR/download_mfeprimer.sh" >&2

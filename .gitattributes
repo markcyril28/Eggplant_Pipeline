@@ -1,0 +1,20 @@
+# Enforce LF line endings for all text files in this repo.
+# Prevents CRLF contamination from Windows editors.
+* text=auto eol=lf
+
+# Explicitly force LF for pipeline source files
+*.sh    text eol=lf
+*.py    text eol=lf
+*.toml  text eol=lf
+*.csv   text eol=lf
+
+# Binary files — no line-ending conversion
+*.png   binary
+*.jpg   binary
+*.pdf   binary
+*.tar   binary
+*.gz    binary
+*.zip   binary
+*.fasta binary
+*.fa    binary
+*.hmm   binary

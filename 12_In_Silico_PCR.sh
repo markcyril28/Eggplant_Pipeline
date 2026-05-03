@@ -133,9 +133,22 @@ engine_enabled() {
     return 1
 }
 
-# Genome list — names parallel to fasta paths
+# Genome list — names parallel to fasta paths.
+# `fastas`           = full genome FASTAs (used by isPcr; small per-process RAM)
+# `mfeprimer_fastas` = optional smaller FASTAs (transcripts/CDS) for MFEprimer.
+#                      Falls back to `fastas` if absent. The full plant genome
+#                      at k=9 needs ~12 GB RAM per process which OOMs WSL2;
+#                      indexing transcripts instead drops that to ~500 MB.
+#                      Trade-off: MFEprimer can't see intron-spanning amplicons
+#                      against transcripts, but isPcr runs on the full genome
+#                      and catches those.
 mapfile -t GENOME_NAMES < <(get_toml in_silico_pcr genomes names 2>/dev/null)
 mapfile -t GENOME_FASTAS < <(get_toml in_silico_pcr genomes fastas 2>/dev/null)
+mapfile -t MFE_FASTAS < <(get_toml in_silico_pcr genomes mfeprimer_fastas 2>/dev/null || true)
+if [[ ${#MFE_FASTAS[@]} -eq 0 ]]; then
+    MFE_FASTAS=("${GENOME_FASTAS[@]}")
+    log_warn "genomes.mfeprimer_fastas not set — MFEprimer will index full genomes (high RAM, OOM risk on WSL2)"
+fi
 if [[ ${#GENOME_NAMES[@]} -eq 0 || ${#GENOME_FASTAS[@]} -eq 0 ]]; then
     log_error "in_silico_pcr.genomes.names / fastas missing — nothing to do for $GENE_GROUP"
     teardown_logging
@@ -143,6 +156,11 @@ if [[ ${#GENOME_NAMES[@]} -eq 0 || ${#GENOME_FASTAS[@]} -eq 0 ]]; then
 fi
 if [[ ${#GENOME_NAMES[@]} -ne ${#GENOME_FASTAS[@]} ]]; then
     log_error "names / fastas array length mismatch in $GENE_GROUP config"
+    teardown_logging
+    continue
+fi
+if [[ ${#MFE_FASTAS[@]} -ne ${#GENOME_NAMES[@]} ]]; then
+    log_error "genomes.mfeprimer_fastas length (${#MFE_FASTAS[@]}) != names length (${#GENOME_NAMES[@]})"
     teardown_logging
     continue
 fi
@@ -178,24 +196,39 @@ if op_enabled "index_genomes"; then
     OOC_TILE=$(get_toml in_silico_pcr ispcr ooc_tile_size 2>/dev/null || echo "11")
     OOC_REPEAT=$(get_toml in_silico_pcr ispcr ooc_repeat 2>/dev/null || echo "1024")
 
+    # Build TWO indices per genome:
+    #   - MFEprimer .uni from MFE_FASTAS (transcripts → ~500 MB RAM)
+    #   - isPcr .ooc     from GENOME_FASTAS (full genome → tiny RAM)
+    # Indices live in separate subdirs so paths never collide.
     for i in "${!GENOME_NAMES[@]}"; do
         gname="${GENOME_NAMES[$i]}"
-        gfa="$PIPELINE_DIR/${GENOME_FASTAS[$i]}"
-        idx_dir="$PCR_DIR/${gname}/01_Indices"
-        mkdir -p "$idx_dir"
-        wait_for_slot "$MAX_PARALLEL"
+        full_gfa="$PIPELINE_DIR/${GENOME_FASTAS[$i]}"
+        mfe_gfa="$PIPELINE_DIR/${MFE_FASTAS[$i]}"
+        mfe_idx_dir="$PCR_DIR/${gname}/01_Indices/mfeprimer"
+        ooc_idx_dir="$PCR_DIR/${gname}/01_Indices/ispcr"
+        mkdir -p "$mfe_idx_dir" "$ooc_idx_dir"
+
+        # MFEprimer index (smaller FASTA → fits in RAM)
         bash "$MODULES/12_in_silico_pcr/build_indices.sh" \
-            --genome      "$gfa" \
+            --engine      mfeprimer \
+            --genome      "$mfe_gfa" \
             --genome-name "$gname" \
-            --outdir      "$idx_dir" \
+            --outdir      "$mfe_idx_dir" \
             --kmer        "$INDEX_K" \
+            --threads     "$CPU" \
+            --overwrite   "$OVERWRITE"
+
+        # isPcr .ooc (full genome — memory-efficient)
+        bash "$MODULES/12_in_silico_pcr/build_indices.sh" \
+            --engine      ispcr \
+            --genome      "$full_gfa" \
+            --genome-name "$gname" \
+            --outdir      "$ooc_idx_dir" \
             --ooc-tile    "$OOC_TILE" \
             --ooc-repeat  "$OOC_REPEAT" \
             --ispcr-bin   "$ISPCR_BIN" \
-            --threads     "$THREADS_PER_JOB" \
-            --overwrite   "$OVERWRITE" &
+            --overwrite   "$OVERWRITE"
     done
-    wait
 fi
 
 # ============================================================================
@@ -213,16 +246,18 @@ if op_enabled "run_engines" && engine_enabled "mfeprimer"; then
     MFE_DNTP=$(get_toml in_silico_pcr mfeprimer dntp 2>/dev/null || echo "0.25")
     MFE_OLIGO=$(get_toml in_silico_pcr mfeprimer oligo 2>/dev/null || echo "50")
 
+    # MFEprimer spec also keeps the genome k-mer hash resident. Serialize so
+    # only ONE process is using the host's RAM at a time, and give that
+    # single process the full CPU budget (full GOMAXPROCS) for max throughput.
     for i in "${!GENOME_NAMES[@]}"; do
         gname="${GENOME_NAMES[$i]}"
-        idx_dir="$PCR_DIR/${gname}/01_Indices"
+        idx_dir="$PCR_DIR/${gname}/01_Indices/mfeprimer"
         mfe_dir="$PCR_DIR/${gname}/02_MFEprimer"
         mkdir -p "$mfe_dir"
         for j in "${!PRIMER_SET_NAMES[@]}"; do
             set_name="${PRIMER_SET_NAMES[$j]}"
             primers_tsv="$PIPELINE_DIR/${PRIMER_SET_FILES[$j]}"
             [[ -f "$primers_tsv" ]] || { log_warn "primers TSV not found: $primers_tsv"; continue; }
-            wait_for_slot "$MAX_PARALLEL"
             bash "$MODULES/12_in_silico_pcr/mfeprimer_run.sh" \
                 --primers-tsv "$primers_tsv" \
                 --set-name    "$set_name" \
@@ -237,11 +272,10 @@ if op_enabled "run_engines" && engine_enabled "mfeprimer"; then
                 --monovalent   "$MFE_MONOVALENT" \
                 --dntp         "$MFE_DNTP" \
                 --oligo        "$MFE_OLIGO" \
-                --threads      "$THREADS_PER_JOB" \
-                --overwrite    "$OVERWRITE" &
+                --threads      "$CPU" \
+                --overwrite    "$OVERWRITE"
         done
     done
-    wait
 fi
 
 # ============================================================================
@@ -265,7 +299,7 @@ if op_enabled "run_engines" && engine_enabled "ispcr"; then
         for i in "${!GENOME_NAMES[@]}"; do
             gname="${GENOME_NAMES[$i]}"
             gfa="$PIPELINE_DIR/${GENOME_FASTAS[$i]}"
-            idx_dir="$PCR_DIR/${gname}/01_Indices"
+            idx_dir="$PCR_DIR/${gname}/01_Indices/ispcr"
             isp_dir="$PCR_DIR/${gname}/03_isPcr"
             mkdir -p "$isp_dir"
             for j in "${!PRIMER_SET_NAMES[@]}"; do

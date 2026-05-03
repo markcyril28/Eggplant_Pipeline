@@ -66,7 +66,21 @@ operations    = [
     "summarize",       # combine amplicons per primer set across genomes
 ]
 
-# ── Target genomes (parallel arrays — names[i] uses fastas[i]) ─────────────
+# ── Per-engine FASTA databases (parallel arrays — names[i] aligns with both)
+# `fastas`           — full genome FASTAs (used by isPcr; ~50 MB RAM/process)
+# `mfeprimer_fastas` — OPTIONAL smaller FASTAs (transcripts/CDS) for MFEprimer
+#
+# Why split these:
+#   The full Smel genome is 1.1 GB. MFEprimer's k=9 hash for it needs ~12 GB
+#   RAM per process and OOM-kills under WSL2's default 16 GB ceiling. Indexing
+#   transcripts (40-55 MB) drops RAM use to ~500 MB and finishes in seconds.
+#   isPcr is memory-efficient and stays on the full genome.
+#
+# Trade-off:
+#   MFEprimer cannot detect intron-spanning amplicons against a transcript
+#   database, but isPcr (full genome) catches those. The dual-engine output
+#   covers both. Comment out mfeprimer_fastas to fall back to genome indexing
+#   at your own RAM risk.
 [in_silico_pcr.genomes]
 names  = [
     "Solanum_melongena_v4.1",
@@ -75,6 +89,10 @@ names  = [
 fastas = [
     "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970.fa",
+]
+mfeprimer_fastas = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
 ]
 
 # ── Primer sets ────────────────────────────────────────────────────────────

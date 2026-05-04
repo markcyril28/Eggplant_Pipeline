@@ -1,5 +1,5 @@
 # ============================================================================
-# Shared Pipeline Configuration — 12_In_Silico_PCR (MFEprimer + isPcr)
+# Shared Pipeline Configuration - 12_In_Silico_PCR (MFEprimer + isPcr)
 # ============================================================================
 # Two engines are run side-by-side so results can be cross-validated:
 #
@@ -17,7 +17,7 @@
 #      - blazing fast via .ooc index, outputs amplicon FASTA
 #
 # Consumer:
-#   12_In_Silico_PCR.sh  (primary — reads all keys)
+#   12_In_Silico_PCR.sh  (primary - reads all keys)
 # ============================================================================
 
 [pipeline]
@@ -42,21 +42,21 @@ max_parallel  = 8
 
 [general]
 # base_dir is computed from GENE_GROUP at runtime in 12_In_Silico_PCR.sh.
-# Do not set here — a hardcoded value would break multi-group runs.
+# Do not set here - a hardcoded value would break multi-group runs.
 
 
 # ============================================================================
-# In silico PCR — engine and reaction parameters
+# In silico PCR - engine and reaction parameters
 # ============================================================================
 [in_silico_pcr]
 enabled       = true
 
-# ── In silico PCR engines — comment in/out to choose which to run ──────────
+# -- In silico PCR engines - comment in/out to choose which to run ----------
 # MFEprimer = thermodynamics-aware k-mer search (bioconda::mfeprimer)
 # isPcr     = UCSC fast amplicon finder (downloaded binary)
 engines       = [
-    "mfeprimer",      # MFEprimer-3.0  — Tm/dG/dimer/hairpin reporting
-    "ispcr",          # UCSC isPcr     — fastest, amplicon FASTA out
+    "mfeprimer",      # MFEprimer-3.0  - Tm/dG/dimer/hairpin reporting
+    "ispcr",          # UCSC isPcr     - fastest, amplicon FASTA out
 ]
 
 # Workflow stages. index_genomes / summarize wrap whichever engines are
@@ -67,9 +67,9 @@ operations    = [
     "summarize",       # combine amplicons per primer set across genomes
 ]
 
-# ── Per-engine FASTA databases (parallel arrays — names[i] aligns with both)
-# `fastas`           — full genome FASTAs (used by isPcr; ~50 MB RAM/process)
-# `mfeprimer_fastas` — OPTIONAL smaller FASTAs (transcripts/CDS) for MFEprimer
+# -- Per-engine FASTA databases (parallel arrays - names[i] aligns with both)
+# `fastas`           - full genome FASTAs (used by isPcr; ~50 MB RAM/process)
+# `mfeprimer_fastas` - OPTIONAL smaller FASTAs (transcripts/CDS) for MFEprimer
 #
 # Why split these:
 #   The full Smel genome is 1.1 GB. MFEprimer's k=9 hash for it needs ~12 GB
@@ -141,8 +141,8 @@ GRF  = ["GRF_validation_primers"]
 # Reference: https://www.mfeprimer.com/mfeprimer-3.1/usage.html
 [in_silico_pcr.mfeprimer]
 index_k       = 9       # --k     k-mer size for genome index (8–11; 9 is balanced)
-min_amplicon  = 75      # --min   minimum amplicon size (bp)
-max_amplicon  = 1000    # --max   maximum amplicon size (bp)
+min_amplicon  = 75      # -s   minimum amplicon size (bp)
+max_amplicon  = 1000    # -S   maximum amplicon size (bp)
 misEnd        = 3       # --misEnd  allowed 3'-end mismatches (0 = strict)
 divalent      = 1.5     # --divalent  Mg2+ concentration (mM)
 monovalent    = 50      # --monovalent  Na+/K+ concentration (mM)

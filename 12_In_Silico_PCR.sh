@@ -16,9 +16,9 @@
 #       - no conda; binary downloaded by setup helper
 #
 # Operations (configured via [in_silico_pcr].operations in TOML):
-#   index_genomes  — build MFEprimer index (.ufm) + isPcr .ooc per genome
-#   run_engines    — run all engines listed in `engines = [...]` (mfeprimer, ispcr)
-#   summarize      — merge per-genome results into one TSV per primer set
+#   index_genomes  - build MFEprimer index (.ufm) + isPcr .ooc per genome
+#   run_engines    - run all engines listed in `engines = [...]` (mfeprimer, ispcr)
+#   summarize      - merge per-genome results into one TSV per primer set
 #
 # Output layout under III_RESULT/{GROUP}/12_In_Silico_PCR/{genome}/:
 #   01_Indices/                 (MFEprimer .ufm, isPcr .ooc)
@@ -69,7 +69,7 @@ cleanup_tmp_configs() {
         [[ -n "$cfg" && -f "$cfg" ]] && rm -f "$cfg"
     done
 }
-# Trailing `; true` ensures the trap exits 0 — without it, an empty
+# Trailing `; true` ensures the trap exits 0 - without it, an empty
 # TMP_CONFIG_FILES iteration or a missing temp file leaks a non-zero status
 # into the script's final exit code.
 trap 'cleanup_tmp_configs; safe_teardown_logging; true' EXIT
@@ -95,13 +95,13 @@ MACHINE=$(get_toml pipeline machine 2>/dev/null || echo "Local")
 HOST_CPU=$(nproc)
 CPU=$(get_toml pipeline compute "$MACHINE" threads 2>/dev/null || echo "$HOST_CPU")
 if (( CPU > HOST_CPU )); then
-    log_warn "TOML threads=$CPU exceeds host nproc=$HOST_CPU — capping at $HOST_CPU"
+    log_warn "TOML threads=$CPU exceeds host nproc=$HOST_CPU - capping at $HOST_CPU"
     CPU=$HOST_CPU
 fi
 MAX_PARALLEL=$(get_toml pipeline compute "$MACHINE" max_parallel 2>/dev/null || echo "$CPU")
 (( MAX_PARALLEL < 1 )) && MAX_PARALLEL=1
 if (( MAX_PARALLEL > CPU )); then
-    log_warn "TOML max_parallel=$MAX_PARALLEL exceeds CPU=$CPU — capping at $CPU"
+    log_warn "TOML max_parallel=$MAX_PARALLEL exceeds CPU=$CPU - capping at $CPU"
     MAX_PARALLEL=$CPU
 fi
 # Per-job thread budget: divide total cores by max parallel jobs so that
@@ -127,7 +127,7 @@ fi
 mapfile -t OPERATIONS < <(get_toml in_silico_pcr operations 2>/dev/null \
     || printf '%s\n' "index_genomes" "run_engines" "summarize")
 
-# Engine selection — list of programs commented in/out in the TOML
+# Engine selection - list of programs commented in/out in the TOML
 mapfile -t ENGINES < <(get_toml in_silico_pcr engines 2>/dev/null \
     || printf '%s\n' "mfeprimer" "ispcr")
 engine_enabled() {
@@ -136,7 +136,7 @@ engine_enabled() {
     return 1
 }
 
-# Genome list — names parallel to fasta paths.
+# Genome list - names parallel to fasta paths.
 # `fastas`           = full genome FASTAs (used by isPcr; small per-process RAM)
 # `mfeprimer_fastas` = optional smaller FASTAs (transcripts/CDS) for MFEprimer.
 #                      Falls back to `fastas` if absent. The full plant genome
@@ -150,10 +150,10 @@ mapfile -t GENOME_FASTAS < <(get_toml in_silico_pcr genomes fastas 2>/dev/null)
 mapfile -t MFE_FASTAS < <(get_toml in_silico_pcr genomes mfeprimer_fastas 2>/dev/null || true)
 if [[ ${#MFE_FASTAS[@]} -eq 0 ]]; then
     MFE_FASTAS=("${GENOME_FASTAS[@]}")
-    log_warn "genomes.mfeprimer_fastas not set — MFEprimer will index full genomes (high RAM, OOM risk on WSL2)"
+    log_warn "genomes.mfeprimer_fastas not set - MFEprimer will index full genomes (high RAM, OOM risk on WSL2)"
 fi
 if [[ ${#GENOME_NAMES[@]} -eq 0 || ${#GENOME_FASTAS[@]} -eq 0 ]]; then
-    log_error "in_silico_pcr.genomes.names / fastas missing — nothing to do for $GENE_GROUP"
+    log_error "in_silico_pcr.genomes.names / fastas missing - nothing to do for $GENE_GROUP"
     teardown_logging
     continue
 fi
@@ -168,7 +168,7 @@ if [[ ${#MFE_FASTAS[@]} -ne ${#GENOME_NAMES[@]} ]]; then
     continue
 fi
 
-# Primer sets — full registry from TOML, then filtered by group_map.
+# Primer sets - full registry from TOML, then filtered by group_map.
 mapfile -t PRIMER_SET_NAMES < <(get_toml in_silico_pcr primers set_names 2>/dev/null)
 mapfile -t PRIMER_SET_FILES < <(get_toml in_silico_pcr primers set_files 2>/dev/null)
 if [[ ${#PRIMER_SET_NAMES[@]} -ne ${#PRIMER_SET_FILES[@]} ]]; then
@@ -232,7 +232,7 @@ if op_enabled "index_genomes"; then
         full_gfa="$PIPELINE_DIR/${GENOME_FASTAS[$i]}"
         mfe_gfa="$PIPELINE_DIR/${MFE_FASTAS[$i]}"
 
-        # MFEprimer index — skip entirely if mfeprimer is disabled
+        # MFEprimer index - skip entirely if mfeprimer is disabled
         if engine_enabled "mfeprimer"; then
             mfe_idx_dir="$PCR_DIR/${gname}/01_Indices/mfeprimer"
             mkdir -p "$mfe_idx_dir"
@@ -246,7 +246,7 @@ if op_enabled "index_genomes"; then
                 --overwrite   "$OVERWRITE"
         fi
 
-        # isPcr .ooc — skip if ispcr is disabled
+        # isPcr .ooc - skip if ispcr is disabled
         if engine_enabled "ispcr"; then
             ooc_idx_dir="$PCR_DIR/${gname}/01_Indices/ispcr"
             mkdir -p "$ooc_idx_dir"

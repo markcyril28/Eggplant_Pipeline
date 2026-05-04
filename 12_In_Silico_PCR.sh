@@ -69,7 +69,10 @@ cleanup_tmp_configs() {
         [[ -n "$cfg" && -f "$cfg" ]] && rm -f "$cfg"
     done
 }
-trap 'cleanup_tmp_configs; safe_teardown_logging' EXIT
+# Trailing `; true` ensures the trap exits 0 — without it, an empty
+# TMP_CONFIG_FILES iteration or a missing temp file leaks a non-zero status
+# into the script's final exit code.
+trap 'cleanup_tmp_configs; safe_teardown_logging; true' EXIT
 
 for GENE_GROUP in "${GENE_GROUPS[@]}"; do
 
@@ -165,7 +168,7 @@ if [[ ${#MFE_FASTAS[@]} -ne ${#GENOME_NAMES[@]} ]]; then
     continue
 fi
 
-# Primer sets — each row: "set_name<TAB>tsv_path"
+# Primer sets — full registry from TOML, then filtered by group_map.
 mapfile -t PRIMER_SET_NAMES < <(get_toml in_silico_pcr primers set_names 2>/dev/null)
 mapfile -t PRIMER_SET_FILES < <(get_toml in_silico_pcr primers set_files 2>/dev/null)
 if [[ ${#PRIMER_SET_NAMES[@]} -ne ${#PRIMER_SET_FILES[@]} ]]; then
@@ -173,6 +176,32 @@ if [[ ${#PRIMER_SET_NAMES[@]} -ne ${#PRIMER_SET_FILES[@]} ]]; then
     teardown_logging
     continue
 fi
+
+# Filter the registry to only the primer sets mapped to this gene group.
+# group_map is the binding; gene_groups in TOML is the master on/off switch
+# (a commented-out group never reaches this point at all).
+# If this group has no group_map entry, all registry sets are used.
+mapfile -t _MAPPED_SETS < <(get_toml in_silico_pcr primers group_map "$GENE_GROUP" 2>/dev/null || true)
+if [[ ${#_MAPPED_SETS[@]} -gt 0 ]]; then
+    _FILTERED_NAMES=(); _FILTERED_FILES=()
+    for _j in "${!PRIMER_SET_NAMES[@]}"; do
+        for _mapped in "${_MAPPED_SETS[@]}"; do
+            if [[ "${PRIMER_SET_NAMES[$_j]}" == "$_mapped" ]]; then
+                _FILTERED_NAMES+=("${PRIMER_SET_NAMES[$_j]}")
+                _FILTERED_FILES+=("${PRIMER_SET_FILES[$_j]}")
+                break
+            fi
+        done
+    done
+    if (( ${#_FILTERED_NAMES[@]} == 0 )); then
+        log_warn "group_map for $GENE_GROUP lists [${_MAPPED_SETS[*]}] but none matched the primer registry: check TOML"
+        PRIMER_SET_NAMES=(); PRIMER_SET_FILES=()
+    else
+        PRIMER_SET_NAMES=("${_FILTERED_NAMES[@]}")
+        PRIMER_SET_FILES=("${_FILTERED_FILES[@]}")
+    fi
+fi
+unset _MAPPED_SETS _FILTERED_NAMES _FILTERED_FILES _j _mapped
 
 ISPCR_BIN=$(get_toml in_silico_pcr ispcr binary 2>/dev/null \
     || echo "$PIPELINE_DIR/modules/12_in_silico_pcr/bin/isPcr")
@@ -299,6 +328,10 @@ if op_enabled "run_engines" && engine_enabled "ispcr"; then
         ISPCR_TILE=$(get_toml in_silico_pcr ispcr tile_size 2>/dev/null || echo "11")
         ISPCR_FLIP=$(get_toml in_silico_pcr ispcr flip_reverse 2>/dev/null || echo "true")
 
+        # Track only the ispcr PIDs we spawn here. Using bare `wait` would
+        # also block on the `tee` from setup_logging's process substitution,
+        # which never exits until script end (hangs the run on WSL2).
+        ispcr_pids=()
         for i in "${!GENOME_NAMES[@]}"; do
             gname="${GENOME_NAMES[$i]}"
             gfa="$PIPELINE_DIR/${GENOME_FASTAS[$i]}"
@@ -325,9 +358,10 @@ if op_enabled "run_engines" && engine_enabled "ispcr"; then
                     --tile-size   "$ISPCR_TILE" \
                     --flip-reverse "$ISPCR_FLIP" \
                     --overwrite   "$OVERWRITE" &
+                ispcr_pids+=("$!")
             done
         done
-        wait
+        for pid in "${ispcr_pids[@]}"; do wait "$pid" || true; done
     fi
 fi
 
@@ -352,6 +386,16 @@ if op_enabled "summarize"; then
 fi
 
 log_step "In Silico PCR Pipeline complete: $GENE_GROUP"
-teardown_logging
+# `|| true` masks a spurious non-zero exit from teardown's bg-logger cleanup
+# (kill returns 1 if the tee already exited via EOF). Don't use
+# safe_teardown_logging here: it closes stdout/stderr permanently, which
+# breaks the next gene-group iteration's setup_logging.
+teardown_logging || true
 
 done
+
+# Clear the EXIT trap so its safe_teardown_logging cannot override our
+# explicit exit status. By this point the loop has already torn down
+# logging cleanly per iteration; the trap was only needed if we crashed.
+trap - EXIT
+exit 0

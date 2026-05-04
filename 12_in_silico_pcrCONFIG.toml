@@ -24,7 +24,8 @@
 gene_groups   = [
     "DMP",
     #"HAP2",
-    #"GRF_GIF",
+    "GIF",
+    "GRF",
 ]
 
 machine       = "Local"   # "Local" or "HPC"
@@ -32,7 +33,7 @@ overwrite     = true
 
 [pipeline.compute.Local]
 threads       = 12
-max_parallel  = 1         # both engines are fast; run multiple jobs at once
+max_parallel  = 1         # serialize to avoid OOM; MFEprimer holds the k-mer DB in RAM
 
 [pipeline.compute.HPC]
 threads       = 32
@@ -61,8 +62,8 @@ engines       = [
 # Workflow stages. index_genomes / summarize wrap whichever engines are
 # selected above; comment them out only to skip indexing or summary.
 operations    = [
-    "index_genomes",   # build MFEprimer .ufm + isPcr .ooc per genome
-    "run_engines",     # run every engine listed in `engines = [...]`
+    #"index_genomes",   # build MFEprimer .ufm + isPcr .ooc per genome
+    #"run_engines",     # run every engine listed in `engines = [...]`
     "summarize",       # combine amplicons per primer set across genomes
 ]
 
@@ -86,10 +87,12 @@ names  = [
     "Solanum_melongena_v4.1",
     "GPE001970_SMEL5",
 ]
+
 fastas = [
     "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970.fa",
 ]
+
 mfeprimer_fastas = [
     "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
@@ -97,17 +100,42 @@ mfeprimer_fastas = [
 
 # ── Primer sets ────────────────────────────────────────────────────────────
 # Each primer set is a TSV with header:
-#   primer_id<TAB>forward<TAB>reverse<TAB>expected_size
+#   primer_id<TAB>direction<TAB>sequence<TAB>expected_size
+#   (direction = F or R; one row per primer; expected_size repeated on both rows)
 # expected_size may be left blank.
+#
+# set_names / set_files are a registry of ALL available primer TSVs (parallel
+# arrays). List every real primer file here, commented or not.
+# The group_map table below controls which sets actually run for each gene group.
+#
+# The gene_groups list in [pipeline] is the MASTER SWITCH: any group commented
+# out there will never run, regardless of what is listed in the registry or
+# group_map below.
 [in_silico_pcr.primers]
 set_names = [
     "DMP_validation_primers",
-    # "HAP2_validation_primers",
+    "GIF_validation_primers",
+    "GRF_validation_primers",
+    # "HAP2_validation_primers",   # TSV not yet created
 ]
 set_files = [
     "II_INPUTS/12_PCR_Primers/DMP_validation_primers.tsv",
+    "II_INPUTS/12_PCR_Primers/GIF_validation_primers.tsv",
+    "II_INPUTS/12_PCR_Primers/GRF_validation_primers.tsv",
     # "II_INPUTS/12_PCR_Primers/HAP2_validation_primers.tsv",
 ]
+
+# group_map: binds each gene group to the primer set(s) it should run.
+# The orchestrator reads the active GENE_GROUP, looks it up here, and filters
+# the registry above to only the matched sets. If a group is absent from this
+# table, all sets in the registry are run (useful for cross-validation).
+# To add a new gene group: create its TSV, add it to the registry above, and
+# add its mapping here.
+[in_silico_pcr.primers.group_map]
+DMP  = ["DMP_validation_primers"]
+GIF  = ["GIF_validation_primers"]
+GRF  = ["GRF_validation_primers"]
+# HAP2 = ["HAP2_validation_primers"]
 
 # ── MFEprimer parameters ───────────────────────────────────────────────────
 # Reference: https://www.mfeprimer.com/mfeprimer-3.1/usage.html

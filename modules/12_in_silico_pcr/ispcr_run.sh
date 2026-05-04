@@ -62,23 +62,35 @@ trap 'rm -f "$ispcr_in"' EXIT
 
 python3 - "$PRIMERS_TSV" "$ispcr_in" <<'PY'
 import sys, csv
+from collections import defaultdict
 src, dst = sys.argv[1], sys.argv[2]
-with open(src, newline='') as fin, open(dst, 'w') as fout:
+pairs = defaultdict(dict)
+with open(src, newline='') as fin:
     reader = csv.reader(fin, delimiter='\t')
-    header = next(reader)
+    header = next((r for r in reader if r and not r[0].startswith('#')), None)
+    if header is None:
+        sys.exit("ERROR: no header row found in TSV")
     cols = {c.lower(): i for i, c in enumerate(header)}
-    for need in ('primer_id', 'forward', 'reverse'):
+    for need in ('primer_id', 'direction', 'sequence'):
         if need not in cols:
             sys.exit(f"primers TSV missing required column: {need}")
     for row in reader:
         if not row or row[0].startswith('#'):
             continue
         pid = row[cols['primer_id']].strip()
-        fwd = row[cols['forward']].strip().upper()
-        rev = row[cols['reverse']].strip().upper()
-        if not (pid and fwd and rev):
-            continue
-        fout.write(f"{pid}\t{fwd}\t{rev}\n")
+        direction = row[cols['direction']].strip().upper()
+        seq = row[cols['sequence']].strip().upper()
+        if pid and direction in ('F', 'R') and seq:
+            pairs[pid][direction] = seq
+with open(dst, 'w') as fout:
+    for pid, dirs in pairs.items():
+        if 'F' in dirs and 'R' in dirs:
+            fout.write(f"{pid}\t{dirs['F']}\t{dirs['R']}\n")
+        else:
+            missing = 'R' if 'F' in dirs else 'F'
+            print(f"  [WARN] {pid}: missing {missing} primer — skipped", file=sys.stderr)
+if not any('F' in d and 'R' in d for d in pairs.values()):
+    sys.exit("ERROR: no complete primer pairs found in TSV")
 PY
 
 OPTS=(
@@ -100,18 +112,22 @@ echo "[ispcr_run] isPcr ${OPTS[*]}  $GENOME  $ispcr_in  $out_fa"
 # Emit a flat TSV alongside the FASTA for easy merging.
 out_tsv="${out_fa%.fa}.tsv"
 python3 - "$out_fa" "$out_tsv" "$GENOME_NAME" <<'PY'
-import sys, re
+import sys, re, os
 src, dst, genome = sys.argv[1], sys.argv[2], sys.argv[3]
 hdr_re = re.compile(r'^>(\S+)\s+(\S+):(\d+)([+-])(\d+)\s+(\d+)bp\s+(\S+)\s+(\S+)')
-with open(src) as fh, open(dst, 'w') as fout:
+with open(dst, 'w') as fout:
     fout.write("genome\tprimer_id\tchrom\tstart\tstrand\tend\tsize\tforward\treverse\n")
-    for line in fh:
-        if not line.startswith('>'):
-            continue
-        m = hdr_re.match(line.strip())
-        if not m:
-            continue
-        pid, chrom, start, strand, end, size, fwd, rev = m.groups()
-        fout.write(f"{genome}\t{pid}\t{chrom}\t{start}\t{strand}\t{end}\t{size}\t{fwd}\t{rev}\n")
+    if not os.path.exists(src):
+        print("  [INFO] isPcr produced no amplicons (output FASTA absent)", file=sys.stderr)
+    else:
+        with open(src) as fh:
+            for line in fh:
+                if not line.startswith('>'):
+                    continue
+                m = hdr_re.match(line.strip())
+                if not m:
+                    continue
+                pid, chrom, start, strand, end, size, fwd, rev = m.groups()
+                fout.write(f"{genome}\t{pid}\t{chrom}\t{start}\t{strand}\t{end}\t{size}\t{fwd}\t{rev}\n")
 PY
 echo "[ispcr_run] wrote $out_tsv"

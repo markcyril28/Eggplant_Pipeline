@@ -64,7 +64,7 @@ idx_target=$(find "$INDEX_DIR" -maxdepth 1 \
                   \( -name '*.primerqc' -o -name '*.uni' -o -name '*.ufm' \) \
                   ! -name '*.fai' | head -1 || true)
 if [[ -z "$idx_target" ]]; then
-    echo "[mfeprimer_run] no MFEprimer index (.primerqc/.uni/.ufm) in $INDEX_DIR — run index_genomes first" >&2
+    echo "[mfeprimer_run] no MFEprimer index (.primerqc/.uni/.ufm) in $INDEX_DIR - run index_genomes first" >&2
     exit 1
 fi
 # Strip whichever extension the index file uses to recover the FASTA path
@@ -77,7 +77,7 @@ out_json="${out_prefix}.json"
 out_tsv="${out_prefix}.tsv"
 
 if [[ -s "$out_json" && "$OVERWRITE" != "true" && "$OVERWRITE" != "True" ]]; then
-    echo "[mfeprimer_run] $out_json exists — skip"
+    echo "[mfeprimer_run] $out_json exists - skip"
     exit 0
 fi
 # mfeprimer spec refuses to run if any of its output files already exist.
@@ -122,7 +122,7 @@ with open(dst, 'w') as fout:
             fout.write(f">{pid}_F\n{dirs['F']}\n>{pid}_R\n{dirs['R']}\n")
         else:
             missing = 'R' if 'F' in dirs else 'F'
-            print(f"  [WARN] {pid}: missing {missing} primer — skipped", file=sys.stderr)
+            print(f"  [WARN] {pid}: missing {missing} primer - skipped", file=sys.stderr)
 if not any('F' in d and 'R' in d for d in pairs.values()):
     sys.exit("ERROR: no complete primer pairs found in TSV")
 PY
@@ -144,14 +144,14 @@ echo "[mfeprimer_run] cd $spec_run_dir && $MFE_BIN spec  primers=$(grep -c '^>' 
       -k "$INDEX_K" \
       -S "$MAX_AMP" -s "$MIN_AMP" \
       --misEnd "$MIS_END" \
-      --diva "$DIVALENT" --mono "$MONOVALENT" \
+      --divalent "$DIVALENT" --monovalent "$MONOVALENT" \
       --dntp "$DNTP" --oligo "$OLIGO" \
       -c "$THREADS" \
       -j -o "$out_prefix" )
 
 # mfeprimer writes <out_prefix> (text), <out_prefix>.json, and <out_prefix>.html
 # Promote a flat TSV summary for downstream merge.
-# Schema notes (MFEprimer 3.x AmpList entry):
+# Schema notes (MFEprimer 4.x AmpList entry; field names unchanged from 3.x):
 #   amp.F.Seq.ID / amp.R.Seq.ID  - primer IDs (named "<pair>_F" / "<pair>_R" by us)
 #   amp.Hid / amp.Chr            - chromosome / hit contig
 #   amp.Size                     - product size (bp)

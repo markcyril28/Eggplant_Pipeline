@@ -52,7 +52,7 @@ MFE_BIN="$SCRIPT_DIR/bin/mfeprimer"
 if [[ "$ENGINE" == "mfeprimer" || "$ENGINE" == "both" ]]; then
 if [[ -n "$MFE_BIN" ]]; then
     if mfe_index_present && [[ "$OVERWRITE" != "true" && "$OVERWRITE" != "True" ]]; then
-        echo "[build_indices] [$GENOME_NAME] MFEprimer index exists — skip"
+        echo "[build_indices] [$GENOME_NAME] MFEprimer index exists - skip"
     else
         # Stage indexing OFF /mnt/c/. NTFS-via-WSL2 is 10-100x slower than
         # ext4 for the many small writes mfeprimer makes; on /mnt/c/ even a
@@ -62,11 +62,11 @@ if [[ -n "$MFE_BIN" ]]; then
         # MFEprimer index writes a tempfile in CWD then atomically renames
         # it onto the destination. If CWD is on /mnt/c (9p/NTFS) and the
         # destination is on /tmp (ext4), Linux rename() fails with
-        # "invalid cross-device link" — so we MUST cd into the stage dir.
+        # "invalid cross-device link" - so we MUST cd into the stage dir.
         # We ALSO normalize the FASTA to one-line-per-sequence on staging:
         # mfeprimer v4.x rejects FASTAs with inconsistent line widths inside
         # a single sequence with the message "different line length in
-        # sequence: <id>" — and worse, exits 0 anyway, so a bad FASTA
+        # sequence: <id>" - and worse, exits 0 anyway, so a bad FASTA
         # silently produces no .uni index. Single-line sequences are
         # trivially uniform and avoid the whole problem.
         if [[ "$GENOME" == /mnt/* ]]; then
@@ -76,7 +76,7 @@ if [[ -n "$MFE_BIN" ]]; then
             src_size=$(stat -c %s "$GENOME")
             dst_size=$(stat -c %s "$staged_fa" 2>/dev/null || echo 0)
             # Always re-stage if missing OR markedly different size from
-            # source — normalization shrinks files modestly so we tolerate
+            # source - normalization shrinks files modestly so we tolerate
             # up to 10% shrink as "already normalized."
             need_stage=1
             if [[ -s "$staged_fa" ]]; then
@@ -152,7 +152,7 @@ if [[ -n "$MFE_BIN" ]]; then
         fi
     fi
 else
-    echo "[build_indices] WARN: mfeprimer not found — install via: bash $SCRIPT_DIR/download_mfeprimer.sh" >&2
+    echo "[build_indices] WARN: mfeprimer not found - install via: bash $SCRIPT_DIR/download_mfeprimer.sh" >&2
 fi
 fi
 
@@ -161,15 +161,15 @@ if [[ "$ENGINE" == "ispcr" || "$ENGINE" == "both" ]]; then
 if [[ -x "$ISPCR_BIN" ]]; then
     blat_bin="$(dirname "$ISPCR_BIN")/blat"
     if [[ -f "$ooc_file" && "$OVERWRITE" != "true" && "$OVERWRITE" != "True" ]]; then
-        echo "[build_indices] [$GENOME_NAME] isPcr .ooc exists — skip"
+        echo "[build_indices] [$GENOME_NAME] isPcr .ooc exists - skip"
     elif [[ -x "$blat_bin" ]]; then
         echo "[build_indices] [$GENOME_NAME] blat .ooc tile=$OOC_TILE repMatch=$OOC_REPEAT"
         "$blat_bin" "$GENOME" /dev/null /dev/null \
             -tileSize="$OOC_TILE" -repMatch="$OOC_REPEAT" -makeOoc="$ooc_file" || true
     else
-        echo "[build_indices] [$GENOME_NAME] blat not next to isPcr — .ooc skipped (isPcr will run without it, slower)"
+        echo "[build_indices] [$GENOME_NAME] blat not next to isPcr - .ooc skipped (isPcr will run without it, slower)"
     fi
 else
-    echo "[build_indices] [$GENOME_NAME] isPcr binary absent — skipping .ooc"
+    echo "[build_indices] [$GENOME_NAME] isPcr binary absent - skipping .ooc"
 fi
 fi

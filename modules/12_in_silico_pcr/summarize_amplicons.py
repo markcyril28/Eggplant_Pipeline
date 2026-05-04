@@ -11,9 +11,6 @@ Writes (under PCR_DIR/04_Summary/):
   {set}_amplicons_bands_per_pair.tsv     long-form, one row per (engine,
                                           genome, primer_pair) with band
                                           counts; includes 0-band pairs
-  {set}_bands_per_pair_wide.tsv          wide pivot, one row per primer pair
-                                          with total_bands per genome and
-                                          a row total for at-a-glance triage
 
 Off-target conventions:
   - clean_bands    : amplicons where F and R primer IDs share the same pair
@@ -42,13 +39,15 @@ def main() -> int:
     ap.add_argument("--output", required=True, type=Path)
     args = ap.parse_args()
 
-    # ── 1. Long-form amplicons table (one row per hit) ────────────────────
     amp_fields = [
         "engine", "genome", "primer_id", "f_primer_id", "r_primer_id",
         "is_chimeric", "chrom", "start", "end", "strand", "size",
         "tm_f", "tm_r", "dg_f", "dg_r", "product_gc", "ppc",
         "forward", "reverse",
     ]
+    band_fields = ["engine", "genome", "primer_id",
+                   "clean_bands", "chimeric_bands", "total_bands",
+                   "chrom_count", "chroms"]
     rows: list[dict] = []
     for genome in args.genomes:
         for r in read_tsv(args.pcr_dir / genome / "02_MFEprimer" /
@@ -123,8 +122,7 @@ def main() -> int:
             "chroms": ";".join(sorted(v["chroms"])),
         })
 
-    # Backfill: ensure every (engine, genome, pair) appears even with zeros so
-    # downstream consumers don't have to detect missing rows.
+    # REVIEW: backfill ensures every engine/genome/pair combo present even if zero
     seen = {(r["engine"], r["genome"], r["primer_id"]) for r in band_long}
     for engine in ("mfeprimer", "ispcr"):
         for genome in args.genomes:
@@ -138,58 +136,17 @@ def main() -> int:
 
     bands_path = args.output.with_name(
         args.output.stem + "_bands_per_pair.tsv")
-    band_fields = ["engine", "genome", "primer_id",
-                   "clean_bands", "chimeric_bands", "total_bands",
-                   "chrom_count", "chroms"]
     band_long.sort(key=lambda r: (r["engine"], r["primer_id"], r["genome"]))
     with bands_path.open("w", newline="") as fh:
         bw = csv.DictWriter(fh, fieldnames=band_fields, delimiter="\t")
         bw.writeheader()
         bw.writerows(band_long)
 
-    # # ── 3. Wide pivot: pair × genome (one row per pair, totals per genome) ─
-    # # Combines mfeprimer + ispcr counts so a single column shows the full
-    # # off-target burden for that pair on that genome. The "all_genomes_*"
-    # # columns are sums across genomes for quick triage.
-    # wide_path = args.output.with_name(
-    #     args.output.stem + "_bands_per_pair_wide.tsv")
-    # sorted_pairs = sorted(pair_universe)
-    # sorted_genomes = list(args.genomes)
-    # pair_genome_total: dict[tuple, int] = defaultdict(int)
-    # pair_genome_clean: dict[tuple, int] = defaultdict(int)
-    # pair_genome_chim: dict[tuple, int] = defaultdict(int)
-    # for r in band_long:
-    #     k = (r["primer_id"], r["genome"])
-    #     pair_genome_total[k] += r["total_bands"]
-    #     pair_genome_clean[k] += r["clean_bands"]
-    #     pair_genome_chim[k] += r["chimeric_bands"]
-
-    # wide_header = ["primer_id"]
-    # for g in sorted_genomes:
-    #     wide_header += [f"{g}__total", f"{g}__clean", f"{g}__chimeric"]
-    # wide_header += ["all_genomes_total", "all_genomes_clean",
-    #                 "all_genomes_chimeric"]
-    # with wide_path.open("w", newline="") as fh:
-    #     ww = csv.writer(fh, delimiter="\t")
-    #     ww.writerow(wide_header)
-    #     for pid in sorted_pairs:
-    #         row = [pid]
-    #         tot = clean = chim = 0
-    #         for g in sorted_genomes:
-    #             t = pair_genome_total[(pid, g)]
-    #             c = pair_genome_clean[(pid, g)]
-    #             x = pair_genome_chim[(pid, g)]
-    #             row += [t, c, x]
-    #             tot += t; clean += c; chim += x
-    #         row += [tot, clean, chim]
-    #         ww.writerow(row)
-
     n_mfe = sum(1 for r in rows if r["engine"] == "mfeprimer")
     n_isp = sum(1 for r in rows if r["engine"] == "ispcr")
     print(f"[summarize] {args.set_name}: MFEprimer={n_mfe}, isPcr={n_isp} hits "
           f"-> {args.output}")
     print(f"[summarize] {args.set_name}: bands-per-pair (long) -> {bands_path}")
-    # print(f"[summarize] {args.set_name}: bands-per-pair (wide) -> {wide_path}")
     return 0
 
 

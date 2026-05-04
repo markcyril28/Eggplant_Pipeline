@@ -2,7 +2,7 @@
 # ============================================================================
 # Module 12: UCSC isPcr wrapper for one primer set against one genome
 # ----------------------------------------------------------------------------
-# Reference: Jim Kent, UCSC Genome Browser — kent source utilities
+# Reference: Jim Kent, UCSC Genome Browser - kent source utilities
 # Distribution: https://hgdownload.soe.ucsc.edu/admin/exe/
 #
 # isPcr usage:
@@ -52,7 +52,7 @@ mkdir -p "$OUTDIR"
 
 out_fa="$OUTDIR/${SET_NAME}__${GENOME_NAME}.fa"
 if [[ -s "$out_fa" && "$OVERWRITE" != "true" && "$OVERWRITE" != "True" ]]; then
-    echo "[ispcr_run] $out_fa exists — skip"
+    echo "[ispcr_run] $out_fa exists - skip"
     exit 0
 fi
 
@@ -88,7 +88,7 @@ with open(dst, 'w') as fout:
             fout.write(f"{pid}\t{dirs['F']}\t{dirs['R']}\n")
         else:
             missing = 'R' if 'F' in dirs else 'F'
-            print(f"  [WARN] {pid}: missing {missing} primer — skipped", file=sys.stderr)
+            print(f"  [WARN] {pid}: missing {missing} primer - skipped", file=sys.stderr)
 if not any('F' in d and 'R' in d for d in pairs.values()):
     sys.exit("ERROR: no complete primer pairs found in TSV")
 PY

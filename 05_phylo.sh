@@ -106,6 +106,33 @@ MAX_PARALLEL=$(get_toml pipeline compute "$MACHINE" max_parallel)
 OVERWRITE=$(get_toml pipeline overwrite)
 load_operations_from_config
 
+# Curated input-set filter (see [pipeline].input_sets in 05_phyloCONFIG.toml).
+# Empty array = no filtering. When non-empty, a file from
+# phylogenetics.input_files is kept only if one of these tokens appears as a
+# path component, and outputs land under <genome>/<token>/<METHOD>_aligned/.
+mapfile -t INPUT_SETS < <(get_toml pipeline input_sets 2>/dev/null || true)
+# Strip any empty entries that mapfile may have captured
+_filtered_sets=()
+for _s in "${INPUT_SETS[@]:-}"; do
+    [[ -n "$_s" ]] && _filtered_sets+=("$_s")
+done
+INPUT_SETS=("${_filtered_sets[@]:-}")
+unset _filtered_sets _s
+
+# Return the matching input_set token for a given relative path, or empty
+# string when none of the configured sets is a path component.
+match_input_set() {
+    local rel="$1" token
+    for token in "${INPUT_SETS[@]:-}"; do
+        [[ -z "$token" ]] && continue
+        if [[ "/$rel/" == */"$token"/* ]]; then
+            echo "$token"
+            return 0
+        fi
+    done
+    echo ""
+}
+
 BASE_DIR="$PIPELINE_DIR/$(get_toml general base_dir)"
 MEGACC_CONFIG_MAO="$PIPELINE_DIR/$(get_toml phylogenetics megacc config_file 2>/dev/null || get_toml phylogenetics config_file 2>/dev/null || echo "")"
 _megacc_nuc=$(get_toml phylogenetics megacc config_file_nucleotide 2>/dev/null || echo "")
@@ -180,8 +207,16 @@ unset _subdir _dir
 # Use mapfile because parse_toml.py emits one entry per line.
 mapfile -t _file_list < <(get_toml phylogenetics input_files 2>/dev/null || true)
 ALIGN_INPUT_FILES=()
+_filtered_out=0
 for _f in "${_file_list[@]:-}"; do
     [[ -z "$_f" ]] && continue
+    # When input_sets is non-empty, drop files that don't belong to any selected set
+    if (( ${#INPUT_SETS[@]} > 0 )); then
+        if [[ -z "$(match_input_set "$_f")" ]]; then
+            _filtered_out=$(( _filtered_out + 1 ))
+            continue
+        fi
+    fi
     _fp="$ALIGN_DIR/$_f"
     if [[ -f "$_fp" ]]; then
         ALIGN_INPUT_FILES+=("$_fp")
@@ -189,7 +224,10 @@ for _f in "${_file_list[@]:-}"; do
         log_warn "Phylo input file not found, skipping: $_fp"
     fi
 done
-unset _file_list _f _fp
+if (( _filtered_out > 0 )); then
+    log_info "input_sets filter: dropped $_filtered_out input_files entries not in {${INPUT_SETS[*]}}"
+fi
+unset _file_list _f _fp _filtered_out
 
 PHYLO_DIR_NAME=$(get_toml output_dirs phylogenetics 2>/dev/null || echo "05_Phylogenetics")
 PHYLO_DIR="$BASE_DIR/$PHYLO_DIR_NAME"
@@ -273,14 +311,27 @@ for software in "${PHYLO_SOFTWARE[@]}"; do
             fi
             wait_for_slot "$max_parallel"
 
-            # Mirror the full MSA folder layout under PHYLO_DIR. Pass the relative
-            # parent of the aligned file (relative to ALIGN_DIR, basename stripped)
-            # as --subpath so each tree lands beside its source alignment:
-            #   <ALIGN_DIR>/<genome>/<output_subdir>/<set>/<METHOD>_aligned/foo.fas
-            #     →  <PHYLO_DIR>/<genome>/<output_subdir>/<set>/<METHOD>_aligned/<software>/foo_<software>.<ext>
+            # Build a subpath under PHYLO_DIR. When [pipeline].input_sets is set,
+            # collapse the MSA layout so each input set gets its own folder under
+            # the genome:
+            #   <ALIGN_DIR>/<genome>/<.../INPUT_SET/.../>/<METHOD>_aligned/foo.fas
+            #     → <PHYLO_DIR>/<genome>/<INPUT_SET>/<METHOD>_aligned/<software>/foo_<software>.<ext>
+            # When input_sets is empty, fall back to the legacy MSA-mirror layout.
             _rel_path="${aligned#$ALIGN_DIR/}"
-            _subpath="$(dirname "$_rel_path")"
-            [[ "$_subpath" == "." ]] && _subpath=""
+            _legacy_subpath="$(dirname "$_rel_path")"
+            [[ "$_legacy_subpath" == "." ]] && _legacy_subpath=""
+
+            _subpath="$_legacy_subpath"
+            if (( ${#INPUT_SETS[@]} > 0 )); then
+                _set_token="$(match_input_set "$_rel_path")"
+                if [[ -n "$_set_token" ]]; then
+                    _genome="${_rel_path%%/*}"
+                    _aligner_dir="$(basename "$_legacy_subpath")"  # e.g. MAFFT_aligned
+                    _subpath="$_genome/$_set_token/$_aligner_dir"
+                fi
+                unset _set_token _genome _aligner_dir
+            fi
+            unset _legacy_subpath
 
             extra_args=()
             config_args=()

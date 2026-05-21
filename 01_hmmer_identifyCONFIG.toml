@@ -96,8 +96,13 @@ min_length    = 10              # -l   minimum sequence length
 
 # ---------- Gene-structure extraction + GenBank output ----------
 # Controls EXTRACT_GENE_STRUCTURES and GENERATE_GENBANK operations.
-# Outputs written to {genome}/e-value_*/e_GENE_Structures/{GENE}/{mRNA_ID}/
-# including structure.gff3, structure.fa, and Benchling-ready structure.gb.
+# Each mRNA hit is written into two parallel subtrees under
+# {genome}/e-value_*/e_GENE_Structures/{GENE}/:
+#   without_up_and_downstream/{mRNA_ID}/  full feature breakdown, gene span only
+#   with_up_and_downstream/{mRNA_ID}/     single FASTA record + GenBank with
+#                                         flank_bp 5'/3' flanking sequence
+# Each subtree contains structure.gff3 (shared), structure.fa, and a
+# Benchling-ready structure.gb.
 [identification.gene_structures]
 flank_bp      = 1000              # 5'/3' flanking bp to include in structure.gb
                                   # (clamped at chromosome boundaries; 0 disables)

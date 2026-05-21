@@ -6,25 +6,47 @@ For each HMMER hit ID, extract the corresponding gene structure from a GFF/GFF3
 annotation file and write per-feature subfiles into e_GENE_Structures/.
 
 Output layout (relative to --output):
-    {gene_name}/{mrna_id}/
-        structure.gff3        all features for this gene locus (+ derived introns)
-        exons.gff3
-        cds.gff3
-        five_prime_utr.gff3
-        three_prime_utr.gff3
-        introns.gff3          derived from gaps between consecutive exons
-        structure.fa          per-feature DNA sequences (only with --genome-fasta)
-        structure.gb          Benchling-ready GenBank with local coords
-                              (only with --genome-fasta)
+    {gene_name}/
+        without_up_and_downstream/
+            {mrna_id}/
+                structure.gff3        all features for this gene locus (+ derived introns)
+                exons.gff3
+                cds.gff3
+                five_prime_utr.gff3
+                three_prime_utr.gff3
+                introns.gff3          derived from gaps between consecutive exons
+                structure.fa          per-feature DNA seqs, gene span = no flanks
+                structure.gb          Benchling-ready GenBank, no flanks
+            {mrna_id}.gb              sibling copy for bulk import
+        with_up_and_downstream/
+            {mrna_id}/
+                structure.gff3        same GFFs as the without side
+                exons.gff3
+                cds.gff3
+                five_prime_utr.gff3
+                three_prime_utr.gff3
+                introns.gff3
+                structure.fa          single record: gene + --flank-bp up/downstream
+                structure.gb          Benchling-ready GenBank with flank annotations
+            {mrna_id}.gb              sibling copy for bulk import
 
-structure.fa layout (one record per feature, blank line between records):
-        >{mrna_id}_gene                full genomic span
+The two subdirs are each fully self-contained. FASTA + GenBank outputs require
+--genome-fasta with a sibling .fai.
+
+structure.fa layout (without_up_and_downstream/, one record per feature,
+blank line between records):
+        >{mrna_id}_gene                full genomic span (no flanks)
         >{mrna_id}_mRNA                spliced (exons concatenated in txpt order)
         >{mrna_id}_five_prime_UTR      concatenated 5' UTR pieces
         >{mrna_id}_three_prime_UTR     concatenated 3' UTR pieces
         >{mrna_id}_exon_N              individual exons (transcript order)
         >{mrna_id}_CDS_N               individual CDS segments (transcript order)
         >{mrna_id}_intron_N            introns derived from exon gaps
+
+structure.fa layout (with_up_and_downstream/, single record):
+        >{mrna_id}_gene_with_flanks_up{N}_dn{N}   gene span + 5'/3' flanks
+                                                  (actual flank bp may be smaller
+                                                  near chromosome ends)
 """
 
 import argparse
@@ -464,11 +486,16 @@ def write_structure(mrna_id, gene_records, mrna_records, child_records,
                     fasta_fh=None, fai=None, flank_bp=1000,
                     organism="Solanum melongena"):
     safe_id = re.sub(r"[^\w.\-]", "_", mrna_id)
-    mrna_dir = out_dir / safe_id
-    if mrna_dir.exists() and not overwrite:
+    no_flank_root = out_dir / "without_up_and_downstream"
+    with_flank_root = out_dir / "with_up_and_downstream"
+    no_flank_dir = no_flank_root / safe_id
+    with_flank_dir = with_flank_root / safe_id
+
+    if (no_flank_dir.exists() and with_flank_dir.exists()) and not overwrite:
         return
 
-    mrna_dir.mkdir(parents=True, exist_ok=True)
+    no_flank_dir.mkdir(parents=True, exist_ok=True)
+    with_flank_dir.mkdir(parents=True, exist_ok=True)
 
     gene_id = mrna_to_gene.get(mrna_id, "")
     gene_line = gene_records.get(gene_id, "")
@@ -497,36 +524,65 @@ def write_structure(mrna_id, gene_records, mrna_records, child_records,
     all_lines.extend(children)
     all_lines.extend(intron_lines)
 
-    _write_gff_file(mrna_dir / "structure.gff3", header, all_lines)
-    _write_gff_file(mrna_dir / "exons.gff3", header, exon_lines)
-    _write_gff_file(mrna_dir / "cds.gff3", header, cds_lines)
-    _write_gff_file(mrna_dir / "five_prime_utr.gff3", header, utr5_lines)
-    _write_gff_file(mrna_dir / "three_prime_utr.gff3", header, utr3_lines)
-    _write_gff_file(mrna_dir / "introns.gff3", header, intron_lines)
+    # GFFs are gene-relative and identical for both flank variants — duplicated
+    # so each subtree is self-contained and downstream tools can be pointed at
+    # either side without cross-referencing the other.
+    for tgt in (no_flank_dir, with_flank_dir):
+        _write_gff_file(tgt / "structure.gff3", header, all_lines)
+        _write_gff_file(tgt / "exons.gff3", header, exon_lines)
+        _write_gff_file(tgt / "cds.gff3", header, cds_lines)
+        _write_gff_file(tgt / "five_prime_utr.gff3", header, utr5_lines)
+        _write_gff_file(tgt / "three_prime_utr.gff3", header, utr3_lines)
+        _write_gff_file(tgt / "introns.gff3", header, intron_lines)
 
-    if fasta_fh is not None and fai:
-        entries = build_structure_fasta(
-            mrna_id, gene_line, mrna_line,
+    if fasta_fh is None or not fai:
+        return
+
+    # --- without_up_and_downstream/: full feature breakdown, no flanks ---
+    entries = build_structure_fasta(
+        mrna_id, gene_line, mrna_line,
+        exon_lines, cds_lines, utr5_lines, utr3_lines,
+        intron_lines, fasta_fh, fai,
+    )
+    if entries:
+        write_fasta(no_flank_dir / "structure.fa", entries)
+
+    if not gene_line:
+        return
+
+    p = gene_line.split("\t")
+    seqid, gs, ge, strand = p[0], int(p[3]), int(p[4]), p[6]
+    gene_only_seq = fetch_seq(fasta_fh, fai, seqid, gs, ge)
+    if gene_only_seq and strand == "-":
+        gene_only_seq = revcomp(gene_only_seq)
+    if gene_only_seq:
+        gb_no_flanks = build_genbank(
+            mrna_id, gene_line,
             exon_lines, cds_lines, utr5_lines, utr3_lines,
-            intron_lines, fasta_fh, fai,
+            intron_lines, gene_only_seq,
+            up_flank=0, dn_flank=0,
+            organism=organism,
         )
-        if entries:
-            write_fasta(mrna_dir / "structure.fa", entries)
-            if gene_line:
-                backbone, up, dn = fetch_flanked_gene(fasta_fh, fai, gene_line, flank_bp)
-                if backbone:
-                    gb_content = build_genbank(
-                        mrna_id, gene_line,
-                        exon_lines, cds_lines, utr5_lines, utr3_lines,
-                        intron_lines, backbone,
-                        up_flank=up, dn_flank=dn,
-                        organism=organism,
-                    )
-                    if gb_content:
-                        (mrna_dir / "structure.gb").write_text(gb_content, encoding="ascii")
-                        # Sibling copy next to the mRNA folder, named for the mRNA —
-                        # convenient for bulk GenBank import (one file = one sequence).
-                        (out_dir / f"{safe_id}.gb").write_text(gb_content, encoding="ascii")
+        if gb_no_flanks:
+            (no_flank_dir / "structure.gb").write_text(gb_no_flanks, encoding="ascii")
+            (no_flank_root / f"{safe_id}.gb").write_text(gb_no_flanks, encoding="ascii")
+
+    # --- with_up_and_downstream/: gene + flank_bp upstream/downstream ---
+    backbone, up, dn = fetch_flanked_gene(fasta_fh, fai, gene_line, flank_bp)
+    if backbone:
+        gb_with_flanks = build_genbank(
+            mrna_id, gene_line,
+            exon_lines, cds_lines, utr5_lines, utr3_lines,
+            intron_lines, backbone,
+            up_flank=up, dn_flank=dn,
+            organism=organism,
+        )
+        if gb_with_flanks:
+            (with_flank_dir / "structure.gb").write_text(gb_with_flanks, encoding="ascii")
+            (with_flank_root / f"{safe_id}.gb").write_text(gb_with_flanks, encoding="ascii")
+
+        flanked_header = f"{mrna_id}_gene_with_flanks_up{up}_dn{dn}"
+        write_fasta(with_flank_dir / "structure.fa", [(flanked_header, backbone)])
 
 
 # ---------------------------------------------------------------------------

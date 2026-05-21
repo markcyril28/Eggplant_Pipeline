@@ -3,8 +3,14 @@
 generate_genbank.py
 
 Walk an e_GENE_Structures/ directory and produce structure.gb for every
-{GENE}/{mRNA_ID}/ subfolder that has structure.gff3 + structure.fa. Safe to
-re-run idempotently; skips folders missing inputs and reports a summary.
+mRNA folder that has structure.gff3 + structure.fa. Safe to re-run
+idempotently; skips folders missing inputs and reports a summary.
+
+Supports the with/without flank layout written by EXTRACT_GENE_STRUCTURES:
+    {GENE}/without_up_and_downstream/{mRNA}/   -> flank forced to 0
+    {GENE}/with_up_and_downstream/{mRNA}/      -> flank from --flank-bp
+A legacy flat layout {GENE}/{mRNA}/ is also accepted for backward
+compatibility (treated as the with-flanks side).
 
 Reuses build_genbank() from extract_gene_structures.py so output is bit-for-bit
 identical to the inline GenBank pass performed by EXTRACT_GENE_STRUCTURES.
@@ -149,14 +155,37 @@ def main():
         for gene_dir in sorted(root.iterdir()):
             if not gene_dir.is_dir():
                 continue
-            for mrna_dir in sorted(gene_dir.iterdir()):
-                if not mrna_dir.is_dir():
-                    continue
-                outcome = process_folder(mrna_dir, args.organism, overwrite,
-                                         fasta_fh, fai, effective_flank)
-                counts[outcome] += 1
-                if outcome.startswith("skip-") and outcome != "skip-exists":
-                    print(f"  {outcome}: {mrna_dir}", file=sys.stderr)
+
+            # Preferred layout: gene_dir / {with,without}_up_and_downstream / mRNA
+            no_flank_root = gene_dir / "without_up_and_downstream"
+            with_flank_root = gene_dir / "with_up_and_downstream"
+            split_layout = no_flank_root.is_dir() or with_flank_root.is_dir()
+
+            if split_layout:
+                for sub_root, sub_flank in (
+                    (no_flank_root, 0),
+                    (with_flank_root, effective_flank),
+                ):
+                    if not sub_root.is_dir():
+                        continue
+                    for mrna_dir in sorted(sub_root.iterdir()):
+                        if not mrna_dir.is_dir():
+                            continue
+                        outcome = process_folder(mrna_dir, args.organism, overwrite,
+                                                 fasta_fh, fai, sub_flank)
+                        counts[outcome] += 1
+                        if outcome.startswith("skip-") and outcome != "skip-exists":
+                            print(f"  {outcome}: {mrna_dir}", file=sys.stderr)
+            else:
+                # Legacy flat layout: gene_dir / mRNA
+                for mrna_dir in sorted(gene_dir.iterdir()):
+                    if not mrna_dir.is_dir():
+                        continue
+                    outcome = process_folder(mrna_dir, args.organism, overwrite,
+                                             fasta_fh, fai, effective_flank)
+                    counts[outcome] += 1
+                    if outcome.startswith("skip-") and outcome != "skip-exists":
+                        print(f"  {outcome}: {mrna_dir}", file=sys.stderr)
 
         ok = counts.get("ok", 0)
         skipped = sum(v for k, v in counts.items() if k.startswith("skip-"))

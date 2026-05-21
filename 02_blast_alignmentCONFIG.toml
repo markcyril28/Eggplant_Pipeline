@@ -29,8 +29,46 @@ blast_optimal_threads = 4      # Threads per BLAST job
 max_parallel       = 16        # Concurrent BLAST jobs
 
 [ortholog_blast]
+# Target genomes: comment in/out matching quadruplets (label, genome, protein, transcript)
+target_labels = [
+    "Solanum_melongena_v4.1",
+    #"Solanum_melongena_V3",
+    "GPE001970_SMEL5",
+]
+
+target_genomes = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970",
+]
+
+target_proteins = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_protein.function.fa",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.protein.putative_function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_proteins.fa",
+]
+
+# Transcripts (full mRNA with UTRs): disabled in favor of target_cds below.
+# Transcripts and CDS describe the same locus set; using both produces duplicate
+# BLAST hits per gene, so we use CDS only (coding regions, no UTRs).
+target_transcripts = []
+#target_transcripts = [
+#    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
+#    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
+#    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
+#]
+
+# CDS (coding sequences only, no UTRs) per target genome. Active nucleotide
+# BLAST subject DB for cross-species DMP queries. Order must match target_labels.
+target_cds = [
+    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_cds.fa",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
+    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_cds.fa",
+]
+
 enabled = true
 force_reindex = false        # Force rebuild of BLAST databases (skip cache check)
+use_hmmer_output = true      # Use HMMER-identified proteins as BLASTp subject database
 
 # ── Operations ────────────────────────────────────────────────────────────────
 # Comment in/out to select which stages run.  All run by default when this
@@ -71,45 +109,6 @@ blastp_max_hsps = 1             # Max HSPs per subject-query pair (0 = no limit)
 blastp_qcov_hsp_perc = 0        # Min query coverage per HSP in % (0 = disabled)
 blastp_matrix = "BLOSUM62"      # Scoring matrix: BLOSUM45, BLOSUM62, BLOSUM80, BLOSUM90
 blastp_seg = "yes"              # Low-complexity filter for protein queries (yes/no)
-
-# Target genomes: comment in/out matching quadruplets (label, genome, protein, transcript)
-target_labels = [
-    "Solanum_melongena_v4.1",
-    #"Solanum_melongena_V3",
-    "GPE001970_SMEL5",
-]
-
-target_genomes = [
-    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1",
-    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3",
-    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970",
-]
-
-target_proteins = [
-    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_protein.function.fa",
-    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.protein.putative_function.fa",
-    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_proteins.fa",
-]
-
-# Transcripts (full mRNA with UTRs): disabled in favor of target_cds below.
-# Transcripts and CDS describe the same locus set; using both produces duplicate
-# BLAST hits per gene, so we use CDS only (coding regions, no UTRs).
-target_transcripts = []
-#target_transcripts = [
-#    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
-#    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
-#    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
-#]
-
-# CDS (coding sequences only, no UTRs) per target genome. Active nucleotide
-# BLAST subject DB for cross-species DMP queries. Order must match target_labels.
-target_cds = [
-    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_cds.fa",
-    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
-    "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_cds.fa",
-]
-
-use_hmmer_output = true      # Use HMMER-identified proteins as BLASTp subject database
 
 # ──────────────────────────────────────────────────────────────────
 [blast_visualize]

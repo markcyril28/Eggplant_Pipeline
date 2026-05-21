@@ -22,8 +22,8 @@ gene_groups   = [
 machine       = "Local"  # "Local" or "HPC" — selects compute profile below
 overwrite     = true     # true = overwrite existing results; false = skip completed genomes
 operations = [
-    "BUILD_PROFILES",          # hmmbuild + hmmpress HMM profiles
-    "SEARCH_GENOMES",          # hmmsearch (protein) + nhmmer (nucleotide) per genome
+    #"BUILD_PROFILES",          # hmmbuild + hmmpress HMM profiles
+    #"SEARCH_GENOMES",          # hmmsearch (protein) + nhmmer (nucleotide) per genome
     "EXTRACT_GENE_STRUCTURES", # Parse GFF annotation → per-gene structure files (inc. structure.gb)
     "GENERATE_GENBANK",        # Rebuild structure.gb from existing structure.gff3 + structure.fa
     "GENERATE_REPORT",         # summary tables, figures, Markdown report
@@ -104,7 +104,7 @@ min_length    = 10              # -l   minimum sequence length
 # Each subtree contains structure.gff3 (shared), structure.fa, and a
 # Benchling-ready structure.gb.
 [identification.gene_structures]
-flank_bp      = 1000              # 5'/3' flanking bp to include in structure.gb
+flank_bp      = 1000              # 5'/3' flanking bp for with_up_and_downstream/
                                   # (clamped at chromosome boundaries; 0 disables)
 organism      = "Solanum melongena"  # Written to GenBank SOURCE/ORGANISM/source.organism
 
@@ -271,6 +271,7 @@ transcripts = [
 # Smel v4.1 has no separate CDS file (use empty string to skip extraction).
 cds = [
     "",                                                                                    # Solanum_melongena_v4.1 — no CDS file available
+    "",                                                                                    # Solanum_melongena_V3 — no CDS file available
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_cds.fa",
     # --- Additional Unito Genomics accessions ---
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000430_cds.fa",
@@ -319,6 +320,7 @@ cds = [
 # Use "" for genomes without an annotation file.
 annotations = [
     "",                                                                                    # Solanum_melongena_v4.1 — no Helixer GFF available
+    "",                                                                                    # Solanum_melongena_V3 — no Helixer GFF available
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001970.gff",
     # --- Additional Unito Genomics accessions ---
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE000430.gff",
@@ -366,6 +368,7 @@ annotations = [
 # per-feature DNA sequences into structure.fa. Use "" to skip FASTA output.
 genomes = [
     "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1.fa",
+    "",                                                                                    # Solanum_melongena_V3 — genome FASTA not staged in this collection
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970.fa",
     # --- Additional Unito Genomics accessions ---
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE000430.fa",

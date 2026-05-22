@@ -260,15 +260,15 @@ if (has_bootstrap) {
 
 # ======================== Gene Category Classification ========================
 
-# SmelDMP short name map — manuscript nomenclature (no "v5" prefix)
+# SmelDMP short name map, manuscript v5 nomenclature.
 smeldmp_name_map <- c(
-    "SMEL5_01g008730.1" = "SmelDMP01.730",
-    "SMEL5_01g026030.1" = "SmelDMP01.990",
-    "SMEL5_02g013320.1" = "SmelDMP02",
-    "SMEL5_04g005390.1" = "SmelDMP04",
-    "SMEL5_10g003660.1" = "SmelDMP10.560",
-    "SMEL5_10g017610.1" = "SmelDMP10.200",
-    "SMEL5_12g005350.1" = "SmelDMP12"
+    "SMEL5_01g008730.1" = "SmelDMPv5_01.730",
+    "SMEL5_01g026030.1" = "SmelDMPv5_01.030",
+    "SMEL5_02g013320.1" = "SmelDMPv5_02.320",
+    "SMEL5_04g005390.1" = "SmelDMPv5_04.390",
+    "SMEL5_10g003660.1" = "SmelDMPv5_10.660",
+    "SMEL5_10g017610.1" = "SmelDMPv5_10.610",
+    "SMEL5_12g005350.1" = "SmelDMPv5_12.350"
 )
 
 # Functionally validated haploid-inducing DMP genes — drawn from

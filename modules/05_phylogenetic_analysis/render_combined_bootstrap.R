@@ -132,6 +132,14 @@ parser$add_argument("--sequence-type", default = "",
     help = "Sequence type (AA or NT) for figure caption")
 parser$add_argument("--title",         default = "",
     help = "Plot title (auto-generated from sequence-type and model if blank)")
+parser$add_argument("--topology-source", default = "IQ-TREE2",
+    help = "Topology tree source label for subtitles and captions")
+parser$add_argument("--support-source",  default = "RAxML-NG",
+    help = "Support tree source label for subtitles and captions")
+parser$add_argument("--tree-third", default = "",
+    help = "Optional third support tree Newick file")
+parser$add_argument("--third-source", default = "",
+    help = "Third support tree source label")
 
 args <- parser$parse_args()
 
@@ -142,6 +150,14 @@ if (!file.exists(args$tree_iqtree)) {
 }
 if (!file.exists(args$tree_raxml)) {
     stop(sprintf("RAxML file not found: %s", args$tree_raxml))
+}
+if (nchar(args$tree_third) > 0 && !file.exists(args$tree_third)) {
+    stop(sprintf("Third support tree file not found: %s", args$tree_third))
+}
+
+has_third_tree <- nchar(args$tree_third) > 0
+if (has_third_tree && nchar(args$third_source) == 0) {
+    args$third_source <- "Third"
 }
 
 output_dir <- dirname(args$output)
@@ -155,15 +171,23 @@ if (!(args$layout %in% valid_layouts)) {
 
 # ======================== Read Trees ========================
 
-cat(sprintf("Reading IQ-TREE2 tree: %s\n", args$tree_iqtree))
+cat(sprintf("Reading topology tree (%s): %s\n", args$topology_source, args$tree_iqtree))
 iq_tree  <- ape::read.tree(args$tree_iqtree)
-cat(sprintf("Reading RAxML tree:    %s\n", args$tree_raxml))
+cat(sprintf("Reading support tree (%s):  %s\n", args$support_source, args$tree_raxml))
 rax_tree <- ape::read.tree(args$tree_raxml)
+if (has_third_tree) {
+    cat(sprintf("Reading third support tree (%s): %s\n", args$third_source, args$tree_third))
+    third_tree <- ape::read.tree(args$tree_third)
+}
 
-cat(sprintf("  IQ-TREE2: %d tips, %d internal nodes\n",
-            length(iq_tree$tip.label), iq_tree$Nnode))
-cat(sprintf("  RAxML:    %d tips, %d internal nodes\n",
-            length(rax_tree$tip.label), rax_tree$Nnode))
+cat(sprintf("  %s: %d tips, %d internal nodes\n",
+            args$topology_source, length(iq_tree$tip.label), iq_tree$Nnode))
+cat(sprintf("  %s: %d tips, %d internal nodes\n",
+            args$support_source, length(rax_tree$tip.label), rax_tree$Nnode))
+if (has_third_tree) {
+    cat(sprintf("  %s: %d tips, %d internal nodes\n",
+                args$third_source, length(third_tree$tip.label), third_tree$Nnode))
+}
 
 common_tips <- intersect(iq_tree$tip.label, rax_tree$tip.label)
 if (length(common_tips) < 3) {
@@ -171,8 +195,21 @@ if (length(common_tips) < 3) {
                  length(common_tips)))
 }
 if (length(common_tips) < length(iq_tree$tip.label)) {
-    cat(sprintf("  Warning: %d IQ-TREE2 tips absent from RAxML tree\n",
-                length(iq_tree$tip.label) - length(common_tips)))
+    cat(sprintf("  Warning: %d %s tips absent from %s tree\n",
+                length(iq_tree$tip.label) - length(common_tips),
+                args$topology_source, args$support_source))
+}
+if (has_third_tree) {
+    common_tips_third <- intersect(iq_tree$tip.label, third_tree$tip.label)
+    if (length(common_tips_third) < 3) {
+        stop(sprintf("Too few common tips (%d) between topology and third support trees.",
+                     length(common_tips_third)))
+    }
+    if (length(common_tips_third) < length(iq_tree$tip.label)) {
+        cat(sprintf("  Warning: %d %s tips absent from %s tree\n",
+                    length(iq_tree$tip.label) - length(common_tips_third),
+                    args$topology_source, args$third_source))
+    }
 }
 
 # ======================== Exclude Tips (optional) ========================
@@ -195,16 +232,24 @@ if (nchar(args$exclude_tips) > 0) {
         }
         tree
     }
-    iq_tree  <- drop_matched(iq_tree,  "IQ-TREE2")
-    rax_tree <- drop_matched(rax_tree, "RAxML")
+    iq_tree  <- drop_matched(iq_tree,  args$topology_source)
+    rax_tree <- drop_matched(rax_tree, args$support_source)
+    if (has_third_tree) {
+        third_tree <- drop_matched(third_tree, args$third_source)
+    }
 
     # Recompute common tips after exclusion
     common_tips <- intersect(iq_tree$tip.label, rax_tree$tip.label)
     if (length(common_tips) < 3) {
         stop(sprintf("Too few common tips (%d) after exclusion.", length(common_tips)))
     }
-    cat(sprintf("  Tips after exclusion: IQ-TREE2=%d, RAxML=%d\n",
-                length(iq_tree$tip.label), length(rax_tree$tip.label)))
+    cat(sprintf("  Tips after exclusion: %s=%d, %s=%d\n",
+                args$topology_source, length(iq_tree$tip.label),
+                args$support_source, length(rax_tree$tip.label)))
+    if (has_third_tree) {
+        cat(sprintf("  Tips after exclusion: %s=%d\n",
+                    args$third_source, length(third_tree$tip.label)))
+    }
 }
 
 # ======================== Rooting (Optional) ========================
@@ -242,10 +287,14 @@ root_on_outgroup <- function(tree, outgroup_pattern) {
 }
 
 if (tolower(args$root_outgroup) == "true" && nchar(args$outgroup_pattern) > 0) {
-    cat("Rooting IQ-TREE2 tree...\n")
+    cat(sprintf("Rooting %s tree...\n", args$topology_source))
     iq_tree  <- root_on_outgroup(iq_tree,  args$outgroup_pattern)
-    cat("Rooting RAxML tree...\n")
+    cat(sprintf("Rooting %s tree...\n", args$support_source))
     rax_tree <- root_on_outgroup(rax_tree, args$outgroup_pattern)
+    if (has_third_tree) {
+        cat(sprintf("Rooting %s tree...\n", args$third_source))
+        third_tree <- root_on_outgroup(third_tree, args$outgroup_pattern)
+    }
 }
 
 n_tips <- length(iq_tree$tip.label)
@@ -308,40 +357,46 @@ canonical_key <- function(tips, all_tips) {
 }
 
 # Build a lookup table: canonical tip-set key -> RAxML bootstrap value.
-build_rax_map <- function(rax_tree) {
-    n_tips_rax <- length(rax_tree$tip.label)
-    all_tips   <- sort(rax_tree$tip.label)
-    rax_map    <- list()
-    for (i in seq_len(rax_tree$Nnode)) {
-        bs_raw <- rax_tree$node.label[i]
-        if (is.na(bs_raw) || nchar(trimws(bs_raw)) == 0L) next
-        bs_num <- suppressWarnings(as.numeric(bs_raw))
+build_support_map <- function(support_tree) {
+    n_tips_support <- length(support_tree$tip.label)
+    all_tips       <- sort(support_tree$tip.label)
+    support_map    <- list()
+    for (i in seq_len(support_tree$Nnode)) {
+        bs_raw <- support_tree$node.label[i]
+        bs_num <- extract_support(bs_raw)
         if (is.na(bs_num)) next
-        tips <- get_subtree_tips(rax_tree, n_tips_rax + i)
+        tips <- get_subtree_tips(support_tree, n_tips_support + i)
         if (length(tips) < 2L) next       # skip trivial (single-tip) clades
         key <- canonical_key(tips, all_tips)
-        rax_map[[key]] <- bs_num
+        support_map[[key]] <- bs_num
     }
-    rax_map
+    support_map
 }
 
 # ======================== Combined Label Construction ========================
 
-# Extract UFBoot from IQ-TREE2 node label ("SH-aLRT/UFBoot" or plain integer)
-extract_ufboot <- function(x) {
+# Extract support from node label ("SH-aLRT/UFBoot", MEGA decimal supports,
+# or plain integer).
+extract_support <- function(x) {
     if (is.na(x) || nchar(trimws(as.character(x))) == 0L) return(NA_real_)
     parts <- strsplit(as.character(x), "/")[[1L]]
-    suppressWarnings(as.numeric(parts[length(parts)]))
+    raw <- parts[length(parts)]
+    raw <- sub("\\[.*$", "", raw)
+    raw <- gsub("[^0-9.eE+-]", "", raw)
+    val <- suppressWarnings(as.numeric(raw))
+    if (is.na(val)) return(NA_real_)
+    if (val > 0 && val <= 1) val <- val * 100
+    val
 }
 
-build_combined_labels <- function(iq_tree, rax_map, threshold, sep, style) {
+build_combined_labels <- function(iq_tree, rax_map, third_map, threshold, sep, style) {
     n_tips_iq <- length(iq_tree$tip.label)
     all_tips  <- sort(iq_tree$tip.label)
     n_nodes   <- iq_tree$Nnode
     labels    <- character(n_nodes)
 
     for (i in seq_len(n_nodes)) {
-        ufboot <- extract_ufboot(iq_tree$node.label[i])
+        ufboot <- extract_support(iq_tree$node.label[i])
 
         tips <- get_subtree_tips(iq_tree, n_tips_iq + i)
         if (length(tips) < 2L) { labels[i] <- ""; next }
@@ -349,58 +404,84 @@ build_combined_labels <- function(iq_tree, rax_map, threshold, sep, style) {
         key    <- canonical_key(tips, all_tips)
         rax_bs <- rax_map[[key]]
         if (is.null(rax_bs)) rax_bs <- NA_real_
+        third_bs <- third_map[[key]]
+        if (is.null(third_bs)) third_bs <- NA_real_
 
         # Display only if at least one source meets the threshold
         ufboot_ok <- !is.na(ufboot) && ufboot >= threshold
         rax_ok    <- !is.na(rax_bs) && rax_bs >= threshold
-        if (!ufboot_ok && !rax_ok) { labels[i] <- ""; next }
+        third_ok  <- !is.na(third_bs) && third_bs >= threshold
+        if (!ufboot_ok && !rax_ok && !third_ok) { labels[i] <- ""; next }
 
-        iq_str  <- if (!is.na(ufboot)) as.character(round(ufboot)) else "\u2013"
-        rax_str <- if (!is.na(rax_bs)) as.character(round(rax_bs)) else "\u2013"
+        iq_str    <- if (!is.na(ufboot)) as.character(round(ufboot)) else "\u2013"
+        rax_str   <- if (!is.na(rax_bs)) as.character(round(rax_bs)) else "\u2013"
+        third_str <- if (!is.na(third_bs)) as.character(round(third_bs)) else "\u2013"
 
         labels[i] <- if (style == "dual") {
-            paste0("IQ:", iq_str, " RAX:", rax_str)
+            label_parts <- c(
+                paste0(args$topology_source, ":", iq_str),
+                paste0(args$support_source, ":", rax_str)
+            )
+            if (length(third_map) > 0) {
+                label_parts <- c(label_parts, paste0(args$third_source, ":", third_str))
+            }
+            paste(label_parts, collapse = " ")
         } else {
-            paste0(iq_str, sep, rax_str)
+            if (length(third_map) > 0) {
+                paste0(iq_str, sep, rax_str, sep, third_str)
+            } else {
+                paste0(iq_str, sep, rax_str)
+            }
         }
     }
     labels
 }
 
 # Max of UFBoot and RAX-BS per internal node (drives dots mode tier assignment)
-build_combined_max_bs <- function(iq_tree, rax_map) {
+build_combined_max_bs <- function(iq_tree, rax_map, third_map) {
     n_tips_iq <- length(iq_tree$tip.label)
     all_tips  <- sort(iq_tree$tip.label)
     n_nodes   <- iq_tree$Nnode
     max_bs    <- rep(NA_real_, n_nodes)
 
     for (i in seq_len(n_nodes)) {
-        ufboot <- extract_ufboot(iq_tree$node.label[i])
+        ufboot <- extract_support(iq_tree$node.label[i])
         tips   <- get_subtree_tips(iq_tree, n_tips_iq + i)
         if (length(tips) < 2L) next
         key    <- canonical_key(tips, all_tips)
         rax_bs <- rax_map[[key]]
         if (is.null(rax_bs)) rax_bs <- NA_real_
-        vals   <- c(ufboot, rax_bs)
+        third_bs <- third_map[[key]]
+        if (is.null(third_bs)) third_bs <- NA_real_
+        vals   <- c(ufboot, rax_bs, third_bs)
         vals   <- vals[!is.na(vals)]
         if (length(vals) > 0L) max_bs[i] <- max(vals)
     }
     max_bs
 }
 
-cat("Matching RAxML bootstrap values onto IQ-TREE2 topology...\n")
-rax_map <- build_rax_map(rax_tree)
-cat(sprintf("  RAxML clades indexed: %d\n", length(rax_map)))
+cat(sprintf("Matching %s bootstrap values onto %s topology...\n",
+            args$support_source, args$topology_source))
+rax_map <- build_support_map(rax_tree)
+cat(sprintf("  %s clades indexed: %d\n", args$support_source, length(rax_map)))
+third_map <- list()
+if (has_third_tree) {
+    cat(sprintf("Matching %s bootstrap values onto %s topology...\n",
+                args$third_source, args$topology_source))
+    third_map <- build_support_map(third_tree)
+    cat(sprintf("  %s clades indexed: %d\n", args$third_source, length(third_map)))
+}
 
 combined_labels <- build_combined_labels(
     iq_tree   = iq_tree,
     rax_map   = rax_map,
+    third_map = third_map,
     threshold = args$bootstrap_threshold,
     sep       = args$combined_sep,
     style     = args$combined_style
 )
 
-combined_max_bs <- build_combined_max_bs(iq_tree, rax_map)
+combined_max_bs <- build_combined_max_bs(iq_tree, rax_map, third_map)
 
 n_shown <- sum(nchar(combined_labels) > 0L)
 has_dash <- any(grepl("\u2013", combined_labels[nchar(combined_labels) > 0L], fixed = TRUE))
@@ -413,13 +494,13 @@ iq_tree$node.label <- combined_labels
 # ======================== Gene Category Classification ========================
 
 smeldmp_name_map <- c(
-    "SMEL5_01g008730.1" = "SmelDMP01.730",
-    "SMEL5_01g026030.1" = "SmelDMP01.990",
-    "SMEL5_02g013320.1" = "SmelDMP02",
-    "SMEL5_04g005390.1" = "SmelDMP04",
-    "SMEL5_10g003660.1" = "SmelDMP10.560",
-    "SMEL5_10g017610.1" = "SmelDMP10.200",
-    "SMEL5_12g005350.1" = "SmelDMP12"
+    "SMEL5_01g008730.1" = "SmelDMPv5_01.730",
+    "SMEL5_01g026030.1" = "SmelDMPv5_01.030",
+    "SMEL5_02g013320.1" = "SmelDMPv5_02.320",
+    "SMEL5_04g005390.1" = "SmelDMPv5_04.390",
+    "SMEL5_10g003660.1" = "SmelDMPv5_10.660",
+    "SMEL5_10g017610.1" = "SmelDMPv5_10.610",
+    "SMEL5_12g005350.1" = "SmelDMPv5_12.350"
 )
 
 # Validated HI loci from II_INPUTS/DMP_HI_registry.tsv (kept in sync with render_tree.R).
@@ -800,6 +881,17 @@ if (args$layout == "rectangular") {
 
 # --- Title, subtitle, and caption ---
 sep_display <- args$combined_sep
+support_label <- if (has_third_tree) {
+    paste(args$topology_source, args$support_source, args$third_source, sep = sep_display)
+} else {
+    paste(args$topology_source, args$support_source, sep = sep_display)
+}
+support_sources_text <- if (has_third_tree) {
+    sprintf("%s support + %s support + %s standard BS",
+            args$topology_source, args$support_source, args$third_source)
+} else {
+    sprintf("%s support + %s standard BS", args$topology_source, args$support_source)
+}
 
 # Build plot title (auto-derive from sequence type + model when --title not given)
 if (nchar(args$title) > 0) {
@@ -812,24 +904,25 @@ if (nchar(args$title) > 0) {
         "NUCLEOTIDE" = "Nucleotide",
         if (nchar(args$sequence_type) > 0) args$sequence_type else "Phylogenetic"
     )
-    model_str  <- if (nchar(args$phylo_model) > 0) paste0(" \u2014 ", args$phylo_model) else ""
+    model_str  <- if (nchar(args$phylo_model) > 0) paste0(" - ", args$phylo_model) else ""
     plot_title <- paste0(seq_label, " Phylogeny", model_str)
 }
 
 # Subtitle: always explains the dual-bootstrap format so it reads as a legend key
 if (show_bootstrap && use_dot_bootstrap) {
     plot_subtitle <- sprintf(
-        "Node dots: max(IQ-TREE2 UFBoot, RAxML-NG BS)  \u2014  threshold \u2265 %d",
-        args$bootstrap_threshold
+        "Node dots: max(%s) - threshold \u2265 %d",
+        support_label, args$bootstrap_threshold
     )
 } else if (show_bootstrap) {
     dash_note <- if (has_dash) paste0("  (\u2013 = no matching clade)") else ""
     plot_subtitle <- sprintf(
-        "Node labels: IQ-TREE2 UFBoot %s RAxML-NG BS%s  \u2014  values \u2265 %d shown",
-        sep_display, dash_note, args$bootstrap_threshold
+        "Node labels: %s%s - values \u2265 %d shown",
+        support_label, dash_note, args$bootstrap_threshold
     )
 } else {
-    plot_subtitle <- "IQ-TREE2 topology with RAxML-NG bootstrap support"
+    plot_subtitle <- sprintf("%s topology with combined bootstrap support",
+                             args$topology_source)
 }
 
 # Caption: concise parameter/provenance line
@@ -841,7 +934,8 @@ if (nchar(args$sequence_type) > 0) {
     caption_parts <- c(caption_parts, paste0("Sequence: ", args$sequence_type))
 }
 caption_parts <- c(caption_parts,
-    "Topology: IQ-TREE2  |  Bootstrap sources: IQ-TREE2 UFBoot + RAxML-NG standard BS")
+    sprintf("Topology: %s  |  Bootstrap sources: %s",
+            args$topology_source, support_sources_text))
 
 p <- p + labs(
     title    = plot_title,

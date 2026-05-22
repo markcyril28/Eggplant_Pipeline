@@ -86,6 +86,8 @@ COLOR_SMELDMP="#4527A0"
 COLOR_HAPLOID="#B71C1C"
 COLOR_ORTHOLOG="#37474F"
 COLOR_OUTGROUP="#78909C"
+MANUAL_TOPOLOGY_DIRS=()
+MANUAL_TOPOLOGY_FILES=()
 
 # ======================== Argument Parsing ========================
 
@@ -159,6 +161,8 @@ if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
     _val=$(cfg visualization combined_bootstrap_tree combined_style);  [[ -n "$_val" ]] && COMBINED_STYLE="$_val"
     _val=$(cfg visualization combined_bootstrap_tree combined_sep);    [[ -n "$_val" ]] && COMBINED_SEP="$_val"
     _val=$(cfg visualization combined_bootstrap_tree xlim_expand);    [[ -n "$_val" ]] && XLIM_EXPAND="$_val"
+    mapfile -t MANUAL_TOPOLOGY_DIRS < <(cfg visualization combined_bootstrap_tree manual_topology_dirs)
+    mapfile -t MANUAL_TOPOLOGY_FILES < <(cfg visualization combined_bootstrap_tree manual_topology_files)
     unset _val
 fi
 
@@ -176,6 +180,131 @@ detect_seq_type() {
     fi
 }
 
+infer_seq_type_from_tree_file() {
+    local tree_file="$1"
+    local name_lower xp_count xm_count
+    name_lower="$(basename "$tree_file" | tr '[:upper:]' '[:lower:]')"
+
+    if [[ "$name_lower" =~ (nucleotide|_nuc_|_nt_|_dna_) ]]; then
+        echo "Nucleotide"
+        return 0
+    elif [[ "$name_lower" =~ (amino_acid|protein|_aa_) ]]; then
+        echo "Protein"
+        return 0
+    fi
+
+    xp_count=$(grep -o "XP_" "$tree_file" 2>/dev/null | wc -l | tr -d '[:space:]')
+    xm_count=$(grep -Eo "XM_|XR_" "$tree_file" 2>/dev/null | wc -l | tr -d '[:space:]')
+    if (( xp_count >= xm_count && xp_count > 0 )); then
+        echo "Protein"
+    elif (( xm_count > 0 )); then
+        echo "Nucleotide"
+    else
+        echo "Unknown"
+    fi
+}
+
+resolve_tree_path() {
+    local path="$1"
+    if [[ "$path" = /* || "$path" =~ ^[A-Za-z]:[\\/].* ]]; then
+        echo "$path"
+    else
+        echo "$TREE_DIR/$path"
+    fi
+}
+
+is_newick_like_file() {
+    local file="$1"
+    [[ -f "$file" && -s "$file" ]] || return 1
+    [[ "$(basename "$file")" =~ \.(mtsx|mdsx|png|svg|pdf|log|txt)$ ]] && return 1
+    head -c 1 "$file" 2>/dev/null | grep -q "(" || return 1
+    grep -q ";" "$file" 2>/dev/null
+}
+
+sanitize_output_stem() {
+    local raw="$1"
+    raw="${raw%.*}"
+    echo "$raw" | tr '[:space:]' '_' | tr -cd '[:alnum:]_.-' | sed -E 's/_+/_/g; s/_$//'
+}
+
+find_raxml_for_manual_tree() {
+    local manual_tree="$1"
+    local seq_type="$2"
+    local manual_dir base_dir raxml_dir pattern candidate
+
+    manual_dir="$(dirname "$manual_tree")"
+    base_dir="$(dirname "$manual_dir")"
+    raxml_dir="$base_dir/RAXML"
+    [[ -d "$raxml_dir" ]] || return 1
+
+    case "$seq_type" in
+        Protein)    pattern="*_AMINO_ACID_*_RAXML.raxml.support" ;;
+        Nucleotide) pattern="*_NUCLEOTIDE_*_RAXML.raxml.support" ;;
+        *)          pattern="*_RAXML.raxml.support" ;;
+    esac
+
+    candidate=$(find "$raxml_dir" -maxdepth 1 -type f -name "$pattern" 2>/dev/null | sort | head -n 1)
+    [[ -n "$candidate" ]] || return 1
+    echo "$candidate"
+}
+
+find_iqtree_for_manual_tree() {
+    local manual_tree="$1"
+    local seq_type="$2"
+    local manual_dir base_dir iqtree_dir pattern candidate
+
+    manual_dir="$(dirname "$manual_tree")"
+    base_dir="$(dirname "$manual_dir")"
+    iqtree_dir="$base_dir/IQTREE2"
+    [[ -d "$iqtree_dir" ]] || return 1
+
+    case "$seq_type" in
+        Protein)    pattern="*_AMINO_ACID_*_IQTREE2.treefile" ;;
+        Nucleotide) pattern="*_NUCLEOTIDE_*_IQTREE2.treefile" ;;
+        *)          pattern="*_IQTREE2.treefile" ;;
+    esac
+
+    candidate=$(find "$iqtree_dir" -maxdepth 1 -type f -name "$pattern" 2>/dev/null | sort | head -n 1)
+    [[ -n "$candidate" ]] || return 1
+    echo "$candidate"
+}
+
+add_manual_topology_pair() {
+    local manual_tree="$1"
+    local source_label="$2"
+    local manual_dir base_dir rel_subpath seq_type iqtree_file raxml_file out_stem out_png
+
+    is_newick_like_file "$manual_tree" || {
+        log_warn "Skipping manual topology that does not look like Newick: $manual_tree"
+        return 0
+    }
+
+    manual_dir="$(dirname "$manual_tree")"
+    base_dir="$(dirname "$manual_dir")"
+    rel_subpath="${base_dir#$TREE_DIR/}"
+    seq_type="$(infer_seq_type_from_tree_file "$manual_tree")"
+    iqtree_file="$(find_iqtree_for_manual_tree "$manual_tree" "$seq_type" || true)"
+    raxml_file="$(find_raxml_for_manual_tree "$manual_tree" "$seq_type" || true)"
+    if [[ -z "$iqtree_file" || -z "$raxml_file" ]]; then
+        log_warn "No complete IQ-TREE2 and RAxML support set found for manual topology: $manual_tree"
+        return 0
+    fi
+
+    out_stem="$(sanitize_output_stem "$(basename "$manual_dir")_$(basename "$manual_tree")")"
+    out_png="$base_dir/Combined/${seq_type}/${out_stem}_combined_three_bootstrap.png"
+
+    PAIR_IQTREE+=("$manual_tree")
+    PAIR_RAXML+=("$iqtree_file")
+    PAIR_OUTPUT+=("$out_png")
+    PAIR_SEQTYPE+=("$seq_type")
+    PAIR_TOPOLOGY_SOURCE+=("$source_label")
+    PAIR_SUPPORT_SOURCE+=("IQ-TREE2")
+    PAIR_THIRD_TREE+=("$raxml_file")
+    PAIR_THIRD_SOURCE+=("RAxML-NG")
+
+    log_info "Matched manual primary topology: [$rel_subpath] [$seq_type] $(basename "$manual_tree") + $(basename "$iqtree_file") + $(basename "$raxml_file")"
+}
+
 # ======================== Find IQ-TREE2 / RAxML Pairs ========================
 
 log_info "Scanning for IQ-TREE2/RAxML tree pairs in: $TREE_DIR"
@@ -184,6 +313,10 @@ PAIR_IQTREE=()
 PAIR_RAXML=()
 PAIR_OUTPUT=()
 PAIR_SEQTYPE=()
+PAIR_TOPOLOGY_SOURCE=()
+PAIR_SUPPORT_SOURCE=()
+PAIR_THIRD_TREE=()
+PAIR_THIRD_SOURCE=()
 
 while IFS= read -r iq_tree_file; do
     iq_dir="$(dirname "$iq_tree_file")"        # …/IQTREE2
@@ -221,9 +354,39 @@ while IFS= read -r iq_tree_file; do
     PAIR_RAXML+=("$raxml_file")
     PAIR_OUTPUT+=("$out_png")
     PAIR_SEQTYPE+=("$seq_type")
+    PAIR_TOPOLOGY_SOURCE+=("IQ-TREE2")
+    PAIR_SUPPORT_SOURCE+=("RAxML-NG")
+    PAIR_THIRD_TREE+=("")
+    PAIR_THIRD_SOURCE+=("")
 
     log_info "Matched pair: [$rel_subpath] [$seq_type] $stem"
 done < <(find "$TREE_DIR" -type f -name "*_IQTREE2.treefile" 2>/dev/null | sort)
+
+if (( ${#MANUAL_TOPOLOGY_DIRS[@]} > 0 || ${#MANUAL_TOPOLOGY_FILES[@]} > 0 )); then
+    log_info "Scanning configured manual topology inputs"
+fi
+
+for manual_dir_entry in "${MANUAL_TOPOLOGY_DIRS[@]:-}"; do
+    [[ -z "$manual_dir_entry" ]] && continue
+    manual_dir="$(resolve_tree_path "$manual_dir_entry")"
+    if [[ ! -d "$manual_dir" ]]; then
+        log_warn "Manual topology directory not found, skipping: $manual_dir"
+        continue
+    fi
+    while IFS= read -r manual_tree; do
+        add_manual_topology_pair "$manual_tree" "$(basename "$manual_dir")"
+    done < <(find "$manual_dir" -maxdepth 1 -type f 2>/dev/null | sort)
+done
+
+for manual_file_entry in "${MANUAL_TOPOLOGY_FILES[@]:-}"; do
+    [[ -z "$manual_file_entry" ]] && continue
+    manual_tree="$(resolve_tree_path "$manual_file_entry")"
+    if [[ ! -f "$manual_tree" ]]; then
+        log_warn "Manual topology file not found, skipping: $manual_tree"
+        continue
+    fi
+    add_manual_topology_pair "$manual_tree" "$(basename "$(dirname "$manual_tree")")"
+done
 
 n_pairs=${#PAIR_IQTREE[@]}
 
@@ -252,6 +415,10 @@ for (( i=0; i<n_pairs; i++ )); do
     raxml_file="${PAIR_RAXML[$i]}"
     out_png="${PAIR_OUTPUT[$i]}"
     seq_type="${PAIR_SEQTYPE[$i]}"
+    topology_source="${PAIR_TOPOLOGY_SOURCE[$i]}"
+    support_source="${PAIR_SUPPORT_SOURCE[$i]}"
+    third_tree="${PAIR_THIRD_TREE[$i]}"
+    third_source="${PAIR_THIRD_SOURCE[$i]}"
 
     if [[ -s "$out_png" && "$OVERWRITE" != "true" ]]; then
         log_info "Skipping (exists): $(basename "$out_png")"
@@ -276,8 +443,16 @@ for (( i=0; i<n_pairs; i++ )); do
     wait_for_slot "$MAX_PARALLEL"
 
     (
-        log_info "Rendering: $(basename "$iq_tree_file") + $(basename "$raxml_file") -> $(basename "$out_png")"
+        if [[ -n "$third_tree" ]]; then
+            log_info "Rendering: $(basename "$iq_tree_file") + $(basename "$raxml_file") + $(basename "$third_tree") -> $(basename "$out_png")"
+        else
+            log_info "Rendering: $(basename "$iq_tree_file") + $(basename "$raxml_file") -> $(basename "$out_png")"
+        fi
         rc=0
+        third_args=()
+        if [[ -n "$third_tree" ]]; then
+            third_args+=(--tree-third "$third_tree" --third-source "$third_source")
+        fi
         Rscript "$RENDER_R" \
             --tree-iqtree          "$iq_tree_file" \
             --tree-raxml           "$raxml_file" \
@@ -319,6 +494,9 @@ for (( i=0; i<n_pairs; i++ )); do
             --xlim-expand          "$XLIM_EXPAND" \
             --sequence-type        "$seq_type" \
             --phylo-model          "$PHYLO_MODEL" \
+            --topology-source      "$topology_source" \
+            --support-source       "$support_source" \
+            "${third_args[@]}" \
             2>&1 || rc=$?
 
         if (( rc != 0 )); then

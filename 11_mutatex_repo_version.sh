@@ -86,8 +86,13 @@ setup_logging
 # Robust cleanup: kill background jobs, teardown logging, remove temp files
 cleanup_exit() {
     local bg_pids; bg_pids=$(jobs -rp 2>/dev/null)
-    [[ -n "$bg_pids" ]] && kill $bg_pids 2>/dev/null
-    wait 2>/dev/null
+    if [[ -n "$bg_pids" ]]; then
+        kill $bg_pids 2>/dev/null || true
+        # Wait ONLY on the killed PIDs. A bare `wait` would also block on the
+        # logging tee/sed process-substitution children, which never see EOF
+        # until the main shell closes stdout — hanging this EXIT trap forever.
+        wait $bg_pids 2>/dev/null || true
+    fi
     safe_teardown_logging
     [[ -d "${STATUS_DIR:-}" ]] && rm -rf "$STATUS_DIR"
 }
@@ -442,6 +447,10 @@ process_single_pdb() {
   if [[ "$CLEANUP_ENABLED" == "true" ]]; then
     log_info "[$base_name] Cleanup worker started (interval=${CLEANUP_WORKER_INTERVAL}s)"
     cleanup_pid=$(start_cleanup_worker "$outdir/mutations" "$CLEANUP_WORKER_INTERVAL")
+    # Guarantee the worker dies when this subshell exits for ANY reason (signal,
+    # timeout kill, or an error under `set -e`). Otherwise it is orphaned to
+    # init and loops forever, leaking one stray process per PDB.
+    trap '[[ -n "${cleanup_pid:-}" ]] && kill "$cleanup_pid" 2>/dev/null' EXIT
   fi
 
   # Run mutatex from the output directory (mutatex operates in cwd)
@@ -450,6 +459,12 @@ process_single_pdb() {
   local _st_ts _st_start _st_end _st_elapsed
   printf -v _st_ts '%(%Y-%m-%d %H:%M:%S)T' -1 2>/dev/null || _st_ts=$(date '+%Y-%m-%d %H:%M:%S')
   printf -v _st_start '%(%s)T' -1
+  # IMPORTANT: capture the exit code with `|| exit_status=$?`, NOT a separate
+  # `exit_status=$?` line. Under `set -e`, a standalone `( ... )` that exits
+  # non-zero (mutatex failure, or timeout's exit 124) aborts this whole subshell
+  # BEFORE the next line runs — silently skipping the cleanup-worker stop, the
+  # failure logging, and the status-file write. Being part of an `||` list
+  # exempts the command from `set -e` so $exit_status is always captured.
   if (( PER_PDB_TIMEOUT_SECS > 0 )); then
     ( cd "$outdir" && exec timeout --signal=TERM --kill-after=120 "$PER_PDB_TIMEOUT_SECS" \
         mutatex "$pdb_to_use" \
@@ -461,8 +476,7 @@ process_single_pdb() {
           -R "$REPAIR_TEMPLATE" \
           -M "$MUTATE_TEMPLATE" \
           -I "$INTERFACE_TEMPLATE" \
-          -B -v -l ) > "$pdb_log" 2>&1
-    exit_status=$?
+          -B -v -l ) > "$pdb_log" 2>&1 || exit_status=$?
   else
     ( cd "$outdir" && mutatex "$pdb_to_use" \
         -p "$threads" \
@@ -473,8 +487,7 @@ process_single_pdb() {
         -R "$REPAIR_TEMPLATE" \
         -M "$MUTATE_TEMPLATE" \
         -I "$INTERFACE_TEMPLATE" \
-        -B -v -l ) > "$pdb_log" 2>&1
-    exit_status=$?
+        -B -v -l ) > "$pdb_log" 2>&1 || exit_status=$?
   fi
   printf -v _st_end '%(%s)T' -1
   _st_elapsed=$(( _st_end - _st_start ))
@@ -492,8 +505,11 @@ process_single_pdb() {
   if [[ $exit_status -eq 0 ]]; then
     log_info "[$base_name] MutateX completed successfully"
 
-    # Generate PyMOL visualization using ddg2pdb
-    generate_pymol_visualization "$outdir" "$base_name" >> "$pdb_log" 2>&1
+    # Generate PyMOL visualization using ddg2pdb.
+    # Guard with `||` so a non-zero return (e.g. no PDB found) does not abort
+    # this subshell under `set -e` before the completion marker is written.
+    generate_pymol_visualization "$outdir" "$base_name" >> "$pdb_log" 2>&1 \
+      || log_warn "[$base_name] PyMOL visualization step returned non-zero"
 
     touch "$completion_marker"
     echo "SUCCESS" > "$STATUS_DIR/${base_name}.status"
@@ -529,13 +545,21 @@ printf -v START_TIME '%(%s)T' -1
 
 log_step "Dispatching ${NUM_PDBS} PDBs (max ${PARALLEL_PDBS} in parallel, ${THREADS_PER_PDB} FoldX jobs each)"
 
+declare -a PDB_PIDS=()
 for pdb in "${PDB_FILES[@]}"; do
   wait_for_slot "$PARALLEL_PDBS"
   process_single_pdb "$pdb" "$THREADS_PER_PDB" &
+  PDB_PIDS+=("$!")
 done
 
-# Wait for all PDB jobs to finish
-wait
+# Wait for the PDB jobs ONLY, by explicit PID.
+# A bare `wait` would also block on the logging tee/sed process-substitution
+# children spawned by setup_logging; those never receive EOF until the main
+# shell closes stdout, so a bare `wait` here hangs the script forever (this is
+# the reported hang). safe_teardown_logging tears those down at exit instead.
+for _pid in "${PDB_PIDS[@]}"; do
+  wait "$_pid" 2>/dev/null || true
+done
 
 log_step "All PDB jobs completed"
 

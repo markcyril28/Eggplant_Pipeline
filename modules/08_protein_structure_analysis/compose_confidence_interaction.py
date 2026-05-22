@@ -57,7 +57,7 @@ PROTEINS = [
         "confidence_stem": "2026_04_07_13_19_smel5_10g003660_1",
         "interaction_dir":  "smel5_10g003660_1",   # latest re-render
         "interaction_stem": "smel5_10g003660_1",
-        "name": "SmelDMPv5_10.560",
+        "name": "SmelDMPv5_10.660",
         "gene": "SMEL5_10g003660.1",
         "panel": "iii",
         "tier": "",
@@ -67,7 +67,7 @@ PROTEINS = [
         "confidence_stem": "2026_04_07_13_17_smel5_01g026030_1",
         "interaction_dir":  "2026_04_07_13_17_smel5_01g026030_1",
         "interaction_stem": "2026_04_07_13_17_smel5_01g026030_1",
-        "name": "SmelDMPv5_01.990",
+        "name": "SmelDMPv5_01.030",
         "gene": "SMEL5_01g026030.1",
         "panel": "iv",
         "tier": "Tier 1",

@@ -14,16 +14,16 @@
 [pipeline]
 # Gene groups to process. Available: "DMP", "HAP2", "GRF_GIF", "PLA"
 gene_groups   = [
-    "DMP",
-    #"HAP2",
+    #"DMP",
+    "HAP2",
     #"GRF_GIF"
 ]
 
 machine       = "Local"  # "Local" or "HPC" — selects compute profile below
 overwrite     = true     # true = overwrite existing results; false = skip completed genomes
 operations = [
-    #"BUILD_PROFILES",          # hmmbuild + hmmpress HMM profiles
-    #"SEARCH_GENOMES",          # hmmsearch (protein) + nhmmer (nucleotide) per genome
+    "BUILD_PROFILES",          # hmmbuild + hmmpress HMM profiles
+    "SEARCH_GENOMES",          # hmmsearch (protein) + nhmmer (nucleotide) per genome
     "EXTRACT_GENE_STRUCTURES", # Parse GFF annotation → per-gene structure files (inc. structure.gb)
     "GENERATE_GENBANK",        # Rebuild structure.gb from existing structure.gff3 + structure.fa
     "GENERATE_REPORT",         # summary tables, figures, Markdown report

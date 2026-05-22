@@ -42,6 +42,22 @@ post_processing_workers = 0
 debug_mode      = true
 verbose_logging = true
 
+[structures]
+# PDB paths relative to paths.input_base (same structures used by GROMACS pipeline).
+# MutateX requires PDB format; each AlphaFold3 directory contains both CIF and PDB.
+active = [
+    # HAP2-only references (sibling III_RESULT/HAP2 tree; relative to input_base).
+    "../../../../HAP2/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results/fold_hap2_monomeric/fold_hap2_monomeric.pdb",
+    "../../../../HAP2/08_Protein_Structure/GPE001970_SMEL5/AlphaFold3_Results/fold_hap2_trimeric/fold_hap2_trimeric.pdb",
+    "hap2_and_smel5_01g008730_1/hap2_and_smel5_01g008730_1.pdb",
+    "hap2_and_smel5_01g026030_1/hap2_and_smel5_01g026030_1.pdb",
+    "hap2_and_smel5_02g013320_1/hap2_and_smel5_02g013320_1.pdb",
+    "hap2_and_smel5_04g005390_1/hap2_and_smel5_04g005390_1.pdb",
+    "hap2_and_smel5_10g003660_1/hap2_and_smel5_10g003660_1.pdb",
+    "hap2_and_smel5_10g017610_1/hap2_and_smel5_10g017610_1.pdb",
+    "hap2_and_smel5_12g005350_1/hap2_and_smel5_12g005350_1.pdb",
+]
+
 # ==============================================================================
 # Transient File Cleanup
 #
@@ -107,19 +123,6 @@ results_dir        = "III_RESULT/DMP-HAP2/11_PPI_MutateX"
 repair    = "modules/PPI/repair_runfile_template.txt"
 mutate    = "modules/PPI/mutate_runfile_template.txt"
 interface = "modules/PPI/interface_runfile_template.txt"
-
-[structures]
-# PDB paths relative to paths.input_base (same structures used by GROMACS pipeline).
-# MutateX requires PDB format; each AlphaFold3 directory contains both CIF and PDB.
-active = [
-    "hap2_and_smel5_01g008730_1/hap2_and_smel5_01g008730_1.pdb",
-    "hap2_and_smel5_01g026030_1/hap2_and_smel5_01g026030_1.pdb",
-    "hap2_and_smel5_02g013320_1/hap2_and_smel5_02g013320_1.pdb",
-    "hap2_and_smel5_04g005390_1/hap2_and_smel5_04g005390_1.pdb",
-    "hap2_and_smel5_10g003660_1/hap2_and_smel5_10g003660_1.pdb",
-    "hap2_and_smel5_10g017610_1/hap2_and_smel5_10g017610_1.pdb",
-    "hap2_and_smel5_12g005350_1/hap2_and_smel5_12g005350_1.pdb",
-]
 
 # ==============================================================================
 # Visualization settings (b_mutatex_generate_mutatex_visualizations.py)

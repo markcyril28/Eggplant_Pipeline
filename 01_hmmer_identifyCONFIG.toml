@@ -12,13 +12,14 @@
 # ============================================================================
 
 [pipeline]
-# Gene groups to process. Available: "DMP", "HAP2", "GRF_GIF", "EC1", "GEX1"
+# Gene groups to process. Available: "DMP", "HAP2", "GRF_GIF", "EC1", "GEX1", "PLA"
 gene_groups   = [
     #"DMP",
     #"HAP2",
     #"GRF_GIF",
     #"EC1",
-    "GEX1",
+    #"GEX1",
+    "PLA",
 ]
 
 machine       = "Local"  # "Local" or "HPC" — selects compute profile below
@@ -459,3 +460,13 @@ EC1 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05617_EC1.hmm"]
 # (PANTHER HMMs carry no GA thresholds). Family is eukaryote-wide; post-filter to Viridiplantae if needed.
 # Source: https://www.pantherdb.org/panther/family.do?clsAccession=PTHR33538
 GEX1 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PTHR33538_GEX1.hmm"]
+
+[identification.gene_groups.PLA.genes]
+# Pfam PF01734 — Patatin / patatin-like phospholipase (pPLA).
+# Anchor gene: ZmMATL / ZmPLA1 / NLD — sperm-specific phospholipase A whose loss-of-function
+# triggers maternal haploid induction in maize (Kelliher et al. 2017 Nature 542:105;
+# Liu et al. 2017 Mol Plant; Gilles et al. 2017 EMBO J). All three independent forward-
+# genetic mappings of the maize haploid-inducer locus converge on this Pfam domain.
+# Pfam GA thresholds present (27.7); shared use_ga = true is appropriate.
+# Source: https://www.ebi.ac.uk/interpro/entry/pfam/PF01734/
+PLA = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF01734_Patatin.hmm"]

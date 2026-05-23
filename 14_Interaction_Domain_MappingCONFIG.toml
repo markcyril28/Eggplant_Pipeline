@@ -35,14 +35,14 @@ only_dmp_variants = []
 [pipeline]
 gene_groups = [
     "DMP_x_AtHAP2",
-    #"DMP_x_SmelHAP2",
+    "DMP_x_SmelHAP2",
 ]
-machine     = "HPC"
+machine     = "Local"
 overwrite   = true
 
 [pipeline.compute.Local]
-threads      = 12
-max_parallel = 2
+threads      = 4
+max_parallel = 1
 
 [pipeline.compute.HPC]
 threads      = 48
@@ -61,8 +61,8 @@ enabled = true
 # intact and ready. See also [binding_energy].backends (mmpbsa is gated off).
 operations = [
     "prepare_variants",        # Build HAP2 + DMP truncation FASTAs from [variants] / [dmp_variants]
-    "predict_complexes",       # Submit/run AF3 jobs per pair x stoichiometry; collect rank-1 model + ipTM/pTM
-    "interface_analysis",      # freesasa BSA, heavy-atom contacts, per-chain SASA on the rank-1 complex
+    #"predict_complexes",       # Submit/run AF3 jobs per pair x stoichiometry; collect rank-1 model + ipTM/pTM
+    #"interface_analysis",      # freesasa BSA, heavy-atom contacts, per-chain SASA on the rank-1 complex
     ##"md_equilibration",       # POSTPONED - GROMACS short MD (EM -> NVT -> NPT -> production) for stability
     #"binding_energy",          # FoldX + PRODIGY DG on the rank-1 snapshot (mmpbsa gated off with GROMACS)
     #"alanine_scan",            # MutaTeX + FoldX residue-level DDG scan on WT__WT to map hot spots
@@ -162,60 +162,72 @@ deletions = [
 # ── DMP variant table ───────────────────────────────────────────────────────
 # Orthogonal to [variants]; same parallel-array shape and `deletions` syntax.
 # In silico only - the paper did not run DMP truncations in MbY2H. The
-# strongest paper-anchored target is the N-terminal cytoplasmic tail
-# (residues 1-64); Wang et al. 2022 Fig. 5 showed a DMP3 backbone bearing
-# the DMP9 N-terminus (1-64) rescues *dmp8 dmp9* while native DMP3 does
-# not, so the binding specificity lives there.
+# strongest paper-anchored target is the N-terminal cytoplasmic tail;
+# Wang et al. 2022 Fig. 5 showed a DMP3 backbone bearing the DMP9
+# N-terminus (residues 1-64 in AtDMP9) rescues *dmp8 dmp9* while native
+# DMP3 does not, so the binding specificity lives there.
 #
-# Coordinates: AtDMP8 numbering (UniProt O80493, 213 aa). The SmelDMP run
-# (SmelDMPv5_10.610, 221 aa) needs the same pairwise-alignment remap that
-# the HAP2 ladder does - see [M2] and the per-run override file.
+# Coordinates: SmelDMPv5_10.610 numbering (222 aa). [inputs].dmp_fasta
+# is already the eggplant SmelDMP for both runs (DMP_x_AtHAP2 and
+# DMP_x_SmelHAP2), so these ranges are what AF3 actually receives. The
+# earlier revisions of this file carried AtDMP8 (243 aa) numbering, which
+# silently sliced the wrong residues out of the SmelDMP partner - the
+# ranges below replace those with topology-anchored SmelDMP coordinates.
 #
-# 4-TMD topology (Kasaras & Kunze 2010 [10.1111/j.1438-8677.2010.00381.x];
-# refined by Cyprys 2019 [10.1038/s41477-019-0382-3]; Wang 2022 [PMC9659367]):
-#   1-64       cytoplasmic N-terminus (paper-direct specificity region)
-#   ~65-85     TM1
-#   ~86-95     extracellular loop 1
-#   ~96-116    TM2
-#   ~117-145   cytoplasmic loop 2 (DUF679 core)
-#   ~146-166   TM3
-#   ~167-180   extracellular loop 3
-#   ~181-200   TM4
-#   201-213    cytoplasmic C-terminus
-# Ranges with "~" are TMHMM/DeepTMHMM predictions; verify against UniProt
-# before publishing residue-level claims. 1-64 is paper-direct.
+# 4-TMD topology anchored to Stage 06 MEME motifs from the curated HI DMP
+# family run (III_RESULT/DMP/06_Motif_Analysis/selected_v1_full_HI_DMPs/
+# 04_MEME_Analysis/02_MEME/amino_acid/.../meme.txt). Motif positions read
+# directly from that file for SmelDMP10.610 (widths in parentheses; start
+# positions are 1-indexed in the SmelDMP sequence):
+#   MEME-3 KGV anchor "RKRRPVAKGVQKTLSKTSMLA..."        43-83   (w=41)
+#   MEME-1 TMD1 lead  "DGDCNGINTLMTHLLLALCAL..."        84-124  (w=41)
+#   MEME-2 DUF679     "DERYKLRFIDFVHAVMSVLVF..."        146-195 (w=50)
+#   MEME-4 TMD4       "GVVCSALFLVFPTTRHGIGCM"           200-220 (w=21)
+#
+# Functional topology read from those anchors:
+#   1-42       cytoplasmic N-terminus pre-KGV (Wang 2022 specificity region)
+#   43-83      KGV anchor (MEME-3; conserved cytoplasm-to-membrane lead-in)
+#   84-124     TMD1 + adjacent helix (MEME-1)
+#   125-145    intracellular/extracellular linker
+#   146-195    TMD2 + cytoplasmic loop 2 + TMD3 (MEME-2; DUF679 core)
+#   196-199    short linker
+#   200-220    TMD4 (MEME-4)
+#   221-222    cytoplasmic C-terminal "SA" tail (trivially short in SmelDMP;
+#              AtDMP8's much longer C-tail is absent in eggplant)
+# Verify against TMHMM/DeepTMHMM before publishing per-residue claims;
+# MEME anchors are sequence-conservation-based, not membrane-topology-based.
 #
 # Index j = 0 MUST be WT (pairing logic uses dmp_variants[0] as the WT-DMP
 # partner under [pairing].mode = "orthogonal").
 [dmp_variants]
 names = [
     "WT",
-    "delN_1_64",
-    "delC_201_213",
-    "delTMDcore_65_200",
+    "delN_1_83",
+    "delC_221_222",
+    "delTMDcore_84_220",
 ]
 descriptions = [
-    "Full-length DMP (positive control)",
-    "N-terminal cytoplasmic deletion 1-64 (paper-direct specificity region; Wang 2022 chimera)",
-    "C-terminal cytoplasmic tail deletion 201-213",
-    "Four-TMD bundle deletion 65-200 (expected null / folding-destroying control)",
+    "Full-length SmelDMPv5_10.610 (positive control)",
+    "N-terminal cytoplasmic deletion 1-83 (everything before MEME-1/TMD1; paper-direct specificity region per Wang 2022 chimera analogue)",
+    "C-terminal cytoplasmic tail deletion 221-222 (SA tail only; expected near-null - SmelDMP's C-tail is much shorter than AtDMP8's)",
+    "Four-TMD bundle deletion 84-220 (MEME-1 through end of MEME-4; expected folding-destroying null control)",
 ]
 deletions = [
     "",
-    "1-64",
-    "201-213",
-    "65-200",
+    "1-83",
+    "221-222",
+    "84-220",
 ]
 
-# Extended ~10-row DMP panel (uncomment in all three arrays simultaneously
-# to probe each topological element; per-TMD ranges follow the AtDMP8 TMHMM
-# prediction above and MUST be verified before use):
-#   "delN_1_32"      N-terminus first half
-#   "delN_33_64"     N-terminus second half
-#   "delTM1_65_85"
-#   "delTM2_96_116"
-#   "delTM3_146_166"
-#   "delTM4_181_200"
+# Extended ~9-row DMP panel for finer-grained mapping (uncomment in all
+# three arrays simultaneously). Ranges follow the SmelDMP10.610 MEME
+# anchors above and split the bulk deletions into per-element variants:
+#   "delN_1_42"          pre-KGV cytoplasmic (Wang 2022 N-term specificity analogue)
+#   "delN_43_83"         KGV anchor + late cytoplasmic (MEME-3 region)
+#   "delTM1_84_124"      TMD1 + adjacent helix (MEME-1 region)
+#   "delLinker_125_145"  extracellular linker between MEME-1 and MEME-2
+#   "delTM23_146_195"    TMD2 + cyto loop 2 + TMD3 (MEME-2; DUF679 core)
+#   "delTM4_200_220"     TMD4 (MEME-4 region)
 
 # ── HAP2 x DMP pairing mode ─────────────────────────────────────────────────
 # Combines [variants] x [dmp_variants] into AF3 jobs. Pair label written to

@@ -23,34 +23,27 @@ base_dir = "III_RESULT/DMP_x_SmelHAP2"
 hap2_fasta = "II_INPUTS/HAP2/SmelHAP2.fasta"
 # DMP and reference PDB inherit from shared config.
 
-# <!-- VERIFY: remap AtHAP2 deletion coordinates onto SmelHAP2 numbering
-#      before running this side. The arrays below currently inherit AtHAP2
-#      ranges from the shared config - replace them once the pairwise
-#      alignment of AtHAP2 vs. SmelHAP2 is in hand. Example shape:
-#
-#   [variants]
-#   deletions = [
-#       "",                  # WT
-#       "<smel_C_start>-<smel_C_end>",
-#       "<smel_ecto_start>-<smel_ecto_end>",
-#       "<smel_D1_start>-<smel_D1_end>",
-#       "<smel_D2_start>-<smel_D2_end>",
-#       "<smel_D3_start>-<smel_D3_end>",
-#       "<smel_FL_start>-<smel_FL_end>",
-#   ]
-# -->
+# Flip the HAP2 coords table from AtHAP2 (default) to SmelHAP2. The
+# [hap2_variants].rows list and the variant names are shared across both
+# runs; only the per-species coord values differ. Anything still set to
+# "TBD" in [hap2_variants.coords.sm] of the shared config will be skipped
+# at runtime with a warning until the SmelHAP2 remap is in hand (see [M2]).
+[hap2_variants]
+coords_column = "sm"
 
-# <!-- VERIFY: remap AtDMP8 deletion coordinates onto SmelDMPv5_10.610
-#      numbering before running this side. The shared config's [dmp_variants]
-#      uses AtDMP8 (UniProt O80493, 213 aa) numbering. SmelDMPv5_10.610 is
-#      221 aa - run pairwise Needleman-Wunsch against AtDMP8 and transcribe
-#      the AtDMP8 1-64 / 65-200 / 201-213 boundaries onto SmelDMP. Example:
+# Override individual SmelHAP2 coords here once the AtHAP2 -> SmelHAP2
+# remap is done (MAFFT --add of AtHAP2 against SmelHAP2; transcribe the
+# Wang 2022 cut points onto the aligned columns). Each line replaces the
+# matching "TBD" in [hap2_variants.coords.sm] of the shared config:
 #
-#   [dmp_variants]
-#   deletions = [
-#       "",                  # WT
-#       "1-<smel_N_end>",          # SmelDMP N-terminal cytoplasmic
-#       "<smel_C_start>-221",      # SmelDMP C-terminal cytoplasmic
-#       "<smel_TMcore_start>-<smel_TMcore_end>",
-#   ]
-# -->
+# [hap2_variants.coords.sm]
+# delC          = "<smel_C_start>-<smel_C_end>"
+# delEcto       = "<smel_ecto_start>-<smel_ecto_end>"
+# delEctoD2     = "<smel_D2_start>-<smel_D2_end>"
+# delFL         = "<smel_FL_start>-<smel_FL_end>"
+# delTMD        = "<smel_TMD_start>-<smel_TMD_end>"
+# delEctoAndC   = "<smel_ecto>,<smel_C>"
+#
+# The DMP side ([dmp_variants]) needs no override: [inputs].dmp_fasta is
+# always SmelDMPv5_10.610 and the shared [dmp_variants.coords] already
+# carries SmelDMP10.610 numbering anchored to the Stage 06 MEME motifs.

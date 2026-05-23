@@ -21,3 +21,10 @@ base_dir = "III_RESULT/DMP_x_AtHAP2"
 hap2_fasta = "II_INPUTS/HAP2/AtHAP2_At4g11720.fasta"
 dmp_fasta  = "II_INPUTS/DMP/AtDMP8_At1g09157.fasta"
 # Reference PDB inherits from shared config.
+
+# Flip the DMP coord table to AtDMP8 numbering to match the dmp_fasta
+# override above. The shared default is "sm" (SmelDMP) to match the
+# shared dmp_fasta. [hap2_variants].coords_column stays at its shared
+# default "at" since this run also uses AtHAP2.
+[dmp_variants]
+coords_column = "at"

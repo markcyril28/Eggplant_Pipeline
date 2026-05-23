@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 #######################################################################
-# GROMACS + MutateX Environment Setup Script (Auto-Detect)
+# GROMACS + MutateX + Stage 14 Environment Setup Script (Auto-Detect)
 #
 # Automatically detects GPU vendor (NVIDIA or AMD) and builds GROMACS
-# with the appropriate backend (CUDA or HIP). Optionally sets up a
-# MutateX (FoldX wrapper) environment for mutation analysis.
+# with the appropriate backend (CUDA or HIP). Also installs the
+# environments and binaries needed by Stage 14
+# (14_Interaction_Domain_Mapping.sh): the GROMACS env (md_equilibration,
+# currently postponed), the MutaTeX env (alanine scan + FoldX wrapper),
+# the gmxmmpbsa env (binding-energy mmpbsa backend), Stage 14 Python
+# deps in the egg env (PRODIGY, freesasa, gemmi, Biopython), and a
+# scaffold for the FoldX binary at tools/foldx/.
 #
 # What it does:
 # 1. Auto-detects GPU vendor and architecture
@@ -13,6 +18,9 @@
 # 4. Installs Python analysis packages
 # 5. Configures environment with GPU-optimized defaults
 # 6. (Optional) Sets up MutateX with FoldX integration
+# 7. (Optional) Sets up gmx_MMPBSA env for Stage 14 binding-energy backend
+# 8. (Optional) Installs Stage 14 Python deps into the egg env
+# 9. (Optional) Scaffolds tools/foldx/ for the FoldX binary drop-zone
 #
 # Supported GPUs:
 #   NVIDIA: RTX 5050 (Blackwell), RTX 40xx (Ada), RTX 30xx (Ampere), etc.
@@ -23,6 +31,8 @@
 # - AMD:    ROCm 6.x or 7.x
 # - Conda/Mamba installed
 # - ~10GB disk space
+# - For --stage14: the egg env from setup_unified_conda_env.sh (for the
+#   PRODIGY/freesasa/Biopython additions to apply)
 #
 # Usage:
 #   ./setup_gromacs_and_mutatex.sh              # Full setup (auto-detect GPU)
@@ -33,7 +43,33 @@
 #   ./setup_gromacs_and_mutatex.sh --force-hip  # Force HIP backend
 #   ./setup_gromacs_and_mutatex.sh --standalone [prefix]  # Build without conda
 #   ./setup_gromacs_and_mutatex.sh --mutatex    # Also set up MutateX (FoldX)
-#   ./setup_gromacs_and_mutatex.sh --mutatex-only  # Only set up MutateX
+#   ./setup_gromacs_and_mutatex.sh --mutatex-only       # Only set up MutateX
+#   ./setup_gromacs_and_mutatex.sh --gmxmmpbsa          # Also set up gmx_MMPBSA env
+#   ./setup_gromacs_and_mutatex.sh --gmxmmpbsa-only     # Only set up gmx_MMPBSA env
+#   ./setup_gromacs_and_mutatex.sh --stage14            # Full Stage 14 install
+#                                                       # (GROMACS + MutaTeX +
+#                                                       #  gmxmmpbsa + egg-env
+#                                                       #  Python deps + FoldX
+#                                                       #  scaffold)
+#   ./setup_gromacs_and_mutatex.sh --stage14-only       # Same minus GROMACS build
+#                                                       # (use when MD is postponed)
+#
+# Stage 14 software map (14_Interaction_Domain_Mapping.sh + its TOML):
+#   GROMACS                  -> built here as gromacs_CUDA / gromacs_HIP env
+#                               (md_equilibration; currently POSTPONED in
+#                               14_Interaction_Domain_MappingCONFIG.toml)
+#   gmx_MMPBSA               -> gmxmmpbsa env (binding_energy mmpbsa backend;
+#                               POSTPONED with GROMACS but kept ready)
+#   MutaTeX                  -> PPI env (alanine_scan)
+#   FoldX                    -> tools/foldx/foldx_<date> binary (binding_energy
+#                               foldx backend + alanine_scan); MANUAL download
+#                               from https://foldxsuite.crg.eu/
+#   PRODIGY (prodigy-prot)   -> egg env (binding_energy prodigy backend +
+#                               interface_analysis)
+#   freesasa, gemmi, Biopython -> egg env (interface_analysis: BSA, contacts)
+#   AlphaFold3               -> external, web-only submission at
+#                               https://alphafoldserver.com/ (free non-
+#                               commercial tier; NOT installed here)
 #
 # Standalone mode (no conda required):
 #   Builds GROMACS directly to a custom prefix using system tools.
@@ -80,6 +116,18 @@ CUDA_PATH="${CUDA_HOME:-${CUDA_PATH:-}}"
 MUTATEX_ENV_NAME="PPI"              # Conda environment for MutateX
 MUTATEX_PYTHON_VERSION="3.11"       # Python version for MutateX env
 SETUP_MUTATEX=false                  # Whether to set up MutateX
+
+# gmx_MMPBSA settings (Stage 14 binding-energy mmpbsa backend)
+# Name MUST match [tools].gmx_mmpbsa_env in 14_Interaction_Domain_MappingCONFIG.toml
+GMXMMPBSA_ENV_NAME="gmxmmpbsa"
+GMXMMPBSA_PYTHON_VERSION="3.10"     # gmx_MMPBSA pins ParmEd, easier on 3.10
+SETUP_GMXMMPBSA=false                # Whether to set up gmx_MMPBSA env
+
+# Stage 14 (14_Interaction_Domain_Mapping.sh) Python deps in the egg env.
+# Name MUST match [tools].prodigy_conda_env in 14_Interaction_Domain_MappingCONFIG.toml
+STAGE14_PRODIGY_ENV="egg"
+SETUP_STAGE14=false                  # Full Stage 14 install (implies mutatex + gmxmmpbsa)
+SETUP_STAGE14_ONLY=false             # Stage 14 install minus GROMACS build
 
 # Auto-detection outputs (populated by detect_gpu):
 GPU_BACKEND=""         # "CUDA" or "HIP"
@@ -1323,6 +1371,250 @@ print('All MutateX Python packages OK')
 }
 
 #------------------------------------------------------------------------------
+# GMX_MMPBSA SETUP (Stage 14 binding-energy mmpbsa backend)
+#------------------------------------------------------------------------------
+# Stage 14 reads [tools].gmx_mmpbsa_env from the TOML and invokes gmx_MMPBSA
+# via `conda run -n <env>` inside modules/14_special_pipeline/compute_mmpbsa.sh.
+# That env is currently UNUSED while md_equilibration is postponed in the
+# config, but we install it ahead of time so re-enabling MD is a one-line TOML
+# flip rather than a tooling step.
+install_gmxmmpbsa_dependencies() {
+    log "Setting up gmx_MMPBSA environment: $GMXMMPBSA_ENV_NAME"
+
+    if conda env list | grep -q "^${GMXMMPBSA_ENV_NAME} "; then
+        log "Environment '$GMXMMPBSA_ENV_NAME' already exists."
+    else
+        log "Creating new environment: $GMXMMPBSA_ENV_NAME (python=$GMXMMPBSA_PYTHON_VERSION)"
+        conda create -n "$GMXMMPBSA_ENV_NAME" python="$GMXMMPBSA_PYTHON_VERSION" -y
+    fi
+
+    eval "$(conda shell.bash hook)"
+    conda activate "$GMXMMPBSA_ENV_NAME"
+
+    # ---- Skip if gmx_MMPBSA is already importable ----
+    if command -v gmx_MMPBSA &> /dev/null \
+       && python3 -c "import GMXMMPBSA" 2>/dev/null; then
+        log "gmx_MMPBSA already installed in $GMXMMPBSA_ENV_NAME, skipping."
+        return 0
+    fi
+
+    # gmx_MMPBSA needs AmberTools + ParmEd; conda-forge + bioconda ships the
+    # full stack as a single metapackage. Pin to >=1.6 since older releases
+    # are incompatible with AmberTools 23.
+    log "Installing gmx_MMPBSA (+ AmberTools, ParmEd, MPI4Py) via conda..."
+    $PKG_MGR install -y -c conda-forge -c bioconda \
+        "gmx_mmpbsa>=1.6" "ambertools>=23" parmed mpi4py \
+        numpy scipy pandas matplotlib h5py \
+        || log_error "gmx_MMPBSA install failed. Try: $PKG_MGR install -n $GMXMMPBSA_ENV_NAME -c conda-forge -c bioconda gmx_mmpbsa ambertools"
+
+    log "gmx_MMPBSA installed to: $(conda info --base)/envs/$GMXMMPBSA_ENV_NAME"
+}
+
+verify_gmxmmpbsa() {
+    log "Verifying gmx_MMPBSA installation..."
+
+    eval "$(conda shell.bash hook)"
+    conda activate "$GMXMMPBSA_ENV_NAME"
+
+    if ! command -v gmx_MMPBSA &> /dev/null; then
+        log_warn "gmx_MMPBSA CLI not found in $GMXMMPBSA_ENV_NAME."
+        log_warn "  Reinstall with: $PKG_MGR install -n $GMXMMPBSA_ENV_NAME -c conda-forge -c bioconda gmx_mmpbsa"
+        return 1
+    fi
+    log "gmx_MMPBSA: $(gmx_MMPBSA --version 2>&1 | head -1)"
+
+    # AmberTools sanity check (tleap is needed for parameterisation)
+    if command -v tleap &> /dev/null; then
+        log "AmberTools tleap: $(tleap -help 2>&1 | head -1 || echo 'available')"
+    else
+        log_warn "tleap not found - AmberTools may be incomplete."
+    fi
+
+    log "gmx_MMPBSA installation verified."
+
+    echo ""
+    echo "============================================================"
+    echo " gmx_MMPBSA Setup Complete!"
+    echo "============================================================"
+    echo ""
+    echo "To use gmx_MMPBSA (Stage 14 binding_energy mmpbsa backend):"
+    echo "  conda activate $GMXMMPBSA_ENV_NAME"
+    echo "  gmx_MMPBSA -O -i mmpbsa.in -cs complex.tpr -ci index.ndx ..."
+    echo ""
+    echo "Pipeline integration: 14_Interaction_Domain_MappingCONFIG.toml"
+    echo "  [tools].gmx_mmpbsa_env  = \"$GMXMMPBSA_ENV_NAME\""
+    echo "  [binding_energy].backends includes \"mmpbsa\"  (currently gated"
+    echo "                                                  off while GROMACS"
+    echo "                                                  is postponed)"
+    echo ""
+}
+
+#------------------------------------------------------------------------------
+# STAGE 14 PYTHON DEPS (egg env)
+#------------------------------------------------------------------------------
+# Stage 14 calls interface_analysis (analyze_interface.py), binding_energy
+# prodigy backend (compute_prodigy_dg.sh), and comparative_report
+# (compare_variants.py) all via `conda run -n egg python3 ...`. Those scripts
+# need PRODIGY (prodigy-prot), freesasa, gemmi (CIF parser), and Biopython.
+# The egg env itself is built by setup_unified_conda_env.sh; here we only
+# augment it with the Stage 14 additions if it already exists.
+install_stage14_python_deps() {
+    local target_env="${1:-$STAGE14_PRODIGY_ENV}"
+    log "Augmenting '$target_env' env with Stage 14 Python deps..."
+
+    if ! conda env list | grep -q "^${target_env} "; then
+        log_warn "Env '$target_env' not found. Stage 14 expects [tools].prodigy_conda_env = \"$target_env\"."
+        log_warn "  Create the egg env first: bash setup_unified_conda_env.sh"
+        log_warn "  Then re-run: bash setup_gromacs_and_mutatex.sh --stage14"
+        return 1
+    fi
+
+    eval "$(conda shell.bash hook)"
+    conda activate "$target_env"
+
+    # ---- Skip if all imports succeed ----
+    if python3 -c "import freesasa, gemmi; from Bio import PDB" 2>/dev/null \
+       && python3 -c "import prodigy_prot" 2>/dev/null; then
+        log "Stage 14 Python deps already present in '$target_env', skipping."
+        return 0
+    fi
+
+    log "Installing freesasa, gemmi, biopython via conda-forge..."
+    $PKG_MGR install -y -c conda-forge biopython freesasa gemmi \
+        || log_warn "conda install partially failed; will try pip fallback for missing packages."
+
+    # PRODIGY (prodigy-prot) is PyPI-only. Keep --quiet so the install log
+    # stays readable.
+    if ! python3 -c "import prodigy_prot" 2>/dev/null; then
+        log "Installing prodigy-prot (PyPI)..."
+        pip install --quiet "prodigy-prot>=2.1" \
+            || log_warn "prodigy-prot install failed. Install manually: pip install prodigy-prot"
+    fi
+
+    log "Stage 14 Python deps installed in '$target_env'."
+}
+
+verify_stage14_python_deps() {
+    local target_env="${1:-$STAGE14_PRODIGY_ENV}"
+    log "Verifying Stage 14 Python deps in '$target_env'..."
+
+    if ! conda env list | grep -q "^${target_env} "; then
+        log_warn "Env '$target_env' not found - skipping verification."
+        return 1
+    fi
+
+    eval "$(conda shell.bash hook)"
+    conda activate "$target_env"
+
+    python3 -c "
+import freesasa
+import gemmi
+from Bio import PDB
+import prodigy_prot
+print(f'  freesasa     {freesasa.__version__ if hasattr(freesasa, \"__version__\") else \"installed\"}')
+print(f'  gemmi        {gemmi.__version__}')
+print(f'  biopython    {PDB.__doc__.splitlines()[0] if PDB.__doc__ else \"installed\"}')
+print(f'  prodigy_prot installed')
+print('Stage 14 Python deps OK')
+" || { log_warn "Some Stage 14 Python imports failed - re-run install_stage14_python_deps."; return 1; }
+}
+
+#------------------------------------------------------------------------------
+# FOLDX SCAFFOLD (Stage 14: tools/foldx/foldx_<date>)
+#------------------------------------------------------------------------------
+# FoldX is closed-source; we can only scaffold the drop-zone and remind the
+# user. Stage 14's manual step [M4] (printed by `show_manual = true`) covers
+# the same ground; this just creates the directory so the path the TOML
+# points at actually exists.
+scaffold_foldx_dir() {
+    local foldx_dir="$SCRIPT_DIR/tools/foldx"
+    log "Scaffolding FoldX drop-zone: $foldx_dir"
+    mkdir -p "$foldx_dir"
+
+    # Skip if a foldx binary is already present
+    if ls "$foldx_dir"/foldx_* 2>/dev/null | grep -qv README; then
+        local _bin
+        _bin=$(ls "$foldx_dir"/foldx_* 2>/dev/null | grep -v README | head -1)
+        log "FoldX binary already present: $_bin"
+        [ ! -x "$_bin" ] && { log_warn "Not executable, fixing..."; chmod +x "$_bin"; }
+        return 0
+    fi
+
+    if [ ! -f "$foldx_dir/README.txt" ]; then
+        cat > "$foldx_dir/README.txt" << 'FOLDX_README'
+FoldX binary drop-zone (Stage 14)
+==================================
+
+Stage 14 (14_Interaction_Domain_Mapping.sh) uses FoldX for:
+  - binding_energy.foldx backend (compute_foldx_dg.sh)
+  - alanine_scan operation (alanine_scan.sh)
+
+FoldX is closed-source; this script cannot download it for you.
+
+Steps:
+  1. Request a free academic license at https://foldxsuite.crg.eu/
+  2. Download the Linux binary (e.g. foldx_20251231)
+  3. Place it in this directory:  tools/foldx/
+  4. chmod +x foldx_<date>
+  5. Update the TOML:
+        [tools]
+        foldx_binary = "tools/foldx/foldx_20251231"
+     in 14_Interaction_Domain_MappingCONFIG.toml
+
+Also drop rotabase.txt here if your FoldX version needs it
+(older versions did; newer 5.x packages embed it).
+FOLDX_README
+    fi
+
+    log_warn "FoldX binary not present. See $foldx_dir/README.txt for instructions."
+    log_warn "Without FoldX, Stage 14 will skip the foldx binding-energy backend AND the alanine_scan operation."
+}
+
+#------------------------------------------------------------------------------
+# STAGE 14 STATUS BANNER
+#------------------------------------------------------------------------------
+print_stage14_status() {
+    local foldx_dir="$SCRIPT_DIR/tools/foldx"
+    local foldx_bin
+    foldx_bin=$(ls "$foldx_dir"/foldx_* 2>/dev/null | grep -v README | head -1 || true)
+    local foldx_state="MISSING (manual download)"
+    [ -n "$foldx_bin" ] && [ -x "$foldx_bin" ] && foldx_state="OK ($foldx_bin)"
+
+    echo ""
+    echo "============================================================"
+    echo " Stage 14 Setup Status (14_Interaction_Domain_Mapping.sh)"
+    echo "============================================================"
+    printf "  GROMACS env (%s)    : %s\n" "$ENV_NAME" \
+        "$(conda env list | grep -q "^${ENV_NAME} " && echo "OK" || echo "NOT INSTALLED")"
+    printf "  MutaTeX env (%s)               : %s\n" "$MUTATEX_ENV_NAME" \
+        "$(conda env list | grep -q "^${MUTATEX_ENV_NAME} " && echo "OK" || echo "NOT INSTALLED")"
+    printf "  gmx_MMPBSA env (%s)     : %s\n" "$GMXMMPBSA_ENV_NAME" \
+        "$(conda env list | grep -q "^${GMXMMPBSA_ENV_NAME} " && echo "OK" || echo "NOT INSTALLED")"
+    printf "  Stage 14 Python deps in '%s' : " "$STAGE14_PRODIGY_ENV"
+    if conda env list | grep -q "^${STAGE14_PRODIGY_ENV} "; then
+        if conda run -n "$STAGE14_PRODIGY_ENV" python3 -c "import freesasa, gemmi, prodigy_prot" 2>/dev/null; then
+            echo "OK"
+        else
+            echo "PARTIAL (re-run install_stage14_python_deps)"
+        fi
+    else
+        echo "egg env not found (run setup_unified_conda_env.sh)"
+    fi
+    printf "  FoldX binary (tools/foldx/)  : %s\n" "$foldx_state"
+    echo ""
+    echo "Manual next steps (set [run].show_manual = true in the TOML for the full panel):"
+    echo "  [M3] Submit AF3 complexes at https://alphafoldserver.com/"
+    echo "  [M4] Download FoldX from https://foldxsuite.crg.eu/ -> tools/foldx/"
+    echo "  [M5] Confirm \`gmx --version\` reports 'GPU support: CUDA' (when MD is re-enabled)"
+    echo "  [M6] (optional) CHARMM-GUI membrane prep if [md_equilibration].membrane = true"
+    echo ""
+    echo "Note: 14_Interaction_Domain_MappingCONFIG.toml currently has md_equilibration"
+    echo "      commented out and the mmpbsa backend disabled. The GROMACS + gmxmmpbsa"
+    echo "      envs are installed ahead of time so re-enabling MD is a TOML flip."
+    echo ""
+}
+
+#------------------------------------------------------------------------------
 # MAIN
 #------------------------------------------------------------------------------
 
@@ -1343,9 +1635,19 @@ main() {
     while [[ $_i -lt ${#_args[@]} ]]; do
         local _arg="${_args[$_i]}"
         case "$_arg" in
-            --force-cuda)    FORCE_BACKEND="CUDA" ;;
-            --force-hip)     FORCE_BACKEND="HIP"  ;;
-            --mutatex)       SETUP_MUTATEX=true   ;;
+            --force-cuda)    FORCE_BACKEND="CUDA"   ;;
+            --force-hip)     FORCE_BACKEND="HIP"    ;;
+            --mutatex)       SETUP_MUTATEX=true     ;;
+            --gmxmmpbsa)     SETUP_GMXMMPBSA=true   ;;
+            --stage14|--stage-14)
+                # Full Stage 14 surface: implies GROMACS + MutaTeX + gmxmmpbsa
+                # + egg-env Python deps + FoldX scaffold. Re-enables MD-side
+                # envs ahead of time even though md_equilibration is currently
+                # commented out in 14_Interaction_Domain_MappingCONFIG.toml.
+                SETUP_STAGE14=true
+                SETUP_MUTATEX=true
+                SETUP_GMXMMPBSA=true
+                ;;
             --standalone)
                 STANDALONE_MODE=true
                 local _next="${_args[$((_i+1))]:-}"
@@ -1354,7 +1656,7 @@ main() {
                     _i=$(( _i + 1 ))
                 fi
                 ;;
-            --deps-only|--build-only|--verify|--mutatex-only)
+            --deps-only|--build-only|--verify|--mutatex-only|--gmxmmpbsa-only|--stage14-only|--stage-14-only)
                 action="$_arg"
                 ;;
             *)
@@ -1372,6 +1674,34 @@ main() {
         return
     fi
 
+    # Handle --gmxmmpbsa-only (standalone gmx_MMPBSA env setup, no GROMACS)
+    if [[ "${action:-}" == "--gmxmmpbsa-only" ]]; then
+        check_conda
+        install_gmxmmpbsa_dependencies
+        verify_gmxmmpbsa
+        return
+    fi
+
+    # Handle --stage14-only: install all Stage 14 tooling EXCEPT the GROMACS
+    # build. Use this when MD is postponed (md_equilibration commented out in
+    # the TOML) but you want the other envs (MutaTeX, gmxmmpbsa, PRODIGY/
+    # freesasa in egg) and the FoldX scaffold ready to go.
+    if [[ "${action:-}" == "--stage14-only" || "${action:-}" == "--stage-14-only" ]]; then
+        check_conda
+        install_mutatex_dependencies
+        verify_mutatex
+        install_gmxmmpbsa_dependencies
+        verify_gmxmmpbsa
+        install_stage14_python_deps "$STAGE14_PRODIGY_ENV" || true
+        verify_stage14_python_deps "$STAGE14_PRODIGY_ENV"  || true
+        scaffold_foldx_dir
+        # Detect GPU just for the status banner ENV_NAME; tolerate failure
+        # (no GPU is fine for the python/foldx side).
+        detect_gpu 2>/dev/null || ENV_NAME="${ENV_NAME:-(not built)}"
+        print_stage14_status
+        return
+    fi
+
     case "${action:-}" in
         --deps-only)
             detect_gpu
@@ -1383,6 +1713,13 @@ main() {
                 install_dependencies
                 if [ "$SETUP_MUTATEX" = true ]; then
                     install_mutatex_dependencies
+                fi
+                if [ "$SETUP_GMXMMPBSA" = true ]; then
+                    install_gmxmmpbsa_dependencies
+                fi
+                if [ "$SETUP_STAGE14" = true ]; then
+                    install_stage14_python_deps "$STAGE14_PRODIGY_ENV" || true
+                    scaffold_foldx_dir
                 fi
             fi
             ;;
@@ -1406,6 +1743,13 @@ main() {
             verify_installation
             if [ "$SETUP_MUTATEX" = true ]; then
                 verify_mutatex
+            fi
+            if [ "$SETUP_GMXMMPBSA" = true ]; then
+                verify_gmxmmpbsa
+            fi
+            if [ "$SETUP_STAGE14" = true ]; then
+                verify_stage14_python_deps "$STAGE14_PRODIGY_ENV" || true
+                print_stage14_status
             fi
             ;;
         *)
@@ -1432,6 +1776,16 @@ main() {
                 if [ "$SETUP_MUTATEX" = true ]; then
                     install_mutatex_dependencies
                     verify_mutatex
+                fi
+                if [ "$SETUP_GMXMMPBSA" = true ]; then
+                    install_gmxmmpbsa_dependencies
+                    verify_gmxmmpbsa
+                fi
+                if [ "$SETUP_STAGE14" = true ]; then
+                    install_stage14_python_deps "$STAGE14_PRODIGY_ENV" || true
+                    verify_stage14_python_deps "$STAGE14_PRODIGY_ENV"  || true
+                    scaffold_foldx_dir
+                    print_stage14_status
                 fi
             fi
             ;;

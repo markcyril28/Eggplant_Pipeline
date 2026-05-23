@@ -179,7 +179,7 @@ height = 10          # auto-scaled up by compare_trees.R for large tip counts
 dpi    = 600
 
 [visualization.combined_bootstrap_tree]
-width  = 15          # single-tree figure with dual-method bootstrap labels
+width  = 15          # single-tree figure with combined bootstrap labels
 height = 12          # auto-scaled up for large tip counts
 dpi    = 600
 bootstrap_label_size = 5.4

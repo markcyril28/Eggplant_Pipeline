@@ -181,7 +181,7 @@ CONDA_PACKAGES=(
     # Sequence alignment
     mafft muscle clustalo clustalw t-coffee probcons trimal
     # Phylogenetics
-    iqtree fasttree raxml-ng
+    iqtree fasttree raxml-ng modeltest-ng
     # Genomic utilities
     samtools bedtools seqtk
     # Motif analysis
@@ -355,6 +355,7 @@ declare -A TOOLS=(
     ["trimAl"]="trimal -version 2>&1 | head -1"
     ["IQ-TREE"]="iqtree --version 2>&1 | head -1"
     ["RAxML-NG"]="raxml-ng --version 2>&1 | head -1"
+    ["ModelTest-NG"]="modeltest-ng --version 2>&1 | head -1"
     ["FastTree"]="FastTree 2>&1 | head -1"
     ["SAMtools"]="samtools --version 2>&1 | head -1"
     ["BEDtools"]="bedtools --version 2>&1"
@@ -437,7 +438,7 @@ cat << 'EOF'
     trimal
 
   Phylogenetic Analysis:
-    iqtree, raxml-ng, fasttree
+    iqtree, raxml-ng, fasttree, modeltest-ng
     R: ggtree, treeio, ape, phytools, patchwork
     (MEGA-CC requires separate .deb install - see note below)
 

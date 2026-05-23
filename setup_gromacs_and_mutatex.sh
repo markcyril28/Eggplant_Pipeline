@@ -121,13 +121,13 @@ SETUP_MUTATEX=false                  # Whether to set up MutateX
 # Name MUST match [tools].gmx_mmpbsa_env in 14_Interaction_Domain_MappingCONFIG.toml
 GMXMMPBSA_ENV_NAME="gmxmmpbsa"
 GMXMMPBSA_PYTHON_VERSION="3.10"     # gmx_MMPBSA pins ParmEd, easier on 3.10
-SETUP_GMXMMPBSA=false                # Whether to set up gmx_MMPBSA env
+SETUP_GMXMMPBSA=true                # Whether to set up gmx_MMPBSA env
 
 # Stage 14 (14_Interaction_Domain_Mapping.sh) Python deps in the egg env.
 # Name MUST match [tools].prodigy_conda_env in 14_Interaction_Domain_MappingCONFIG.toml
 STAGE14_PRODIGY_ENV="egg"
 SETUP_STAGE14=false                  # Full Stage 14 install (implies mutatex + gmxmmpbsa)
-SETUP_STAGE14_ONLY=false             # Stage 14 install minus GROMACS build
+SETUP_STAGE14_ONLY=true             # Stage 14 install minus GROMACS build
 
 # Auto-detection outputs (populated by detect_gpu):
 GPU_BACKEND=""         # "CUDA" or "HIP"

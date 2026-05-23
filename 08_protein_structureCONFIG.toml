@@ -9,7 +9,7 @@
 gene_groups = [
     "DMP",
     "DMP-HAP2",
-    # "HAP2",
+    "HAP2",
     # "GRF_GIF",
     # "PLA",
 ]

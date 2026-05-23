@@ -119,7 +119,7 @@ layout               = "rectangular"  # rectangular | circular | fan | daylight 
 open_angle           = 15          # fan/equal_angle only: open gap in degrees at top of circle
 
 # --- Bootstrap ---
-show_bootstrap       = true        # show support values on internal nodes
+show_bootstrap       = true        # show support values on intenal nodes
 bootstrap_threshold  = 70          # only display values >= this (0–100)
 bootstrap_style      = "text"      # text = numeric labels (publication); dots = colored circles (large trees)
 bootstrap_label_size = 3.0         # font size for numeric labels (text mode only)

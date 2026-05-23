@@ -81,6 +81,9 @@ MOTIF_LOCATION_BG=""
 # motif location diagram are sorted top-to-bottom by the order they appear
 # in this file (typically a phylogenetically sorted alignment).
 PHYLO_ORDER_FILE=""
+# Font-scale multiplier for motif locations figure (default 1.4 boosts every
+# text element vs MEME web-default sizes for print readability).
+MOTIF_LOCATION_FONT_SCALE="1.4"
 # ===============================================================
 
 should_run() { [[ ",$STEPS," == *",$1,"* ]]; }
@@ -117,6 +120,7 @@ Options:
                         or comma-separated hex codes (default: wong)
   --motif-bg            Background for motif locations plot: dark|light or hex code (default: empty = white)
   --phylo-order-file    CLUSTAL alignment file whose sequence order defines row order (default: empty)
+  --motif-font-scale    Font-scale multiplier for motif locations figure (default 1.4)
   --overwrite       Overwrite existing outputs
   -h, --help        Show this help
 EOF
@@ -150,6 +154,7 @@ while [[ $# -gt 0 ]]; do
         --motif-palette)     MOTIF_LOCATION_PALETTE="$2"; shift 2 ;;
         --motif-bg)          MOTIF_LOCATION_BG="$2";      shift 2 ;;
         --phylo-order-file)  PHYLO_ORDER_FILE="$2";       shift 2 ;;
+        --motif-font-scale)  MOTIF_LOCATION_FONT_SCALE="$2"; shift 2 ;;
         --overwrite)      OVERWRITE=true;       shift ;;
         -h|--help)        usage ;;
         *) log_error "Unknown option: $1"; exit 1 ;;
@@ -837,6 +842,7 @@ if should_run "jpeg"; then
             --outdir   "$JPEG_DIR"
             --label    "$LABEL"
             --dpi      "$JPEG_DPI"
+            --font-scale "$MOTIF_LOCATION_FONT_SCALE"
         )
         [[ -n "$RESOLVED_MOTIF_PALETTE" ]] && _plot_cmd+=(--palette            "$RESOLVED_MOTIF_PALETTE")
         [[ -n "$RESOLVED_MOTIF_BG"      ]] && _plot_cmd+=(--bg-color           "$RESOLVED_MOTIF_BG")

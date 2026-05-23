@@ -64,7 +64,9 @@ RATES_MAP = {
 def parse_model_code(code: str):
     parts = re.split(r"\+", code.strip())
     base = parts[0]
-    suffixes = {p.strip().upper() for p in parts[1:] if p.strip()}
+    # Strip trailing digits so ModelTest-NG style "G4"/"G8" normalize to "G".
+    suffixes = {re.sub(r"\d+$", "", p.strip().upper()) for p in parts[1:] if p.strip()}
+    suffixes.discard("")
     return base, suffixes
 
 
@@ -159,19 +161,22 @@ def substitute_mao(template: Path, output: Path, model_method: str, rates: str, 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", required=True, type=Path)
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--csv", type=Path, help="MEGA-CC model-selection CSV (best model = top data row)")
+    src.add_argument("--model-code", type=str,
+                     help="Direct model code (e.g. 'JTT+I+G4+F'); bypasses CSV parsing")
     ap.add_argument("--template", required=True, type=Path)
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--threads", type=int, default=None)
     args = ap.parse_args()
 
-    if not args.csv.is_file():
+    if args.csv is not None and not args.csv.is_file():
         sys.exit(f"CSV not found: {args.csv}")
     if not args.template.is_file():
         sys.exit(f"Template .mao not found: {args.template}")
 
     alphabet = detect_alphabet(args.template)
-    code = best_model_from_csv(args.csv)
+    code = args.model_code if args.model_code else best_model_from_csv(args.csv)
     model_method, rates = map_model_to_mao_keys(code, alphabet)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     substitute_mao(args.template, args.output, model_method, rates, args.threads)

@@ -13,8 +13,14 @@ OUTPUT_DIR="."
 CONFIG_FILE=""
 MEGACC_CONFIG_NUC=""       # nucleotide-specific MEGA_CC .mao config
 MEGACC_CONFIG_AA=""        # protein-specific MEGA_CC .mao config
-MEGACC_MODELSEL_NUC=""     # nucleotide model-selection .mao (optional; enables auto model fit)
-MEGACC_MODELSEL_AA=""      # protein model-selection .mao (optional; enables auto model fit)
+MEGACC_MODELSEL_NUC=""     # nucleotide model-selection .mao (megacc backend only)
+MEGACC_MODELSEL_AA=""      # protein model-selection .mao (megacc backend only)
+MODELSEL_BACKEND=""        # "modeltest-ng" | "megacc" | "" (skip)
+MODELTEST_THREADS=""        # 0/blank = inherit $CPU
+MODELTEST_CRITERION="bic"
+MODELTEST_STARTING_TREE="ml"
+MODELTEST_TEMPLATE=""
+MODELTEST_GAMMA_CATS=""
 BOOTSTRAP=5000
 ALRT=5000
 IQTREE2_MODEL="MFP+MERGE"
@@ -49,6 +55,12 @@ while [[ $# -gt 0 ]]; do
         --megacc-config-aa)    MEGACC_CONFIG_AA="$2"; shift 2 ;;
         --megacc-modelsel-nuc) MEGACC_MODELSEL_NUC="$2"; shift 2 ;;
         --megacc-modelsel-aa)  MEGACC_MODELSEL_AA="$2"; shift 2 ;;
+        --modelsel-backend)         MODELSEL_BACKEND="$2"; shift 2 ;;
+        --modeltest-threads)        MODELTEST_THREADS="$2"; shift 2 ;;
+        --modeltest-criterion)      MODELTEST_CRITERION="$2"; shift 2 ;;
+        --modeltest-starting-tree)  MODELTEST_STARTING_TREE="$2"; shift 2 ;;
+        --modeltest-template)       MODELTEST_TEMPLATE="$2"; shift 2 ;;
+        --modeltest-gamma-categories) MODELTEST_GAMMA_CATS="$2"; shift 2 ;;
         --threads)   CPU="$2"; shift 2 ;;
         --bootstrap) BOOTSTRAP="$2"; shift 2 ;;
         --alrt)      ALRT="$2"; shift 2 ;;
@@ -239,57 +251,137 @@ case "$SOFTWARE" in
         fi
         [[ -z "$EFFECTIVE_MEGA_CONFIG" || ! -f "$EFFECTIVE_MEGA_CONFIG" ]] && { log_error "MEGA_CC requires a valid config file (alphabet: $SEQ_ALPHABET)"; exit 1; }
 
-        # Optional model-selection sub-step: run "Find Best Models" first, then
-        # template the chosen model into a derived inference .mao. Caches on
-        # the derived .mao so reruns skip the (slow) selection scan.
-        EFFECTIVE_MODELSEL_CONFIG=""
-        if [[ "$SEQ_ALPHABET" == "nucleotide" && -n "$MEGACC_MODELSEL_NUC" ]]; then
-            EFFECTIVE_MODELSEL_CONFIG="$MEGACC_MODELSEL_NUC"
-        elif [[ "$SEQ_ALPHABET" == "protein" && -n "$MEGACC_MODELSEL_AA" ]]; then
-            EFFECTIVE_MODELSEL_CONFIG="$MEGACC_MODELSEL_AA"
-        elif [[ -n "$MEGACC_MODELSEL_NUC" || -n "$MEGACC_MODELSEL_AA" ]]; then
-            log_info "MEGA_CC model selection skipped: no template configured for alphabet '$SEQ_ALPHABET'"
-        fi
-        if [[ -n "$EFFECTIVE_MODELSEL_CONFIG" && -f "$EFFECTIVE_MODELSEL_CONFIG" ]]; then
-            DERIVED_MAO="$TREE_DIR/${BASENAME}_${SEQ_ALPHABET}_modelfit.mao"
-            MODELSEL_BASE="$TREE_DIR/${BASENAME}_modelfit"
-            MODELSEL_CSV="${MODELSEL_BASE}.csv"
-            MODELSEL_LOG="${MODELSEL_BASE}.log"
-            if [[ ! -s "$DERIVED_MAO" ]]; then
-                log_step "MEGA_CC model selection: $BASENAME ($SEQ_ALPHABET)"
-                MODELSEL_SNAPSHOT="${MODELSEL_BASE}_template.mao"
-                cp -f "$EFFECTIVE_MODELSEL_CONFIG" "$MODELSEL_SNAPSHOT"
-                # Inject the orchestrator's thread budget into the snapshot so
-                # megacc respects it (the template's Number of Threads is fixed).
-                sed -i "s|^\(Number of Threads[[:space:]]*=\).*|\1 $CPU|" "$MODELSEL_SNAPSHOT"
-                rc=0
-                megacc \
-                    -d "$DEDUP_FASTA" \
-                    -a "$MODELSEL_SNAPSHOT" \
-                    -o "$MODELSEL_BASE" \
-                    > "$MODELSEL_LOG" 2>&1 || rc=$?
-                if (( rc != 0 )); then
-                    log_error "MEGA_CC model selection failed with exit code $rc (see $MODELSEL_LOG)"
-                    exit 1
-                fi
-                if [[ ! -s "$MODELSEL_CSV" ]]; then
-                    log_error "MEGA_CC model selection produced no CSV at $MODELSEL_CSV (see $MODELSEL_LOG)"
-                    exit 1
-                fi
-                if ! python3 "$SCRIPT_DIR/megacc_apply_model.py" \
-                        --csv      "$MODELSEL_CSV" \
-                        --template "$EFFECTIVE_MEGA_CONFIG" \
-                        --output   "$DERIVED_MAO" \
-                        --threads  "$CPU" 2>>"$MODELSEL_LOG"; then
-                    log_error "megacc_apply_model.py failed (see $MODELSEL_LOG)"
-                    exit 1
-                fi
-                log_info "Derived inference .mao: $DERIVED_MAO"
-            else
-                log_info "Derived .mao exists: $DERIVED_MAO (skipping model selection)"
+        # Optional model-selection sub-step: pick best-fit model first, then
+        # template it into a derived inference .mao. Caches on the derived .mao
+        # so reruns skip the (slow) selection scan.
+        #
+        # Backend dispatch:
+        #   modeltest-ng - external ModelTest-NG (default; needs modeltest-ng on PATH)
+        #   megacc       - MEGA-CC "Find Best Models" (needs --megacc-modelsel-* .mao prototypes)
+        #   (empty/none) - skip; inference template is used as-is
+        DERIVED_MAO="$TREE_DIR/${BASENAME}_${SEQ_ALPHABET}_modelfit.mao"
+        MODELSEL_BASE="$TREE_DIR/${BASENAME}_modelfit"
+        MODELSEL_LOG="${MODELSEL_BASE}.log"
+        _backend_lc=$(echo "${MODELSEL_BACKEND:-}" | tr '[:upper:]' '[:lower:]')
+
+        run_modelsel_megacc() {
+            local prototype="$1"
+            local snapshot="${MODELSEL_BASE}_template.mao"
+            local csv="${MODELSEL_BASE}.csv"
+            cp -f "$prototype" "$snapshot"
+            sed -i "s|^\(Number of Threads[[:space:]]*=\).*|\1 $CPU|" "$snapshot"
+            local rc=0
+            megacc \
+                -d "$DEDUP_FASTA" \
+                -a "$snapshot" \
+                -o "$MODELSEL_BASE" \
+                > "$MODELSEL_LOG" 2>&1 || rc=$?
+            if (( rc != 0 )); then
+                log_error "megacc model selection failed (exit $rc, see $MODELSEL_LOG)"
+                return 1
             fi
-            EFFECTIVE_MEGA_CONFIG="$DERIVED_MAO"
-        fi
+            if [[ ! -s "$csv" ]]; then
+                log_error "megacc model selection produced no CSV at $csv (see $MODELSEL_LOG)"
+                return 1
+            fi
+            python3 "$SCRIPT_DIR/megacc_apply_model.py" \
+                --csv      "$csv" \
+                --template "$EFFECTIVE_MEGA_CONFIG" \
+                --output   "$DERIVED_MAO" \
+                --threads  "$CPU" 2>>"$MODELSEL_LOG"
+        }
+
+        run_modelsel_modeltest_ng() {
+            if ! command -v modeltest-ng &> /dev/null; then
+                log_error "modeltest-ng not found on PATH (install via setup_unified_conda_env.sh, or switch modelsel_backend)"
+                return 1
+            fi
+            local dt
+            [[ "$SEQ_ALPHABET" == "nucleotide" ]] && dt="nt" || dt="aa"
+
+            # Thread budget: explicit knob overrides; 0/blank = inherit caller's $CPU.
+            local thr="${MODELTEST_THREADS:-$CPU}"
+            [[ "$thr" == "0" || -z "$thr" ]] && thr="$CPU"
+
+            local mt_args=(
+                -i "$DEDUP_FASTA"
+                -d "$dt"
+                -p "$thr"
+                -t "${MODELTEST_STARTING_TREE:-ml}"
+                -o "$MODELSEL_BASE"
+            )
+            [[ -n "$MODELTEST_TEMPLATE"   ]] && mt_args+=( -T "$MODELTEST_TEMPLATE" )
+            [[ -n "$MODELTEST_GAMMA_CATS" ]] && mt_args+=( -g "$MODELTEST_GAMMA_CATS" )
+
+            # modeltest-ng refuses to overwrite; clear stale outputs from prior runs.
+            rm -f "${MODELSEL_BASE}.out" "${MODELSEL_BASE}.log" "${MODELSEL_BASE}.ckp" \
+                  "${MODELSEL_BASE}.tree" "${MODELSEL_BASE}.topos"
+            local rc=0
+            modeltest-ng "${mt_args[@]}" > "$MODELSEL_LOG" 2>&1 || rc=$?
+            if (( rc != 0 )); then
+                log_error "modeltest-ng failed (exit $rc, see $MODELSEL_LOG)"
+                return 1
+            fi
+            # Pull the "Best model according to <CRIT>" code from the .out report.
+            local crit_upper
+            crit_upper=$(echo "${MODELTEST_CRITERION:-bic}" | tr '[:lower:]' '[:upper:]')
+            local code
+            code=$(awk -v crit="$crit_upper" '
+                $0 ~ "^Best model according to " crit "$" {found=1; next}
+                found && /^Model:/                        {print $2; exit}
+            ' "${MODELSEL_BASE}.out")
+            if [[ -z "$code" ]]; then
+                log_error "modeltest-ng: could not parse best $crit_upper model from ${MODELSEL_BASE}.out"
+                return 1
+            fi
+            log_info "ModelTest-NG best ($crit_upper): $code"
+            python3 "$SCRIPT_DIR/megacc_apply_model.py" \
+                --model-code "$code" \
+                --template   "$EFFECTIVE_MEGA_CONFIG" \
+                --output     "$DERIVED_MAO" \
+                --threads    "$CPU" 2>>"$MODELSEL_LOG"
+        }
+
+        case "$_backend_lc" in
+            modeltest-ng|modeltest_ng|modeltestng)
+                if [[ ! -s "$DERIVED_MAO" ]]; then
+                    log_step "Model selection (ModelTest-NG): $BASENAME ($SEQ_ALPHABET)"
+                    run_modelsel_modeltest_ng || exit 1
+                    log_info "Derived inference .mao: $DERIVED_MAO"
+                else
+                    log_info "Derived .mao exists: $DERIVED_MAO (skipping model selection)"
+                fi
+                EFFECTIVE_MEGA_CONFIG="$DERIVED_MAO"
+                ;;
+            megacc)
+                EFFECTIVE_MODELSEL_CONFIG=""
+                if [[ "$SEQ_ALPHABET" == "nucleotide" && -n "$MEGACC_MODELSEL_NUC" ]]; then
+                    EFFECTIVE_MODELSEL_CONFIG="$MEGACC_MODELSEL_NUC"
+                elif [[ "$SEQ_ALPHABET" == "protein" && -n "$MEGACC_MODELSEL_AA" ]]; then
+                    EFFECTIVE_MODELSEL_CONFIG="$MEGACC_MODELSEL_AA"
+                elif [[ -n "$MEGACC_MODELSEL_NUC" || -n "$MEGACC_MODELSEL_AA" ]]; then
+                    log_info "megacc model selection skipped: no template configured for alphabet '$SEQ_ALPHABET'"
+                fi
+                if [[ -n "$EFFECTIVE_MODELSEL_CONFIG" && -f "$EFFECTIVE_MODELSEL_CONFIG" ]]; then
+                    if [[ ! -s "$DERIVED_MAO" ]]; then
+                        log_step "Model selection (MEGA-CC): $BASENAME ($SEQ_ALPHABET)"
+                        run_modelsel_megacc "$EFFECTIVE_MODELSEL_CONFIG" || exit 1
+                        log_info "Derived inference .mao: $DERIVED_MAO"
+                    else
+                        log_info "Derived .mao exists: $DERIVED_MAO (skipping model selection)"
+                    fi
+                    EFFECTIVE_MEGA_CONFIG="$DERIVED_MAO"
+                fi
+                ;;
+            ""|none|skip)
+                : # skip model selection; use static inference template
+                ;;
+            *)
+                log_error "Unknown modelsel_backend: '$MODELSEL_BACKEND' (use: modeltest-ng | megacc | none)"
+                exit 1
+                ;;
+        esac
+        unset _backend_lc
 
         # Always snapshot the inference template into the output folder so the
         # run is self-documenting whether or not model selection ran.

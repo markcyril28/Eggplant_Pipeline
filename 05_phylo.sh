@@ -84,6 +84,14 @@ wait_for_slot() {
     done
 }
 
+# Resolve a [phylogenetics.megacc] key to an absolute path; empty if unset.
+# Uses the per-iteration $CONFIG_FILE captured by reference via get_toml().
+resolve_megacc_config() {
+    local val
+    val=$(get_toml phylogenetics megacc "$1" 2>/dev/null || true)
+    [[ -n "$val" ]] && echo "$PIPELINE_DIR/$val" || true
+}
+
 for GENE_GROUP in "${GENE_GROUPS[@]}"; do
 
 # Resolve config: deep-merge shared defaults + group overrides
@@ -134,12 +142,11 @@ match_input_set() {
 }
 
 BASE_DIR="$PIPELINE_DIR/$(get_toml general base_dir)"
-MEGACC_CONFIG_MAO="$PIPELINE_DIR/$(get_toml phylogenetics megacc config_file 2>/dev/null || get_toml phylogenetics config_file 2>/dev/null || echo "")"
-_megacc_nuc=$(get_toml phylogenetics megacc config_file_nucleotide 2>/dev/null || echo "")
-_megacc_aa=$(get_toml phylogenetics megacc config_file_protein 2>/dev/null || echo "")
-MEGACC_CONFIG_NUC="$( [[ -n "$_megacc_nuc" ]] && echo "$PIPELINE_DIR/$_megacc_nuc" || echo "" )"
-MEGACC_CONFIG_AA="$( [[ -n "$_megacc_aa" ]] && echo "$PIPELINE_DIR/$_megacc_aa" || echo "" )"
-unset _megacc_nuc _megacc_aa
+MEGACC_CONFIG_MAO=$(resolve_megacc_config config_file)
+MEGACC_CONFIG_NUC=$(resolve_megacc_config config_file_nucleotide)
+MEGACC_CONFIG_AA=$(resolve_megacc_config config_file_protein)
+MEGACC_MODELSEL_NUC=$(resolve_megacc_config modelsel_file_nucleotide)
+MEGACC_MODELSEL_AA=$(resolve_megacc_config modelsel_file_protein)
 
 mapfile -t _raw_software < <(get_toml phylogenetics software 2>/dev/null || true)
 PHYLO_SOFTWARE=()
@@ -340,6 +347,8 @@ for software in "${PHYLO_SOFTWARE[@]}"; do
                 config_args+=(--config "$MEGACC_CONFIG_MAO")
                 [[ -n "$MEGACC_CONFIG_NUC" ]] && extra_args+=(--megacc-config-nuc "$MEGACC_CONFIG_NUC")
                 [[ -n "$MEGACC_CONFIG_AA"  ]] && extra_args+=(--megacc-config-aa  "$MEGACC_CONFIG_AA")
+                [[ -n "$MEGACC_MODELSEL_NUC" ]] && extra_args+=(--megacc-modelsel-nuc "$MEGACC_MODELSEL_NUC")
+                [[ -n "$MEGACC_MODELSEL_AA"  ]] && extra_args+=(--megacc-modelsel-aa  "$MEGACC_MODELSEL_AA")
             fi
 
             if [[ "$software" == "IQTREE2" ]]; then

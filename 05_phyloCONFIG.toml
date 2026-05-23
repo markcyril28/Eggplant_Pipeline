@@ -65,10 +65,21 @@ software = [
 # optimal_threads  < CPU  → CPU/optimal_threads parallel jobs
 
 [phylogenetics.megacc]
+optimal_threads = 8
+
+# Inference templates, picked by alphabet detection at runtime. With model
+# selection enabled these become the templates into which the chosen model is
+# substituted; without it, they are used as-is. config_file is the generic
+# fallback used only when alphabet detection returns "unknown".
 config_file_nucleotide = "config/1_CONFIG_FILES_Phylo/infer_ML_nucleotide.mao"
 config_file_protein    = "config/1_CONFIG_FILES_Phylo/infer_ML_amino_acid.mao"
-config_file = "config/1_CONFIG_FILES_Phylo/infer_ML_amino_acid.mao"
-optimal_threads = 4
+config_file            = "config/1_CONFIG_FILES_Phylo/infer_ML_amino_acid.mao"
+
+# Optional model-selection templates. When set, build_tree.sh runs megacc
+# "Find Best Models" first, then templates the chosen model into a per-input
+# derived .mao stored next to the tree output. Leave blank to skip auto fit.
+modelsel_file_nucleotide = "config/1_CONFIG_FILES_Phylo/find_best_DNA_models.mao"
+modelsel_file_protein    = "config/1_CONFIG_FILES_Phylo/find_best_protein_models.mao"
 
 [phylogenetics.iqtree2]
 optimal_threads = 12

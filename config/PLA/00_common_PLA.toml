@@ -1,0 +1,16 @@
+# ============================================================================
+# PLA Gene Family — Group-Specific Settings
+# ============================================================================
+# Patatin-like phospholipase A (pPLA). Anchor gene for haploid induction:
+# ZmMATL / ZmPLA1 / NLD (Kelliher et al. 2017; Liu et al. 2017; Gilles et al. 2017).
+# Pfam profile is declared in 01_hmmer_identifyCONFIG.toml under
+# [identification.gene_groups.PLA].
+#
+# Only [general] is unique per gene group. Shared defaults
+# (output_dirs, reference, msa_query_selection) live in
+# config/shared/00_common.toml.
+# ============================================================================
+
+[general]
+gene_group = "PLA"
+base_dir = "III_RESULT/PLA"

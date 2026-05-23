@@ -1,0 +1,17 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: PLA — 01_Identification (HMMER)
+# ============================================================================
+# Gene-group overrides only. Shared defaults (method, db_type, targets,
+# hmmer_params, nhmmer_params, cdhit_params, cdhit_est_params) live in
+# 01_hmmer_identifyCONFIG.toml (project root) and are deep-merged.
+# HMM profile is declared in 01_hmmer_identifyCONFIG.toml under
+# [identification.gene_groups.PLA].
+#
+# Profile: Pfam PF01734 (Patatin / patatin-like phospholipase)
+# Anchor: ZmMATL/ZmPLA1/NLD — sperm-specific phospholipase A that controls
+# maternal haploid induction in maize. PF01734 carries Pfam gathering
+# thresholds (GA = 27.7), so the shared use_ga = true default applies and
+# no per-group override is needed here.
+# ============================================================================
+
+# (No overrides — group inherits all shared HMMER defaults.)

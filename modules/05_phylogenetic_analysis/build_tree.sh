@@ -13,6 +13,8 @@ OUTPUT_DIR="."
 CONFIG_FILE=""
 MEGACC_CONFIG_NUC=""       # nucleotide-specific MEGA_CC .mao config
 MEGACC_CONFIG_AA=""        # protein-specific MEGA_CC .mao config
+MEGACC_MODELSEL_NUC=""     # nucleotide model-selection .mao (optional; enables auto model fit)
+MEGACC_MODELSEL_AA=""      # protein model-selection .mao (optional; enables auto model fit)
 BOOTSTRAP=5000
 ALRT=5000
 IQTREE2_MODEL="MFP+MERGE"
@@ -45,6 +47,8 @@ while [[ $# -gt 0 ]]; do
         --config)    CONFIG_FILE="$2"; shift 2 ;;
         --megacc-config-nuc)   MEGACC_CONFIG_NUC="$2"; shift 2 ;;
         --megacc-config-aa)    MEGACC_CONFIG_AA="$2"; shift 2 ;;
+        --megacc-modelsel-nuc) MEGACC_MODELSEL_NUC="$2"; shift 2 ;;
+        --megacc-modelsel-aa)  MEGACC_MODELSEL_AA="$2"; shift 2 ;;
         --threads)   CPU="$2"; shift 2 ;;
         --bootstrap) BOOTSTRAP="$2"; shift 2 ;;
         --alrt)      ALRT="$2"; shift 2 ;;
@@ -91,10 +95,17 @@ case "$SOFTWARE" in
         fi
         ;;
     MEGA_CC)
-        if [[ -z "$CONFIG_FILE" ]] || [[ ! -f "$CONFIG_FILE" ]]; then
-            log_error "MEGA_CC requires a valid config file"
+        # Need at least one valid .mao path; alphabet selection in the body picks
+        # the right one. CONFIG_FILE is just the alphabet-unknown fallback.
+        _have_megacc_config=0
+        for _f in "$CONFIG_FILE" "$MEGACC_CONFIG_NUC" "$MEGACC_CONFIG_AA"; do
+            [[ -n "$_f" && -f "$_f" ]] && { _have_megacc_config=1; break; }
+        done
+        if (( _have_megacc_config == 0 )); then
+            log_error "MEGA_CC requires at least one valid .mao (--config / --megacc-config-nuc / --megacc-config-aa)"
             exit 1
         fi
+        unset _have_megacc_config _f
         ;;
 esac
 
@@ -153,7 +164,8 @@ detect_sequence_alphabet() {
 
 # Deduplicate sequence names that collide after phylo tools sanitize headers
 # (spaces -> _, brackets [] -> _). Appends _dup2, _dup3, etc. to collisions.
-DEDUP_FASTA=$(mktemp "${TREE_DIR}/${BASENAME}_dedup_XXXXXX.fas")
+# Kept in TMPDIR so it doesn't pollute the per-software output folder.
+DEDUP_FASTA=$(mktemp "${TMPDIR:-/tmp}/${BASENAME}_dedup_XXXXXX.fas")
 awk '
 /^>/ {
     name = substr($0, 2)
@@ -189,7 +201,7 @@ normalize_sequence_chars() {
     local fasta="$1"
     local alphabet="$2"
     local tmp
-    tmp=$(mktemp "${TREE_DIR}/${BASENAME}_norm_XXXXXX.fas")
+    tmp=$(mktemp "${TMPDIR:-/tmp}/${BASENAME}_norm_XXXXXX.fas")
 
     awk -v mode="$alphabet" '
     /^>/ { print; next }
@@ -226,25 +238,90 @@ case "$SOFTWARE" in
             log_info "MEGA_CC: $SEQ_ALPHABET input → $(basename "$EFFECTIVE_MEGA_CONFIG") (fallback)"
         fi
         [[ -z "$EFFECTIVE_MEGA_CONFIG" || ! -f "$EFFECTIVE_MEGA_CONFIG" ]] && { log_error "MEGA_CC requires a valid config file (alphabet: $SEQ_ALPHABET)"; exit 1; }
+
+        # Optional model-selection sub-step: run "Find Best Models" first, then
+        # template the chosen model into a derived inference .mao. Caches on
+        # the derived .mao so reruns skip the (slow) selection scan.
+        EFFECTIVE_MODELSEL_CONFIG=""
+        if [[ "$SEQ_ALPHABET" == "nucleotide" && -n "$MEGACC_MODELSEL_NUC" ]]; then
+            EFFECTIVE_MODELSEL_CONFIG="$MEGACC_MODELSEL_NUC"
+        elif [[ "$SEQ_ALPHABET" == "protein" && -n "$MEGACC_MODELSEL_AA" ]]; then
+            EFFECTIVE_MODELSEL_CONFIG="$MEGACC_MODELSEL_AA"
+        elif [[ -n "$MEGACC_MODELSEL_NUC" || -n "$MEGACC_MODELSEL_AA" ]]; then
+            log_info "MEGA_CC model selection skipped: no template configured for alphabet '$SEQ_ALPHABET'"
+        fi
+        if [[ -n "$EFFECTIVE_MODELSEL_CONFIG" && -f "$EFFECTIVE_MODELSEL_CONFIG" ]]; then
+            DERIVED_MAO="$TREE_DIR/${BASENAME}_${SEQ_ALPHABET}_modelfit.mao"
+            MODELSEL_BASE="$TREE_DIR/${BASENAME}_modelfit"
+            MODELSEL_CSV="${MODELSEL_BASE}.csv"
+            MODELSEL_LOG="${MODELSEL_BASE}.log"
+            if [[ ! -s "$DERIVED_MAO" ]]; then
+                log_step "MEGA_CC model selection: $BASENAME ($SEQ_ALPHABET)"
+                MODELSEL_SNAPSHOT="${MODELSEL_BASE}_template.mao"
+                cp -f "$EFFECTIVE_MODELSEL_CONFIG" "$MODELSEL_SNAPSHOT"
+                # Inject the orchestrator's thread budget into the snapshot so
+                # megacc respects it (the template's Number of Threads is fixed).
+                sed -i "s|^\(Number of Threads[[:space:]]*=\).*|\1 $CPU|" "$MODELSEL_SNAPSHOT"
+                rc=0
+                megacc \
+                    -d "$DEDUP_FASTA" \
+                    -a "$MODELSEL_SNAPSHOT" \
+                    -o "$MODELSEL_BASE" \
+                    > "$MODELSEL_LOG" 2>&1 || rc=$?
+                if (( rc != 0 )); then
+                    log_error "MEGA_CC model selection failed with exit code $rc (see $MODELSEL_LOG)"
+                    exit 1
+                fi
+                if [[ ! -s "$MODELSEL_CSV" ]]; then
+                    log_error "MEGA_CC model selection produced no CSV at $MODELSEL_CSV (see $MODELSEL_LOG)"
+                    exit 1
+                fi
+                if ! python3 "$SCRIPT_DIR/megacc_apply_model.py" \
+                        --csv      "$MODELSEL_CSV" \
+                        --template "$EFFECTIVE_MEGA_CONFIG" \
+                        --output   "$DERIVED_MAO" \
+                        --threads  "$CPU" 2>>"$MODELSEL_LOG"; then
+                    log_error "megacc_apply_model.py failed (see $MODELSEL_LOG)"
+                    exit 1
+                fi
+                log_info "Derived inference .mao: $DERIVED_MAO"
+            else
+                log_info "Derived .mao exists: $DERIVED_MAO (skipping model selection)"
+            fi
+            EFFECTIVE_MEGA_CONFIG="$DERIVED_MAO"
+        fi
+
+        # Always snapshot the inference template into the output folder so the
+        # run is self-documenting whether or not model selection ran.
+        cp -f "$EFFECTIVE_MEGA_CONFIG" "$TREE_DIR/${BASENAME}_${SEQ_ALPHABET}_inference_template.mao" 2>/dev/null || true
+
         CONFIG_BASE=$(basename "$EFFECTIVE_MEGA_CONFIG" .mao)
-        # megacc -o is a BASE PREFIX, not a filename. It writes <base>.nwk
-        # (ML best tree) and, with bootstrap, <base>_consensus.nwk plus a
-        # <base>_summary.txt. Passing a path ending in .nwk produced
-        # <base>.nwk.nwk and broke the rerun guard.
-        OUTPUT_BASE="$TREE_DIR/${BASENAME}_${CONFIG_BASE}"
+        # megacc -o is a base prefix, not a filename; appending .nwk to the prefix
+        # would yield <base>.nwk.nwk. DERIVED_MAO already encodes BASENAME, so reuse it.
+        if [[ -n "${DERIVED_MAO:-}" && "$EFFECTIVE_MEGA_CONFIG" == "$DERIVED_MAO" ]]; then
+            OUTPUT_BASE="${DERIVED_MAO%.mao}"
+        else
+            OUTPUT_BASE="$TREE_DIR/${BASENAME}_${CONFIG_BASE}"
+        fi
         OUTPUT_FILE="${OUTPUT_BASE}.nwk"
         MEGA_LOG="$TREE_DIR/${BASENAME}_MEGA.log"
 
+        # Cache hit on either the ML best tree or the bootstrap consensus tree.
+        EXISTING_TREE=""
         if [[ -s "$OUTPUT_FILE" ]]; then
-            log_info "Tree exists: $OUTPUT_FILE (skipped)"
-            echo "$OUTPUT_FILE"
+            EXISTING_TREE="$OUTPUT_FILE"
+        elif [[ -s "${OUTPUT_BASE}_consensus.nwk" ]]; then
+            EXISTING_TREE="${OUTPUT_BASE}_consensus.nwk"
+        fi
+        if [[ -n "$EXISTING_TREE" ]]; then
+            log_info "Tree exists: $EXISTING_TREE (skipped)"
+            echo "$EXISTING_TREE"
             exit 0
         fi
 
         log_step "MEGA_CC: $BASENAME"
         rc=0
-        # megacc has no --cpu flag; thread count is read from the .mao file
-        # ("Number of Threads = N"). Passing --cpu aborts with "unrecognized option".
+        # No --cpu flag: megacc reads thread count from the .mao "Number of Threads" line.
         megacc \
             -d "$DEDUP_FASTA" \
             -a "$EFFECTIVE_MEGA_CONFIG" \

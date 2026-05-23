@@ -1331,8 +1331,13 @@ print('All Python packages OK')
 install_mutatex_dependencies() {
     log "Setting up MutateX environment: $MUTATEX_ENV_NAME"
 
+    # ---- Fast path: skip entirely if env exists and mutatex is importable ----
     if conda env list | grep -q "^${MUTATEX_ENV_NAME} "; then
-        log "Environment '$MUTATEX_ENV_NAME' already exists."
+        if conda run -n "$MUTATEX_ENV_NAME" bash -c 'command -v mutatex >/dev/null && python3 -c "import numpy, scipy, pandas, Bio"' 2>/dev/null; then
+            log "MutateX and dependencies already installed in '$MUTATEX_ENV_NAME', skipping."
+            return 0
+        fi
+        log "Environment '$MUTATEX_ENV_NAME' exists but mutatex missing/broken; will complete install."
     else
         log "Creating new environment: $MUTATEX_ENV_NAME"
         conda create -n "$MUTATEX_ENV_NAME" python="$MUTATEX_PYTHON_VERSION" -y
@@ -1340,12 +1345,6 @@ install_mutatex_dependencies() {
 
     eval "$(conda shell.bash hook)"
     safe_conda_activate "$MUTATEX_ENV_NAME"
-
-    # ---- Skip if MutateX + key packages are already present ----
-    if command -v mutatex &> /dev/null && python3 -c "import numpy, scipy, pandas, Bio" 2>/dev/null; then
-        log "MutateX and dependencies already installed, skipping."
-        return 0
-    fi
 
     # ---- All conda packages in one solver pass ----
     log "Installing conda dependencies..."
@@ -1427,31 +1426,43 @@ print('All MutateX Python packages OK')
 install_gmxmmpbsa_dependencies() {
     log "Setting up gmx_MMPBSA environment: $GMXMMPBSA_ENV_NAME"
 
+    # ---- Fast path: skip entirely if env exists and gmx_MMPBSA is importable ----
     if conda env list | grep -q "^${GMXMMPBSA_ENV_NAME} "; then
-        log "Environment '$GMXMMPBSA_ENV_NAME' already exists."
-    else
-        log "Creating new environment: $GMXMMPBSA_ENV_NAME (python=$GMXMMPBSA_PYTHON_VERSION)"
-        conda create -n "$GMXMMPBSA_ENV_NAME" python="$GMXMMPBSA_PYTHON_VERSION" -y
+        local _gmx_bin
+        _gmx_bin="$(conda info --base)/envs/${GMXMMPBSA_ENV_NAME}/bin/gmx_MMPBSA"
+        if [ -x "$_gmx_bin" ] && \
+           conda run -n "$GMXMMPBSA_ENV_NAME" python3 -c "import GMXMMPBSA" 2>/dev/null; then
+            log "gmx_MMPBSA already installed in '$GMXMMPBSA_ENV_NAME', skipping."
+            return 0
+        fi
+        log "Environment '$GMXMMPBSA_ENV_NAME' exists but gmx_MMPBSA missing/broken; removing and recreating."
+        conda env remove -n "$GMXMMPBSA_ENV_NAME" -y 2>/dev/null || true
     fi
 
-    eval "$(conda shell.bash hook)"
-    safe_conda_activate "$GMXMMPBSA_ENV_NAME"
-
-    # ---- Skip if gmx_MMPBSA is already importable ----
-    if command -v gmx_MMPBSA &> /dev/null \
-       && python3 -c "import GMXMMPBSA" 2>/dev/null; then
-        log "gmx_MMPBSA already installed in $GMXMMPBSA_ENV_NAME, skipping."
-        return 0
+    # gmx_mmpbsa pins pandas=1.2.2 which requires python<3.10.  Creating the
+    # env with python=3.10 first, then installing gmx_mmpbsa, results in an
+    # unsolvable conflict (the python=3.10 pin file blocks the downgrade).
+    # Solution: create the env *with* gmx_mmpbsa in a single solver pass and
+    # let conda pick a compatible python (typically 3.9).
+    log "Creating env '$GMXMMPBSA_ENV_NAME' with gmx_MMPBSA + AmberTools (single solver pass)..."
+    log "  NOTE: solving ambertools+gmx_mmpbsa typically takes 2-10 minutes; libmamba is silent during solve."
+    # --override-channels avoids pulling defaults/anaconda.com (the commercial
+    # warnings above) and speeds up the solve.  -v gives the user feedback that
+    # the solver is actually running.
+    if ! $PKG_MGR create -n "$GMXMMPBSA_ENV_NAME" -y -v \
+            --override-channels -c conda-forge -c bioconda \
+            --channel-priority flexible \
+            "gmx_mmpbsa>=1.6" "ambertools>=23" parmed mpi4py \
+            numpy scipy pandas matplotlib h5py 2>&1; then
+        log_warn "Combined create+install failed. Trying minimal spec set..."
+        # Fallback: minimal spec without secondary packages that may conflict.
+        conda env remove -n "$GMXMMPBSA_ENV_NAME" -y 2>/dev/null || true
+        $PKG_MGR create -n "$GMXMMPBSA_ENV_NAME" -y -v \
+            --override-channels -c conda-forge -c bioconda \
+            --channel-priority flexible \
+            "gmx_mmpbsa" "ambertools" \
+            || log_error "gmx_MMPBSA install failed. Manual: $PKG_MGR create -n $GMXMMPBSA_ENV_NAME --override-channels -c conda-forge -c bioconda gmx_mmpbsa ambertools"
     fi
-
-    # gmx_MMPBSA needs AmberTools + ParmEd; conda-forge + bioconda ships the
-    # full stack as a single metapackage. Pin to >=1.6 since older releases
-    # are incompatible with AmberTools 23.
-    log "Installing gmx_MMPBSA (+ AmberTools, ParmEd, MPI4Py) via conda..."
-    $PKG_MGR install -y -c conda-forge -c bioconda \
-        "gmx_mmpbsa>=1.6" "ambertools>=23" parmed mpi4py \
-        numpy scipy pandas matplotlib h5py \
-        || log_error "gmx_MMPBSA install failed. Try: $PKG_MGR install -n $GMXMMPBSA_ENV_NAME -c conda-forge -c bioconda gmx_mmpbsa ambertools"
 
     log "gmx_MMPBSA installed to: $(conda info --base)/envs/$GMXMMPBSA_ENV_NAME"
 }
@@ -1515,15 +1526,14 @@ install_stage14_python_deps() {
         return 1
     fi
 
-    eval "$(conda shell.bash hook)"
-    safe_conda_activate "$target_env"
-
-    # ---- Skip if all imports succeed ----
-    if python3 -c "import freesasa, gemmi; from Bio import PDB" 2>/dev/null \
-       && python3 -c "import prodigy_prot" 2>/dev/null; then
+    # ---- Fast path: skip entirely if all imports succeed (no env activation needed) ----
+    if conda run -n "$target_env" python3 -c "import freesasa, gemmi, prodigy_prot; from Bio import PDB" 2>/dev/null; then
         log "Stage 14 Python deps already present in '$target_env', skipping."
         return 0
     fi
+
+    eval "$(conda shell.bash hook)"
+    safe_conda_activate "$target_env"
 
     log "Installing freesasa, gemmi, biopython via conda-forge..."
     $PKG_MGR install -y -c conda-forge biopython freesasa gemmi \

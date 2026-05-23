@@ -144,6 +144,22 @@ for pattern in "${TREE_PATTERNS[@]}"; do
     done < <(find "$TREE_DIR" -type f -name "$pattern" ! -name "*_rooted*" 2>/dev/null | sort)
 done
 
+# Filter MEGA_CC side files: when both <base>.nwk and <base>_consensus.nwk exist
+# in the same MEGA_CC folder, drop the consensus variant to avoid double-render.
+FILTERED_FILES=()
+for f in "${TREE_FILES[@]:-}"; do
+    [[ -z "$f" ]] && continue
+    if [[ "$f" == *_consensus.nwk ]]; then
+        sibling="${f%_consensus.nwk}.nwk"
+        if [[ -s "$sibling" ]]; then
+            log_info "Skipping consensus variant: $(basename "$f") (using $(basename "$sibling"))"
+            continue
+        fi
+    fi
+    FILTERED_FILES+=("$f")
+done
+TREE_FILES=("${FILTERED_FILES[@]:-}")
+
 if (( ${#TREE_FILES[@]} == 0 )); then
     log_warn "No tree files found in $TREE_DIR"
     exit 0

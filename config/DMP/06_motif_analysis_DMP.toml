@@ -45,7 +45,7 @@ fasta_files = [
     "III_RESULT/DMP/04_MSA/GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_nucleotide/MAFFT_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_NUCLEOTIDE_Sequence.fas",
 ]
 # phylo_order_files: omitted — the orchestrator auto-discovers a CLUSTAL
-# alignment under III_RESULT/<GROUP>/{09_Secondary_Structure_Analysis,
+# alignment under III_RESULT/<GROUP>/{10_Secondary_Structure_Analysis,
 # 05_Phylogenetics,04_MSA} whose stem matches the input FASTA (with alphabet
 # tokens stripped, so AA + NT share the AA-tree topology).
 # Provide phylo_order_files = [...] here only to override the auto-discovery.

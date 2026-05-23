@@ -17,7 +17,7 @@ gene_groups = [
     #"DMP-HAP2",
 ]
 
-machine   = "HPC"  # "Local" or "HPC" — selects compute profile below
+machine   = "Local"  # "Local" or "HPC" — selects compute profile below
 overwrite = true
 operations = [
     "build_tree",          # Already built from the HPC.
@@ -30,15 +30,15 @@ operations = [
 # an entry from input_files is kept only if it contains one of these tokens as a
 # path component. Empty array = no filtering (run every uncommented input_file).
 # Available tokens (see config/{GROUP}/05_phylogenetic_analysis_{GROUP}.toml):
-#   "All_Result"                     — per-genome and combined-with-query-species sets
-#   "v1_Full"                        — Selected Crop Species (full)
-#   "v2_Reduced"                     — reduced curated set
-#   "v3_Full_and_HI_DMPs"            — Selected Crop Species + verified HI panel (deduped)
-#   "v4_BLAST_Groups_bitscore200"    — union of 7 SmelDMP BLAST groups (Bit Score >= 200)
+#   "All_Result"                     - per-genome and combined-with-query-species sets
+#   "v1_Full"                        - Selected Crop Species (full)
+#   "v2_Reduced"                     - reduced curated set
+#   "v3_Full_and_HI_DMPs"            - Selected Crop Species + verified HI panel (deduped)
+#   "v4_BLAST_Groups_bitscore200"    - union of 7 SmelDMP BLAST groups (bit score >= 200)
 input_sets = [
     #"v1_Full",
     #"v2_Reduced",
-    #"v3_Full_and_HI_DMPs",
+    "v3_Full_and_HI_DMPs",
     "v4_BLAST_Groups_bitscore200",
 ]
 

@@ -24,6 +24,24 @@ gene_groups  = [
 machine      = "Local"   # "Local" or "HPC" — selects compute profile below
 overwrite    = true
 
+# Curated input sets to run. Filters [alignment].active_input_sets by the
+# output_subdir token each set resolves to (see resolve_output_subdir in
+# 04_msa_alignment.sh). An active set is kept only if its resolved subdir
+# contains one of these tokens as a path component. Empty array = no
+# filtering (run every entry in active_input_sets).
+# Available tokens:
+#   "All_Result"                     - per-genome and combined-with-query-species sets
+#   "v1_Full"                        - Selected Crop Species (full)
+#   "v2_Reduced"                     - reduced curated set
+#   "v3_Full_and_HI_DMPs"            - Selected Crop Species + verified HI panel (deduped)
+#   "v4_BLAST_Groups_bitscore200"    - per-paralog BLAST groups (bit score >= 200)
+input_sets = [
+    #"v1_Full",
+    #"v2_Reduced",
+    "v3_Full_and_HI_DMPs",
+    "v4_BLAST_Groups_bitscore200",
+]
+
 [pipeline.compute.Local]
 threads      = 12        # Total CPU threads available
 max_parallel = 12        # Ceiling for concurrent alignment jobs (auto-scaled per method via optimal_threads)

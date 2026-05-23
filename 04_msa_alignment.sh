@@ -177,6 +177,48 @@ if [[ ${#ACTIVE_SETS[@]} -eq 0 ]]; then
     teardown_logging
     continue
 fi
+
+# Curated input-set filter (see [pipeline].input_sets in 04_msa_alignmentCONFIG.toml).
+# Empty array = no filtering. When non-empty, an entry from active_input_sets is
+# kept only if one of the tokens appears as a path component of its resolved
+# output_subdir (e.g. "v4_BLAST_Groups_bitscore200" matches
+# "Selected_Result/v4_BLAST_Groups_bitscore200").
+mapfile -t INPUT_SETS < <(get_toml pipeline input_sets 2>/dev/null || true)
+_filtered_sets=()
+for _s in "${INPUT_SETS[@]:-}"; do
+    [[ -n "$_s" ]] && _filtered_sets+=("$_s")
+done
+INPUT_SETS=("${_filtered_sets[@]:-}")
+unset _filtered_sets _s
+
+if (( ${#INPUT_SETS[@]} > 0 )); then
+    _kept=()
+    _dropped=0
+    for _set in "${ACTIVE_SETS[@]}"; do
+        _subdir="$(resolve_output_subdir "$_set")"
+        _match=""
+        for _token in "${INPUT_SETS[@]}"; do
+            if [[ "/$_subdir/" == */"$_token"/* ]]; then
+                _match="$_token"; break
+            fi
+        done
+        if [[ -n "$_match" ]]; then
+            _kept+=("$_set")
+        else
+            _dropped=$(( _dropped + 1 ))
+        fi
+    done
+    ACTIVE_SETS=("${_kept[@]:-}")
+    if (( _dropped > 0 )); then
+        log_info "input_sets filter: dropped $_dropped active_input_sets entries not in {${INPUT_SETS[*]}}"
+    fi
+    unset _kept _dropped _set _subdir _match _token
+    if [[ ${#ACTIVE_SETS[@]} -eq 0 || ( ${#ACTIVE_SETS[@]} -eq 1 && -z "${ACTIVE_SETS[0]}" ) ]]; then
+        log_error "input_sets filter removed every active set — nothing to align"
+        teardown_logging
+        continue
+    fi
+fi
 log_info "Active input sets: ${#ACTIVE_SETS[@]}"
 
 # --- Handle OVERWRITE: clean only the active sets' previous outputs --------

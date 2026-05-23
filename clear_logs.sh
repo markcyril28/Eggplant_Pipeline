@@ -16,9 +16,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOGS_DIR="$SCRIPT_DIR/logs"
 KEEP_DIR="z_logs_prompt"
 
-MODE="all"
-DRY_RUN=false
-ASSUME_YES=false
+# --- User-configurable defaults (edit here to change behavior without flags) ---
+MODE="all"       # "all" = clear everything except z_logs_prompt/
+                 # "errors" = remove only error-run files (same as --errors-only)
+DRY_RUN=false    # true = print what would be deleted, no changes (same as -n)
+ASSUME_YES=false # true = skip confirmation prompt (same as -y)
 
 usage() {
     sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'

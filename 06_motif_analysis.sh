@@ -84,7 +84,7 @@ MEME_STAGE_DIR="04_MEME_Analysis"
 # ---------------------------------------------------------------------------
 # Auto-discover phylo-ordered alignment file for the motif locations diagram.
 # Search convention (first hit wins):
-#   1. III_RESULT/<GROUP>/09_Secondary_Structure_Analysis/**/*<base>*phylo_ordered*.aln
+#   1. III_RESULT/<GROUP>/10_Secondary_Structure_Analysis/**/*<base>*phylo_ordered*.aln
 #   2. III_RESULT/<GROUP>/05_Phylogenetics/**/*<base>*phylo_ordered*.aln
 #   3. III_RESULT/<GROUP>/04_MSA/**/*<base>*AMINO_ACID*.aln          (alignment order fallback)
 # <base> is the FASTA stem with alphabet tokens stripped, so AA + NT inputs
@@ -106,7 +106,7 @@ auto_find_phylo_order() {
     base="${base%_protein}"
 
     local -a search_dirs=(
-        "$PIPELINE_DIR/III_RESULT/$group/09_Secondary_Structure_Analysis"
+        "$PIPELINE_DIR/III_RESULT/$group/10_Secondary_Structure_Analysis"
         "$PIPELINE_DIR/III_RESULT/$group/05_Phylogenetics"
     )
     local dir match

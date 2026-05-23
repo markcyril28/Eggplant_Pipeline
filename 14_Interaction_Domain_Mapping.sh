@@ -46,7 +46,8 @@
 #
 # Operations (gated via [domain_mapping].operations in the TOML):
 #   prepare_variants    - build truncated HAP2 FASTAs from variant table
-#   predict_complexes   - AlphaFold3 multimer prediction (USER ACTION required;
+#   prepare_complexes   - AlphaFold3 multimer prediction slot prep + drop-zone
+#                         verification (USER ACTION required for backend=manual;
 #                         set [run].show_manual = true in the TOML to print
 #                         the submission checklist)
 #   interface_analysis  - residue contacts, BSA, ipTM, PRODIGY DG_pred
@@ -56,18 +57,28 @@
 #   comparative_report  - cross-variant heatmap, ranking, summary TSV / PDF
 #
 # Output layout under III_RESULT/{GROUP}/14_Domain_Mapping/:
-#   01_Variants/HAP2/                       (truncated HAP2 FASTAs)
-#   01_Variants/DMP/                        (truncated DMP FASTAs)
-#   02_Complexes/{stoich}/{pair}/           (AF3 .cif / ranking_debug.json)
-#   03_Interfaces/{stoich}/{pair}/          (interface .tsv, BSA, contacts)
-#   04_MD/{stoich}/{pair}/                  (GROMACS .gro/.xtc/.edr)
-#   05_BindingEnergy/{stoich}/{pair}/       (MM-PBSA, FoldX dG)
-#   06_AlanineScan/                         (per-residue DDG; WT/WT pair only)
-#   07_Summary/                             (cross-pair ranking, figures)
+#   stoichiometry_comparison/   (Experiment 1: WT x WT at 1:1, 2:1, 3:1)
+#     01_Variants/HAP2/                       (WT HAP2 FASTA)
+#     01_Variants/DMP/                        (WT DMP FASTA)
+#     02_Complexes/{stoich}/{pair}/           (AF3 .cif / ranking_debug.json)
+#     03_Interfaces/{stoich}/{pair}/          (interface .tsv, BSA, contacts)
+#     04_MD/{stoich}/{pair}/                  (GROMACS .gro/.xtc/.edr)
+#     05_BindingEnergy/{stoich}/{pair}/       (MM-PBSA, FoldX dG)
+#     07_Summary/                             (ranked_stoichiometry.tsv + figure)
+#   deletion_ladder/            (Experiment 2: HAP2 ladder x DMP ladder at basis stoich)
+#     01_Variants/HAP2/                       (truncated HAP2 FASTAs)
+#     01_Variants/DMP/                        (truncated DMP FASTAs)
+#     02_Complexes/{stoich}/{pair}/           (AF3 .cif / ranking_debug.json)
+#     03_Interfaces/{stoich}/{pair}/          (interface .tsv, BSA, contacts)
+#     04_MD/{stoich}/{pair}/                  (GROMACS .gro/.xtc/.edr)
+#     05_BindingEnergy/{stoich}/{pair}/       (MM-PBSA, FoldX dG)
+#     06_AlanineScan/                         (per-residue DDG; WT/WT pair only)
+#     07_Summary/                             (cross-pair ranking, figures)
 #
 # {pair} = "{hap2_variant_name}__{dmp_variant_name}", e.g. "WT__WT",
-# "delC_596_705__WT", "WT__delN_1_64". Built from [variants] x [dmp_variants]
+# "delC_596_705__WT", "WT__delN_1_64". Built from [hap2_variants] x [dmp_variants]
 # according to [pairing].mode (see TOML).
+# Active experiments are gated by `active_comparison = [...]` in the TOML.
 #
 # References:
 #   Tooling DOIs are listed at the bottom of 14_Interaction_Domain_MappingCONFIG.toml.
@@ -172,7 +183,7 @@ USER ACTION REQUIRED - steps only you can do
            preserving the AF3 default filenames (fold_*_model_0.cif,
            ranking_scores.json, summary_confidences_*.json).
        If you have a commercial AF3 license you can swap this for a local
-       run by pointing [predict_complexes].backend = "local" and providing
+       run by pointing [prepare_complexes].backend = "local" and providing
        the AF3 binary path - but the default backend is "manual".
 
   [M4] Install FoldX (free academic license).
@@ -373,16 +384,7 @@ OVERWRITE=$(get_toml pipeline overwrite 2>/dev/null || echo "false")
 
 BASE_DIR="$PIPELINE_DIR/$(get_toml general base_dir 2>/dev/null || echo "III_RESULT/${GENE_GROUP}")"
 OUT_DIR="$BASE_DIR/14_Domain_Mapping"
-VARIANTS_DIR="$OUT_DIR/01_Variants"
-HAP2_VARIANTS_DIR="$VARIANTS_DIR/HAP2"
-DMP_VARIANTS_DIR="$VARIANTS_DIR/DMP"
-COMPLEX_DIR="$OUT_DIR/02_Complexes"
-IFACE_DIR="$OUT_DIR/03_Interfaces"
-MD_DIR="$OUT_DIR/04_MD"
-DG_DIR="$OUT_DIR/05_BindingEnergy"
-ASCAN_DIR="$OUT_DIR/06_AlanineScan"
-REPORT_DIR="$OUT_DIR/07_Summary"
-mkdir -p "$HAP2_VARIANTS_DIR" "$DMP_VARIANTS_DIR" "$COMPLEX_DIR" "$IFACE_DIR" "$MD_DIR" "$DG_DIR" "$ASCAN_DIR" "$REPORT_DIR"
+mkdir -p "$OUT_DIR"
 
 setup_logging
 
@@ -393,9 +395,14 @@ if [[ "$ENABLED" != "true" && "$ENABLED" != "True" ]]; then
     continue
 fi
 
-mapfile -t OPERATIONS < <(get_toml domain_mapping operations 2>/dev/null \
-    || printf '%s\n' prepare_variants predict_complexes interface_analysis \
-                     md_equilibration binding_energy alanine_scan comparative_report)
+# active_comparison gates which experiments run (subset of: stoichiometry_comparison | deletion_ladder).
+# Each experiment gets its own output subtree under $OUT_DIR/$EXPERIMENT/ and its own operations
+# list under [domain_mapping.operations].$EXPERIMENT.
+mapfile -t ACTIVE_COMPARISON < <(get_toml_shared active_comparison 2>/dev/null)
+if [[ ${#ACTIVE_COMPARISON[@]} -eq 0 ]]; then
+    log_warn "active_comparison is empty in 14_Interaction_Domain_MappingCONFIG.toml; defaulting to both experiments."
+    ACTIVE_COMPARISON=(stoichiometry_comparison deletion_ladder)
+fi
 
 # Inputs
 HAP2_FASTA=$(get_toml inputs hap2_fasta 2>/dev/null)
@@ -510,49 +517,50 @@ else
     fi
 fi
 
-# Build pairs from HAP2 ladder x DMP ladder per [pairing].mode
-# Parallel arrays:
+# build_pairs builds PAIR_HAP2/PAIR_DMP/PAIR_LABEL from the active HAP2 +
+# DMP variant lists (EXP_HAP2_NAMES / EXP_DMP_NAMES) according to mode.
+# Called per-experiment so the pair list reflects the active ladder.
 #   PAIR_HAP2[k]  = HAP2 variant name at pair index k
 #   PAIR_DMP[k]   = DMP variant name at pair index k
 #   PAIR_LABEL[k] = "{hap2}__{dmp}" composite label used in all output paths
 PAIRING_MODE=$(get_toml pairing mode 2>/dev/null || echo "orthogonal")
-PAIR_HAP2=()
-PAIR_DMP=()
-PAIR_LABEL=()
 build_pairs() {
     local mode="$1"
     local i j h d
+    PAIR_HAP2=()
+    PAIR_DMP=()
+    PAIR_LABEL=()
     case "$mode" in
         orthogonal)
             # HAP2 ladder x WT DMP (DMP index 0 must be the WT row)
-            for i in "${!VARIANT_NAMES[@]}"; do
-                PAIR_HAP2+=("${VARIANT_NAMES[$i]}")
-                PAIR_DMP+=("${DMP_VARIANT_NAMES[0]}")
-                PAIR_LABEL+=("${VARIANT_NAMES[$i]}__${DMP_VARIANT_NAMES[0]}")
+            for i in "${!EXP_HAP2_NAMES[@]}"; do
+                PAIR_HAP2+=("${EXP_HAP2_NAMES[$i]}")
+                PAIR_DMP+=("${EXP_DMP_NAMES[0]}")
+                PAIR_LABEL+=("${EXP_HAP2_NAMES[$i]}__${EXP_DMP_NAMES[0]}")
             done
             # WT HAP2 x DMP ladder (skip j=0 to avoid duplicating WT__WT)
-            for j in "${!DMP_VARIANT_NAMES[@]}"; do
+            for j in "${!EXP_DMP_NAMES[@]}"; do
                 (( j == 0 )) && continue
-                PAIR_HAP2+=("${VARIANT_NAMES[0]}")
-                PAIR_DMP+=("${DMP_VARIANT_NAMES[$j]}")
-                PAIR_LABEL+=("${VARIANT_NAMES[0]}__${DMP_VARIANT_NAMES[$j]}")
+                PAIR_HAP2+=("${EXP_HAP2_NAMES[0]}")
+                PAIR_DMP+=("${EXP_DMP_NAMES[$j]}")
+                PAIR_LABEL+=("${EXP_HAP2_NAMES[0]}__${EXP_DMP_NAMES[$j]}")
             done
             ;;
         matrix)
-            for i in "${!VARIANT_NAMES[@]}"; do
-                for j in "${!DMP_VARIANT_NAMES[@]}"; do
-                    PAIR_HAP2+=("${VARIANT_NAMES[$i]}")
-                    PAIR_DMP+=("${DMP_VARIANT_NAMES[$j]}")
-                    PAIR_LABEL+=("${VARIANT_NAMES[$i]}__${DMP_VARIANT_NAMES[$j]}")
+            for i in "${!EXP_HAP2_NAMES[@]}"; do
+                for j in "${!EXP_DMP_NAMES[@]}"; do
+                    PAIR_HAP2+=("${EXP_HAP2_NAMES[$i]}")
+                    PAIR_DMP+=("${EXP_DMP_NAMES[$j]}")
+                    PAIR_LABEL+=("${EXP_HAP2_NAMES[$i]}__${EXP_DMP_NAMES[$j]}")
                 done
             done
             ;;
         pairwise)
-            local nh=${#VARIANT_NAMES[@]} nd=${#DMP_VARIANT_NAMES[@]} n
+            local nh=${#EXP_HAP2_NAMES[@]} nd=${#EXP_DMP_NAMES[@]} n
             (( nh > nd )) && n=$nh || n=$nd
             for ((i=0; i<n; i++)); do
-                (( i < nh )) && h="${VARIANT_NAMES[$i]}"      || h="${VARIANT_NAMES[0]}"
-                (( i < nd )) && d="${DMP_VARIANT_NAMES[$i]}" || d="${DMP_VARIANT_NAMES[0]}"
+                (( i < nh )) && h="${EXP_HAP2_NAMES[$i]}"      || h="${EXP_HAP2_NAMES[0]}"
+                (( i < nd )) && d="${EXP_DMP_NAMES[$i]}" || d="${EXP_DMP_NAMES[0]}"
                 PAIR_HAP2+=("$h")
                 PAIR_DMP+=("$d")
                 PAIR_LABEL+=("${h}__${d}")
@@ -564,7 +572,6 @@ build_pairs() {
             ;;
     esac
 }
-build_pairs "$PAIRING_MODE" || { teardown_logging; continue; }
 
 # A pair passes the user filter iff its HAP2 side passes only_variants AND
 # its DMP side passes only_dmp_variants.
@@ -573,14 +580,8 @@ pair_enabled() {
     variant_enabled "$hap2" && dmp_variant_enabled "$dmp"
 }
 
-# Stoichiometry (HAP2 copy counts to predict)
-mapfile -t STOICH_LABELS < <(get_toml stoichiometry labels 2>/dev/null \
-    || printf '%s\n' monomeric dimeric trimeric)
-mapfile -t STOICH_COUNTS < <(get_toml stoichiometry chain_counts 2>/dev/null \
-    || printf '%s\n' 1 2 3)
-
 # Tooling
-PREDICT_BACKEND=$(get_toml predict_complexes backend 2>/dev/null || echo "manual")
+PREPARE_BACKEND=$(get_toml prepare_complexes backend 2>/dev/null || echo "manual")
 MD_BACKEND=$(get_toml md_equilibration backend 2>/dev/null || echo "gromacs")
 DG_BACKENDS=$(get_toml binding_energy backends 2>/dev/null || echo "mmpbsa foldx prodigy")
 FOLDX_BIN=$(get_toml tools foldx_binary 2>/dev/null || echo "")
@@ -593,7 +594,7 @@ PRODIGY_ENV=$(get_toml tools prodigy_conda_env 2>/dev/null || echo "egg")
 # env (correct for static-binary tools like FoldX). See [conda_envs] in
 # 14_Interaction_Domain_MappingCONFIG.toml for the per-op mapping.
 ENV_PREPARE=$(env_for prepare_variants)
-ENV_PREDICT=$(env_for predict_complexes)
+ENV_PREPARE_COMPLEXES=$(env_for prepare_complexes)
 ENV_IFACE=$(env_for interface_analysis)
 ENV_MD=$(env_for md_equilibration)
 ENV_MMPBSA=$(env_for mmpbsa)
@@ -602,17 +603,12 @@ ENV_PRODIGY_DG=$(env_for prodigy_dg)
 ENV_ASCAN=$(env_for alanine_scan)
 ENV_REPORT=$(env_for comparative_report)
 
-log_step "Stage 14 (Domain Mapping): $GENE_GROUP"
-log_info "Operations:    ${OPERATIONS[*]}"
-log_info "HAP2 variants: ${VARIANT_NAMES[*]}"
-log_info "DMP variants:  ${DMP_VARIANT_NAMES[*]}"
-log_info "Pairing mode:  $PAIRING_MODE  (=> ${#PAIR_LABEL[@]} pairs per stoichiometry)"
-log_info "Stoichiometry: ${STOICH_LABELS[*]} (${STOICH_COUNTS[*]} HAP2 copies)"
-log_info "Predict backend: $PREDICT_BACKEND   MD backend: $MD_BACKEND"
+log_step "Stage 14 (Domain Mapping): $GENE_GROUP  (active: ${ACTIVE_COMPARISON[*]})"
+log_info "Complex prep backend: $PREPARE_BACKEND   MD backend: $MD_BACKEND"
 log_info "Compute: host=${HOST_CPU}c  CPU=$CPU  MAX_PARALLEL=$MAX_PARALLEL"
 log_info "Conda envs (per op):"
 log_info "  prepare_variants   = '${ENV_PREPARE}'"
-log_info "  predict_complexes  = '${ENV_PREDICT}'   (used only when backend=local)"
+log_info "  prepare_complexes  = '${ENV_PREPARE_COMPLEXES}'   (used only when backend=local)"
 log_info "  interface_analysis = '${ENV_IFACE}'"
 log_info "  md_equilibration   = '${ENV_MD}'"
 log_info "  mmpbsa             = '${ENV_MMPBSA}'"
@@ -620,27 +616,143 @@ log_info "  foldx_dg           = '${ENV_FOLDX}'   (empty = static binary, no env
 log_info "  prodigy_dg         = '${ENV_PRODIGY_DG}'"
 log_info "  alanine_scan       = '${ENV_ASCAN}'"
 log_info "  comparative_report = '${ENV_REPORT}'"
-log_info "Output:        $OUT_DIR"
+log_info "Output root:   $OUT_DIR"
+
+# ============================================================================
+# Per-experiment execution loop
+# ============================================================================
+# Two experiments share the same per-group setup but write into separate
+# output subtrees with their own pair/stoichiometry config and their own
+# operations list. See [domain_mapping.operations] in the TOML.
+for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
+    case "$EXPERIMENT" in
+        stoichiometry_comparison|deletion_ladder) ;;
+        *)
+            log_warn "Unknown experiment '$EXPERIMENT' in active_comparison; skipping."
+            continue
+            ;;
+    esac
+
+    # Per-experiment output dirs (the two top-level folders the user expects)
+    EXP_OUT_DIR="$OUT_DIR/$EXPERIMENT"
+    HAP2_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/HAP2"
+    DMP_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/DMP"
+    COMPLEX_DIR="$EXP_OUT_DIR/02_Complexes"
+    IFACE_DIR="$EXP_OUT_DIR/03_Interfaces"
+    MD_DIR="$EXP_OUT_DIR/04_MD"
+    DG_DIR="$EXP_OUT_DIR/05_BindingEnergy"
+    ASCAN_DIR="$EXP_OUT_DIR/06_AlanineScan"
+    REPORT_DIR="$EXP_OUT_DIR/07_Summary"
+    mkdir -p "$HAP2_VARIANTS_DIR" "$DMP_VARIANTS_DIR" \
+             "$COMPLEX_DIR" "$IFACE_DIR" "$MD_DIR" "$DG_DIR" \
+             "$ASCAN_DIR" "$REPORT_DIR"
+
+    # Per-experiment operations list. The TOML structure is
+    # [domain_mapping.operations].<experiment> = [ ... ], so we query that
+    # nested array directly. Empty / missing list => no ops run.
+    mapfile -t OPERATIONS < <(get_toml domain_mapping operations "$EXPERIMENT" 2>/dev/null)
+    if [[ ${#OPERATIONS[@]} -eq 0 ]]; then
+        log_warn "  [$EXPERIMENT] no operations declared under [domain_mapping.operations].$EXPERIMENT; skipping."
+        continue
+    fi
+
+    # Per-experiment variant + pair + stoichiometry tables.
+    # - stoichiometry_comparison: a single HAP2/DMP pair (default WT/WT) at
+    #   3 stoichiometries (1, 2, 3 HAP2 copies per [stoichiometry_comparison]).
+    # - deletion_ladder: full HAP2 x DMP variant matrix combined per
+    #   [pairing].mode, evaluated at a SINGLE stoichiometry = [stoichiometry].basis.
+    EXP_HAP2_NAMES=()
+    EXP_HAP2_DESCS=()
+    EXP_HAP2_DELETIONS=()
+    EXP_DMP_NAMES=()
+    EXP_DMP_DESCS=()
+    EXP_DMP_DELETIONS=()
+    PAIR_HAP2=()
+    PAIR_DMP=()
+    PAIR_LABEL=()
+    STOICH_LABELS=()
+    STOICH_COUNTS=()
+
+    if [[ "$EXPERIMENT" == "stoichiometry_comparison" ]]; then
+        SC_HAP2=$(get_toml stoichiometry_comparison hap2_variant 2>/dev/null || echo "WT")
+        SC_DMP=$(get_toml stoichiometry_comparison dmp_variant 2>/dev/null || echo "WT")
+        # Resolve the named HAP2 + DMP variants against the full ladders so
+        # we inherit description + deletion range.
+        for i in "${!VARIANT_NAMES[@]}"; do
+            if [[ "${VARIANT_NAMES[$i]}" == "$SC_HAP2" ]]; then
+                EXP_HAP2_NAMES+=("${VARIANT_NAMES[$i]}")
+                EXP_HAP2_DESCS+=("${VARIANT_DESCRIPTIONS[$i]}")
+                EXP_HAP2_DELETIONS+=("${VARIANT_DELETIONS[$i]}")
+                break
+            fi
+        done
+        for j in "${!DMP_VARIANT_NAMES[@]}"; do
+            if [[ "${DMP_VARIANT_NAMES[$j]}" == "$SC_DMP" ]]; then
+                EXP_DMP_NAMES+=("${DMP_VARIANT_NAMES[$j]}")
+                EXP_DMP_DESCS+=("${DMP_VARIANT_DESCRIPTIONS[$j]}")
+                EXP_DMP_DELETIONS+=("${DMP_VARIANT_DELETIONS[$j]}")
+                break
+            fi
+        done
+        if [[ ${#EXP_HAP2_NAMES[@]} -eq 0 ]]; then
+            log_error "  [stoichiometry_comparison].hap2_variant='$SC_HAP2' not found in [hap2_variants].rows; skipping experiment."
+            continue
+        fi
+        if [[ ${#EXP_DMP_NAMES[@]} -eq 0 ]]; then
+            log_error "  [stoichiometry_comparison].dmp_variant='$SC_DMP' not found in [dmp_variants].rows; skipping experiment."
+            continue
+        fi
+        PAIR_HAP2=("$SC_HAP2")
+        PAIR_DMP=("$SC_DMP")
+        PAIR_LABEL=("${SC_HAP2}__${SC_DMP}")
+        mapfile -t STOICH_LABELS < <(get_toml stoichiometry_comparison labels 2>/dev/null \
+            || printf '%s\n' monomeric dimeric postfusion_like)
+        mapfile -t STOICH_COUNTS < <(get_toml stoichiometry_comparison chain_counts 2>/dev/null \
+            || printf '%s\n' 1 2 3)
+    else
+        # deletion_ladder uses the full HAP2 + DMP ladders
+        EXP_HAP2_NAMES=("${VARIANT_NAMES[@]}")
+        EXP_HAP2_DESCS=("${VARIANT_DESCRIPTIONS[@]}")
+        EXP_HAP2_DELETIONS=("${VARIANT_DELETIONS[@]}")
+        EXP_DMP_NAMES=("${DMP_VARIANT_NAMES[@]}")
+        EXP_DMP_DESCS=("${DMP_VARIANT_DESCRIPTIONS[@]}")
+        EXP_DMP_DELETIONS=("${DMP_VARIANT_DELETIONS[@]}")
+        if ! build_pairs "$PAIRING_MODE"; then
+            log_error "  [deletion_ladder] build_pairs failed for mode='$PAIRING_MODE'; skipping experiment."
+            continue
+        fi
+        BASIS=$(get_toml stoichiometry basis 2>/dev/null || echo "monomeric")
+        BASIS_COPIES=$(get_toml stoichiometry hap2_copies 2>/dev/null || echo "1")
+        STOICH_LABELS=("$BASIS")
+        STOICH_COUNTS=("$BASIS_COPIES")
+    fi
+
+    log_step "  Experiment '$EXPERIMENT' -> $EXP_OUT_DIR"
+    log_info "    Operations:    ${OPERATIONS[*]}"
+    log_info "    HAP2 variants: ${EXP_HAP2_NAMES[*]}"
+    log_info "    DMP variants:  ${EXP_DMP_NAMES[*]}"
+    log_info "    Pairs (${#PAIR_LABEL[@]}): ${PAIR_LABEL[*]}"
+    log_info "    Stoichiometry: ${STOICH_LABELS[*]} (${STOICH_COUNTS[*]} HAP2 copies)"
 
 # ============================================================================
 # Operation 1: Build truncated HAP2 and DMP FASTAs
 # ============================================================================
 if op_enabled "prepare_variants"; then
-    log_step "Op 1/7: prepare_variants  (HAP2 + DMP ladders)"
+    log_step "  Op 1/7: prepare_variants  (HAP2 + DMP ladders)"
     GEN_SCRIPT="$MODULES/14_special_pipeline/generate_variants.py"
 
-    log_info "  HAP2 ladder -> $HAP2_VARIANTS_DIR"
-    for i in "${!VARIANT_NAMES[@]}"; do
-        VNAME="${VARIANT_NAMES[$i]}"
+    log_info "    HAP2 ladder -> $HAP2_VARIANTS_DIR"
+    for i in "${!EXP_HAP2_NAMES[@]}"; do
+        VNAME="${EXP_HAP2_NAMES[$i]}"
         variant_enabled "$VNAME" || continue
-        VDESC="${VARIANT_DESCRIPTIONS[$i]:-no description}"
-        VDEL="${VARIANT_DELETIONS[$i]:-}"   # empty = WT
+        VDESC="${EXP_HAP2_DESCS[$i]:-no description}"
+        VDEL="${EXP_HAP2_DELETIONS[$i]:-}"   # empty = WT
         OUT_FA="$HAP2_VARIANTS_DIR/${VNAME}.fasta"
         if [[ -f "$OUT_FA" && "$OVERWRITE" != "true" ]]; then
-            log_info "    [$VNAME] exists, skip (OVERWRITE=false)"
+            log_info "      [$VNAME] exists, skip (OVERWRITE=false)"
             continue
         fi
-        log_info "    [$VNAME] $VDESC  (delete='$VDEL')"
+        log_info "      [$VNAME] $VDESC  (delete='$VDEL')"
         conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
             --input "$HAP2_FASTA" \
             --name "$VNAME" \
@@ -649,18 +761,18 @@ if op_enabled "prepare_variants"; then
             --output "$OUT_FA"
     done
 
-    log_info "  DMP ladder  -> $DMP_VARIANTS_DIR"
-    for j in "${!DMP_VARIANT_NAMES[@]}"; do
-        DNAME="${DMP_VARIANT_NAMES[$j]}"
+    log_info "    DMP ladder  -> $DMP_VARIANTS_DIR"
+    for j in "${!EXP_DMP_NAMES[@]}"; do
+        DNAME="${EXP_DMP_NAMES[$j]}"
         dmp_variant_enabled "$DNAME" || continue
-        DDESC="${DMP_VARIANT_DESCRIPTIONS[$j]:-no description}"
-        DDEL="${DMP_VARIANT_DELETIONS[$j]:-}"
+        DDESC="${EXP_DMP_DESCS[$j]:-no description}"
+        DDEL="${EXP_DMP_DELETIONS[$j]:-}"
         OUT_FA="$DMP_VARIANTS_DIR/${DNAME}.fasta"
         if [[ -f "$OUT_FA" && "$OVERWRITE" != "true" ]]; then
-            log_info "    [$DNAME] exists, skip (OVERWRITE=false)"
+            log_info "      [$DNAME] exists, skip (OVERWRITE=false)"
             continue
         fi
-        log_info "    [$DNAME] $DDESC  (delete='$DDEL')"
+        log_info "      [$DNAME] $DDESC  (delete='$DDEL')"
         conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
             --input "$DMP_FASTA" \
             --name "$DNAME" \
@@ -680,8 +792,8 @@ fi
 # Iterates over the HAP2 x DMP pair matrix built earlier (PAIR_HAP2/PAIR_DMP/
 # PAIR_LABEL). Each (pair, stoich) cell becomes one AF3 job and one output
 # directory tagged with the composite "{hap2}__{dmp}" pair label.
-if op_enabled "predict_complexes"; then
-    log_step "Op 2/7: predict_complexes  (backend=$PREDICT_BACKEND, ${#PAIR_LABEL[@]} pairs)"
+if op_enabled "prepare_complexes"; then
+    log_step "  Op 2/7: prepare_complexes  (backend=$PREPARE_BACKEND, ${#PAIR_LABEL[@]} pairs)"
     MANIFEST="$COMPLEX_DIR/_submission_manifest.tsv"
     DROP_README="$COMPLEX_DIR/_HOW_TO_DROP_AF3_DOWNLOADS.txt"
     : > "$MANIFEST"
@@ -705,7 +817,7 @@ if op_enabled "predict_complexes"; then
                 "$PLAB" "$H" "$D" "$SLAB" "$NHAP" "$H_FASTA" "$D_FASTA" "$EXPECT_CIF" >> "$MANIFEST"
 
             # Per-slot drop-zone sentinel. Always rewritten (cheap); edits to
-            # the variant table propagate on the next predict_complexes run.
+            # the variant table propagate on the next prepare_complexes run.
             cat > "$JOB_DIR/_SUBMIT.txt" <<EOF
 AlphaFold3 submission slot
   pair          : $PLAB
@@ -726,7 +838,7 @@ After the job finishes:
 Re-run "bash 14_Interaction_Domain_Mapping.sh" once the drop is in place.
 EOF
 
-            if [[ "$PREDICT_BACKEND" == "manual" ]]; then
+            if [[ "$PREPARE_BACKEND" == "manual" ]]; then
                 if [[ ! -s "$EXPECT_CIF" ]]; then
                     log_warn "  [MISSING] $PLAB / $SLAB ($NHAP HAP2[$H] + 1 DMP[$D]) - upload to https://alphafoldserver.com/ and save to $JOB_DIR/"
                     MISSING=$((MISSING+1))
@@ -736,7 +848,7 @@ EOF
             else
                 # Local AF3 wrapper (commercial licence required)
                 PRED_WRAP="$MODULES/14_special_pipeline/predict_af3_local.sh"
-                conda_run_in "$ENV_PREDICT" bash "$PRED_WRAP" \
+                conda_run_in "$ENV_PREPARE_COMPLEXES" bash "$PRED_WRAP" \
                     --hap2-fasta "$H_FASTA" \
                     --hap2-copies "$NHAP" \
                     --dmp-fasta "$D_FASTA" \
@@ -776,7 +888,7 @@ jobs/day; multimer supported). For each pair-and-stoichiometry slot:
      up on the next run.
 EOF
 
-    if [[ "$PREDICT_BACKEND" == "manual" && "$MISSING" -gt 0 ]]; then
+    if [[ "$PREPARE_BACKEND" == "manual" && "$MISSING" -gt 0 ]]; then
         log_warn "$MISSING AF3 prediction(s) still need to be uploaded by hand."
         log_warn "Manifest:      $MANIFEST"
         log_warn "Drop-zone doc: $DROP_README"
@@ -948,12 +1060,12 @@ fi
 # DMP-HAP2 binding measurement; the 2:1 and 3:1 stoichiometries are reported
 # alongside but never override the primary case. See NOTES.md Section 7.
 if op_enabled "comparative_report"; then
-    log_step "Op 7/7: comparative_report"
+    log_step "  Op 7/7: comparative_report"
     REPORT_WRAP="$MODULES/14_special_pipeline/compare_variants.py"
-    PRIMARY_STOICH=$(get_toml stoichiometry primary_stoichiometry 2>/dev/null || echo "monomeric")
+    PRIMARY_STOICH=$(get_toml stoichiometry basis 2>/dev/null || echo "monomeric")
     conda_run_in "$ENV_REPORT" python3 "$REPORT_WRAP" \
-        --hap2-variants "${VARIANT_NAMES[*]}" \
-        --dmp-variants "${DMP_VARIANT_NAMES[*]}" \
+        --hap2-variants "${EXP_HAP2_NAMES[*]}" \
+        --dmp-variants "${EXP_DMP_NAMES[*]}" \
         --pair-labels "${PAIR_LABEL[*]}" \
         --pair-hap2 "${PAIR_HAP2[*]}" \
         --pair-dmp "${PAIR_DMP[*]}" \
@@ -963,10 +1075,15 @@ if op_enabled "comparative_report"; then
         --iface-dir "$IFACE_DIR" \
         --dg-dir "$DG_DIR" \
         --ascan-dir "$ASCAN_DIR" \
-        --output "$REPORT_DIR"
+        --output "$REPORT_DIR" \
+        --experiment "$EXPERIMENT"
 fi
 
-log_info "Stage 14 finished for $GENE_GROUP. Summary at $REPORT_DIR/"
+log_info "  Experiment '$EXPERIMENT' finished. Summary at $REPORT_DIR/"
+
+done  # EXPERIMENT loop (active_comparison)
+
+log_info "Stage 14 finished for $GENE_GROUP. Outputs under $OUT_DIR/"
 teardown_logging
 
 done  # GENE_GROUP loop

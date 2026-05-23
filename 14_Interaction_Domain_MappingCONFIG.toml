@@ -107,7 +107,7 @@ enabled = true
 [domain_mapping.operations]
 stoichiometry_comparison = [
     "prepare_variants",          # Build WT FASTA + 3 per-stoichiometry complex FASTAs (1:1, 2:1, 3:1)
-    #"predict_complexes",         # Submit/run AF3 per stoichiometry; collect rank-1 model + ipTM/pTM
+    #"prepare_complexes",         # Submit/run AF3 per stoichiometry; collect rank-1 model + ipTM/pTM
     #"interface_analysis",        # freesasa BSA, heavy-atom contacts, per-chain SASA
     ##"md_equilibration",         # POSTPONED - GROMACS short MD
     #"binding_energy",            # FoldX + PRODIGY DG (mmpbsa gated off with GROMACS)
@@ -116,7 +116,7 @@ stoichiometry_comparison = [
 
 deletion_ladder = [
     "prepare_variants",          # Build HAP2 + DMP truncation FASTAs and per-pair complex FASTAs
-    #"predict_complexes",         # Submit/run AF3 per pair; collect rank-1 model + ipTM/pTM
+    #"prepare_complexes",         # Submit/run AF3 per pair; collect rank-1 model + ipTM/pTM
     #"interface_analysis",        # freesasa BSA, heavy-atom contacts, per-chain SASA
     ##"md_equilibration",         # POSTPONED - GROMACS short MD
     #"binding_energy",            # FoldX + PRODIGY DG (mmpbsa gated off with GROMACS)
@@ -164,15 +164,20 @@ delTMD      = "561-582"
 delJuxtaMem = "583-595"
 delEctoAndC = "25-530,596-705"
 
-# SmelHAP2 (804 aa) - remap pending via MAFFT --add ([M2]).
+# SmelHAP2 (804 aa) - remapped from AtHAP2 via MAFFT L-INS-i pairwise alignment of
+# II_INPUTS/HAP2/AtHAP2_At4g11720.fasta + II_INPUTS/HAP2/SmelHAP2.fasta.
+# Conservative mapping: deletion endpoints pulled inward to the nearest SmelHAP2
+# residue (never extended into a SmelHAP2 insert/gap relative to AtHAP2).
+# All boundary residues are conserved across the pair (I/I, P/P, N/N, W/W, L/L, E/E).
+# Recompute via modules/14_special_pipeline/remap_hap2_coords.py if either FASTA changes.
 [hap2_variants.coords.sm]
-delC        = "TBD"
-delEcto     = "TBD"
-delEctoD2   = "TBD"
-delFL       = "TBD"
-delTMD      = "TBD"
-delJuxtaMem = "TBD"
-delEctoAndC = "TBD"
+delC        = "655-804"          # <- AtHAP2 596-705
+delEcto     = "22-589"           # <- AtHAP2 25-530  (includes SmelHAP2-specific ectodomain insert)
+delEctoD2   = "186-325"          # <- AtHAP2 189-330
+delFL       = "231-247"          # <- AtHAP2 234-250 (Class II cd-loop)
+delTMD      = "620-641"          # <- AtHAP2 561-582
+delJuxtaMem = "642-654"          # <- AtHAP2 583-595
+delEctoAndC = "22-589,655-804"   # <- AtHAP2 25-530,596-705
 
 [dmp_variants]
 coords_column = "sm"   # "at" = AtDMP8 (243 aa) | "sm" = SmelDMPv5_10.610 (222 aa)
@@ -222,7 +227,7 @@ delTM4     = "200-220"
 # ("HAP2_{variant}_chain{X}" / "DMP_{variant}_chain{X}"); copies set by [stoichiometry] (Exp 2) or [stoichiometry_comparison].chain_counts (Exp 1). Layout:
 #   stoichiometry_comparison/<label>/WT__WT.fasta
 #   deletion_ladder/<pair_label>/<pair_label>.fasta
-[predict_complexes]
+[prepare_complexes]
 backend          = "manual"   # "manual" (default) writes _submission_manifest.tsv + _SUBMIT.txt sentinels for https://alphafoldserver.com/ | "local" uses [tools].af3_binary
 af3_seeds        = 5          # ignored in manual mode
 emit_pair_fastas = true       # write pair complex FASTAs ready to paste into the AF3 server
@@ -301,12 +306,12 @@ scatter_dg_axis       = "foldx_dg"
 [tools]
 gromacs_binary = "gmx"   # "gmx_mpi" on HPC
 foldx_binary   = ""      # set after [M4]; e.g. "tools/foldx/foldx_20251231"
-af3_binary     = ""      # only when [predict_complexes].backend = "local"
+af3_binary     = ""      # only when [prepare_complexes].backend = "local"
 
 # Orchestrator wraps each op with `conda run -n <env>`. Empty = use launch env.
 [conda_envs]
 prepare_variants   = "egg"
-predict_complexes  = "alphafold3"   # only when [predict_complexes].backend = "local"
+prepare_complexes  = "alphafold3"   # only when [prepare_complexes].backend = "local"
 interface_analysis = "prodigy"      # freesasa + Biopython + PRODIGY
 md_equilibration   = "gromacs"
 mmpbsa             = "gmxmmpbsa"

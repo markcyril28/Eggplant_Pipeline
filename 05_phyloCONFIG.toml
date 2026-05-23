@@ -53,9 +53,9 @@ max_parallel = 2   # Max concurrent phylo software programs
 [phylogenetics]
 # Supported values: megacc, iqtree2, raxml
 software = [
-    #"megacc",
-    "iqtree2", 
-    "raxml"
+    "megacc",
+    #"iqtree2", 
+    #"raxml"
 ]
 
 #input_pattern = "*.fas"

@@ -181,6 +181,33 @@ log_error() {
     exit 1
 }
 
+# Conda's activation scripts (notably binutils-feedstock's
+# activate-binutils_linux-64.sh) reference variables like $ADDR2LINE / $AR / $AS
+# that are unset on a fresh shell. With `set -u` (from `set -euo pipefail` at
+# script top) those bare references become fatal:
+#     activate-binutils_linux-64.sh: line 68: ADDR2LINE: unbound variable
+# Wrap every `conda activate` (and `conda deactivate`) through this helper so
+# nounset is relaxed only for the duration of the activation, then restored.
+safe_conda_activate() {
+    local _had_u=0
+    [[ $- == *u* ]] && _had_u=1
+    set +u
+    conda activate "$@"
+    local _rc=$?
+    (( _had_u )) && set -u
+    return $_rc
+}
+
+safe_conda_deactivate() {
+    local _had_u=0
+    [[ $- == *u* ]] && _had_u=1
+    set +u
+    conda deactivate
+    local _rc=$?
+    (( _had_u )) && set -u
+    return $_rc
+}
+
 #------------------------------------------------------------------------------
 # GPU AUTO-DETECTION
 #------------------------------------------------------------------------------
@@ -498,7 +525,7 @@ install_dependencies() {
     fi
 
     eval "$(conda shell.bash hook)"
-    conda activate "$ENV_NAME"
+    safe_conda_activate "$ENV_NAME"
 
     # ---- Skip conda packages if key indicators are already present ----
     local _need_conda=false
@@ -884,7 +911,7 @@ build_gromacs() {
         mkdir -p "$prefix"
     else
         eval "$(conda shell.bash hook)"
-        conda activate "$ENV_NAME"
+        safe_conda_activate "$ENV_NAME"
         prefix=$(conda info --base)/envs/$ENV_NAME
     fi
 
@@ -957,7 +984,7 @@ configure_environment() {
     fi
 
     eval "$(conda shell.bash hook)"
-    conda activate "$ENV_NAME"
+    safe_conda_activate "$ENV_NAME"
 
     CONDA_PREFIX=$(conda info --base)/envs/$ENV_NAME
 
@@ -1201,7 +1228,7 @@ verify_installation() {
     log "Verifying installation..."
 
     eval "$(conda shell.bash hook)"
-    conda activate "$ENV_NAME"
+    safe_conda_activate "$ENV_NAME"
 
     CONDA_PREFIX=$(conda info --base)/envs/$ENV_NAME
 
@@ -1293,7 +1320,7 @@ install_mutatex_dependencies() {
     fi
 
     eval "$(conda shell.bash hook)"
-    conda activate "$MUTATEX_ENV_NAME"
+    safe_conda_activate "$MUTATEX_ENV_NAME"
 
     # ---- Skip if MutateX + key packages are already present ----
     if command -v mutatex &> /dev/null && python3 -c "import numpy, scipy, pandas, Bio" 2>/dev/null; then
@@ -1317,7 +1344,7 @@ verify_mutatex() {
     log "Verifying MutateX installation..."
 
     eval "$(conda shell.bash hook)"
-    conda activate "$MUTATEX_ENV_NAME"
+    safe_conda_activate "$MUTATEX_ENV_NAME"
 
     # Check mutatex command
     if ! command -v mutatex &> /dev/null; then
@@ -1389,7 +1416,7 @@ install_gmxmmpbsa_dependencies() {
     fi
 
     eval "$(conda shell.bash hook)"
-    conda activate "$GMXMMPBSA_ENV_NAME"
+    safe_conda_activate "$GMXMMPBSA_ENV_NAME"
 
     # ---- Skip if gmx_MMPBSA is already importable ----
     if command -v gmx_MMPBSA &> /dev/null \
@@ -1414,7 +1441,7 @@ verify_gmxmmpbsa() {
     log "Verifying gmx_MMPBSA installation..."
 
     eval "$(conda shell.bash hook)"
-    conda activate "$GMXMMPBSA_ENV_NAME"
+    safe_conda_activate "$GMXMMPBSA_ENV_NAME"
 
     if ! command -v gmx_MMPBSA &> /dev/null; then
         log_warn "gmx_MMPBSA CLI not found in $GMXMMPBSA_ENV_NAME."
@@ -1470,7 +1497,7 @@ install_stage14_python_deps() {
     fi
 
     eval "$(conda shell.bash hook)"
-    conda activate "$target_env"
+    safe_conda_activate "$target_env"
 
     # ---- Skip if all imports succeed ----
     if python3 -c "import freesasa, gemmi; from Bio import PDB" 2>/dev/null \
@@ -1504,7 +1531,7 @@ verify_stage14_python_deps() {
     fi
 
     eval "$(conda shell.bash hook)"
-    conda activate "$target_env"
+    safe_conda_activate "$target_env"
 
     python3 -c "
 import freesasa

@@ -21,16 +21,13 @@
 #       --threads  "$CPU" \
 #       --overwrite "$OVERWRITE"
 #
-# Pair-matching logic (same as compare_trees.sh):
-#   For every file matching:
-#     <treedir>/<...subpath...>/IQTREE2/<stem>_IQTREE2.treefile
-#   where <subpath> mirrors the MSA folder hierarchy
-#   (e.g. <genome>/<output_subdir>/<set_name>/<METHOD>_aligned/), and falls
-#   back to a single <genome>/ component for the legacy flat layout.
-#   The script looks for the sibling RAxML output:
-#     <treedir>/<...subpath...>/RAXML/<stem>_RAXML.raxml.support
-#   Pairs with no .raxml.support counterpart are skipped (bootstrap values
-#   required; .raxml.bestTree has no support annotations).
+# Pair-matching logic:
+#   For every IQ-TREE2 .treefile under <treedir>/<...subpath...>/IQTREE2/,
+#   look for the sibling RAxML output (.raxml.support — required, since
+#   bootstrap values are mandatory). Pairs with no .raxml.support counterpart
+#   are skipped. When a sibling MEGA-CC tree exists under <subpath>/MEGA_CC/,
+#   it is used automatically as the third support source (no manual_topology
+#   entry needed).
 #
 # Output: <subpath>/Combined/{Nucleotide|Protein}/<stem>_combined_bootstrap.png
 #         (written next to the tree pair, not under --outdir).
@@ -350,16 +347,31 @@ while IFS= read -r iq_tree_file; do
     # (.../<genome>/Combined/...).
     out_png="$genome_dir/Combined/${seq_type}/${stem}_combined_bootstrap.png"
 
+    # Pick up a sibling MEGA_CC tree as automatic third support source.
+    # Prefer the ML best tree; fall back to the bootstrap consensus.
+    mega_dir="$genome_dir/MEGA_CC"
+    mega_third_tree=""
+    if [[ -d "$mega_dir" ]]; then
+        mega_third_tree=$(find "$mega_dir" -maxdepth 1 -type f -name "*.nwk" ! -name "*_consensus.nwk" 2>/dev/null | sort | head -n 1)
+        if [[ -z "$mega_third_tree" ]]; then
+            mega_third_tree=$(find "$mega_dir" -maxdepth 1 -type f -name "*_consensus.nwk" 2>/dev/null | sort | head -n 1)
+        fi
+    fi
+
     PAIR_IQTREE+=("$iq_tree_file")
     PAIR_RAXML+=("$raxml_file")
     PAIR_OUTPUT+=("$out_png")
     PAIR_SEQTYPE+=("$seq_type")
     PAIR_TOPOLOGY_SOURCE+=("IQ-TREE2")
     PAIR_SUPPORT_SOURCE+=("RAxML-NG")
-    PAIR_THIRD_TREE+=("")
-    PAIR_THIRD_SOURCE+=("")
+    PAIR_THIRD_TREE+=("$mega_third_tree")
+    PAIR_THIRD_SOURCE+=("$([[ -n "$mega_third_tree" ]] && echo "MEGA-CC" || echo "")")
 
-    log_info "Matched pair: [$rel_subpath] [$seq_type] $stem"
+    if [[ -n "$mega_third_tree" ]]; then
+        log_info "Matched triple: [$rel_subpath] [$seq_type] $stem (+ MEGA-CC: $(basename "$mega_third_tree"))"
+    else
+        log_info "Matched pair: [$rel_subpath] [$seq_type] $stem"
+    fi
 done < <(find "$TREE_DIR" -type f -name "*_IQTREE2.treefile" 2>/dev/null | sort)
 
 if (( ${#MANUAL_TOPOLOGY_DIRS[@]} > 0 || ${#MANUAL_TOPOLOGY_FILES[@]} > 0 )); then

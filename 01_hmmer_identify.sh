@@ -122,6 +122,18 @@ mapfile -t TARGET_CDS < <(get_toml identification targets cds 2>/dev/null || tru
 mapfile -t TARGET_ANNOTATIONS < <(get_toml identification targets annotations 2>/dev/null || true)
 mapfile -t TARGET_GENOMES < <(get_toml identification targets genomes 2>/dev/null || true)
 
+# Apply unito_full_panel switch: false = keep only first 3 entries (v4.1, V3, GPE001970)
+UNITO_FULL=$(get_toml identification targets unito_full_panel 2>/dev/null || echo "true")
+if [[ "$UNITO_FULL" != "true" ]]; then
+    TARGET_LABELS=("${TARGET_LABELS[@]:0:3}")
+    TARGET_PROTEINS=("${TARGET_PROTEINS[@]:0:3}")
+    TARGET_TRANSCRIPTS=("${TARGET_TRANSCRIPTS[@]:0:3}")
+    TARGET_CDS=("${TARGET_CDS[@]:0:3}")
+    TARGET_ANNOTATIONS=("${TARGET_ANNOTATIONS[@]:0:3}")
+    TARGET_GENOMES=("${TARGET_GENOMES[@]:0:3}")
+    log_info "unito_full_panel=false: targeting ${#TARGET_LABELS[@]} genomes (v4.1, V3, GPE001970)"
+fi
+
 # Gene-structure / GenBank settings (shared by EXTRACT_GENE_STRUCTURES + GENERATE_GENBANK)
 GS_FLANK_BP=$(get_toml identification gene_structures flank_bp 2>/dev/null || echo 1000)
 GS_ORGANISM=$(get_toml identification gene_structures organism 2>/dev/null || echo "Solanum melongena")

@@ -12,11 +12,13 @@
 # ============================================================================
 
 [pipeline]
-# Gene groups to process. Available: "DMP", "HAP2", "GRF_GIF", "PLA"
+# Gene groups to process. Available: "DMP", "HAP2", "GRF_GIF", "EC1", "GEX1"
 gene_groups   = [
     #"DMP",
-    "HAP2",
-    #"GRF_GIF"
+    #"HAP2",
+    #"GRF_GIF",
+    #"EC1",
+    "GEX1",
 ]
 
 machine       = "Local"  # "Local" or "HPC" — selects compute profile below
@@ -129,11 +131,15 @@ strand        = 0               # -r   0 = +/- strands, 1 = + strand only
 #   GPE001970 genome (Unito Genomics): https://solgenomics.net/ftp/unito_genomics/
 # ============================================================================
 [identification.targets]
+# true  = search all GPE accessions listed below (full Unito Genomics panel)
+# false = search GPE001970 only (Smel v4.1 and V3 are always included)
+unito_full_panel = false
+
 labels = [
     "Solanum_melongena_v4.1",
-    "Solanum_melongena_V3",
+    #"Solanum_melongena_V3",
     "GPE001970_SMEL5",
-    # --- Additional Unito Genomics accessions ---
+    # --- Additional Unito Genomics accessions (used only when unito_full_panel = true) ---
     "GPE000430",
     "GPE000450",
     "GPE000460",
@@ -177,9 +183,9 @@ labels = [
 
 proteins = [
     "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_protein.function.fa",
-    "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.protein.putative_function.fa",
+    #"I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.protein.putative_function.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_proteins.fa",
-    # --- Additional Unito Genomics accessions ---
+    # --- Additional Unito Genomics accessions (used only when unito_full_panel = true) ---
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000430_proteins.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000450_proteins.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000460_proteins.fa",
@@ -225,7 +231,7 @@ transcripts = [
     "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1_transcripts.function.fa",
     "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_consortium/assembly/V3/Eggplant_V3.CDS.putative_function.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_transcripts.fa",
-    # --- Additional Unito Genomics accessions ---
+    # --- Additional Unito Genomics accessions (used only when unito_full_panel = true) ---
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000430_transcripts.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000450_transcripts.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000460_transcripts.fa",
@@ -273,7 +279,7 @@ cds = [
     "",                                                                                    # Solanum_melongena_v4.1 — no CDS file available
     "",                                                                                    # Solanum_melongena_V3 — no CDS file available
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE001970_cds.fa",
-    # --- Additional Unito Genomics accessions ---
+    # --- Additional Unito Genomics accessions (used only when unito_full_panel = true) ---
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000430_cds.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000450_cds.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/transcripts/GPE000460_cds.fa",
@@ -322,7 +328,7 @@ annotations = [
     "",                                                                                    # Solanum_melongena_v4.1 — no Helixer GFF available
     "",                                                                                    # Solanum_melongena_V3 — no Helixer GFF available
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE001970.gff",
-    # --- Additional Unito Genomics accessions ---
+    # --- Additional Unito Genomics accessions (used only when unito_full_panel = true) ---
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE000430.gff",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE000450.gff",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/annotations/GPE000460.gff",
@@ -370,7 +376,7 @@ genomes = [
     "I_RefSeqs/a_Smel_RefSeqs/Solanum_melongena_v4.1/Eggplant_V4.1.fa",
     "",                                                                                    # Solanum_melongena_V3 — genome FASTA not staged in this collection
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE001970.fa",
-    # --- Additional Unito Genomics accessions ---
+    # --- Additional Unito Genomics accessions (used only when unito_full_panel = true) ---
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE000430.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE000450.fa",
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE000460.fa",
@@ -440,3 +446,16 @@ GRF = [
 GIF = [
     "II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05030_SSXT_Profile.hmm", # SSXT/SNH domain
 ]
+
+[identification.gene_groups.EC1.genes]
+# Pfam PF05617 — Prolamin-like domain; carries Pfam GA thresholds (use_ga = true is safe).
+# Covers all five Arabidopsis EC1 paralogs (EC1.1-EC1.5) and ECA1 gametogenesis family.
+# Source: https://www.ebi.ac.uk/interpro/entry/pfam/PF05617/
+EC1 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05617_EC1.hmm"]
+
+[identification.gene_groups.GEX1.genes]
+# PANTHER PTHR33538 — Protein GAMETE EXPRESSED 1 (GEX1/Brambleberry/Kar5 family).
+# use_ga is automatically forced off in config/GEX1/01_hmmer_gene_identification_GEX1.toml
+# (PANTHER HMMs carry no GA thresholds). Family is eukaryote-wide; post-filter to Viridiplantae if needed.
+# Source: https://www.pantherdb.org/panther/family.do?clsAccession=PTHR33538
+GEX1 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PTHR33538_GEX1.hmm"]

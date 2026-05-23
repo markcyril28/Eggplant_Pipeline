@@ -3,18 +3,23 @@
 # Program 9: CRISPR Off-Target Analysis Pipeline
 # ============================================================================
 # Operations (configured via [crispr].operations in TOML):
-#   score_filter    — filter raw sgRNA scoring results by on-target score
-#   blast_offtarget — BLAST-based genome-wide off-target search
-#   cas_offinder    — Cas-OFFinder GPU-accelerated off-target search
-#   report          — summary report + publication-quality visualizations
+#   score_filter      - filter raw sgRNA scoring results by on-target score
+#   blast_offtarget   - BLAST-based genome-wide off-target search
+#   cas_offinder      - Cas-OFFinder GPU-accelerated off-target search
+#   report            - summary report + publication-quality visualizations
+#   annotate_genbank  - annotate per-gene .gb files with gRNA features
+#                       (location, score, per-mismatch off-target counts)
 #
 # Substage layout under 09_CRISPR_Off-Target_Analysis/{genome}/:
 #   01_Raw_Scoring_Results_from_CRISPR-P_V2_0/
-#   02_Filtered_Score_0.5/     (High + Moderate)
-#   03_Filtered_Score_0.7/     (High only)
-#   04_Off_Target_BLAST/       (genome-scoped)
-#   05_Off_Target_Cas-OFFinder/ (genome-scoped)
-#   06_Summary_Report/         (text report, guide_summary.csv, plots)
+#   02_Filtered_Score_0.5/                  (High + Moderate)
+#   03_Filtered_Score_0.7/                  (High only)
+#   04_Off_Target_BLAST/                    (genome-scoped)
+#   05_Off_Target_Cas-OFFinder/             (genome-scoped)
+#   06_Summary_Report/                      (text report, guide_summary.csv, plots)
+#   07_GenBank_with_gRNA_Annotations/       (gene-structure .gb files annotated
+#                                             with score-filtered gRNAs +
+#                                             off-target mismatch counts)
 #
 # Edit 09_crispr_v1CONFIG.toml to change gene groups, compute settings, and
 # operations, then run:
@@ -294,6 +299,70 @@ if op_enabled "report"; then
                 --offtarget-strict  "$REPORT_OFFT_STRICT" \
                 --offtarget-moderate "$REPORT_OFFT_MOD"
         fi
+    done
+fi
+
+# ============================================================================
+# Operation 5: Annotate gene-structure GenBank files with gRNA features
+# ============================================================================
+# Produces 07_GenBank_with_gRNA_Annotations/ with two variants per gene:
+#   01_Score_<HIGH>_above/         strict shortlist (score >= HIGH)
+#   02_Score_<MOD>_above_incl_<H>/ combined (score >= MOD; HIGH guides tagged)
+# Off-target hits with > MAX_MM mismatches are excluded.
+if op_enabled "annotate_genbank"; then
+    log_step "Operation 5/5: Annotate gene-structure GenBank with gRNAs"
+
+    ANNOT_HIGH=$(get_toml crispr annotate_genbank high_threshold 2>/dev/null || echo "0.7")
+    ANNOT_MOD=$(get_toml  crispr annotate_genbank mod_threshold  2>/dev/null || echo "0.5")
+    ANNOT_MAX_MM=$(get_toml crispr annotate_genbank max_mm        2>/dev/null || echo "3")
+    ANNOT_GB_SUBPATH=$(get_toml crispr annotate_genbank gb_subpath \
+        2>/dev/null || echo "01_Identification/{genome}/e-value_1e-5/e_GENE_Structures/${GENE_GROUP}/without_up_and_downstream")
+    ANNOT_OUT_NAME=$(get_toml crispr annotate_genbank output_dir_name \
+        2>/dev/null || echo "07_GenBank_with_gRNA_Annotations")
+
+    # Substage numbers must match the filter operation: 0.5 -> 02, 0.7 -> 03
+    mapfile -t SCORE_THRESHOLDS < <(get_toml crispr score_thresholds 2>/dev/null || printf '%s\n' 0.5 0.7)
+    SCORE_THRESHOLDS_SORTED=($(printf '%s\n' "${SCORE_THRESHOLDS[@]}" | sort -g))
+    threshold_substage() {
+        local target="$1" n=2
+        for t in "${SCORE_THRESHOLDS_SORTED[@]}"; do
+            if [[ "$t" == "$target" ]]; then printf '%02d' "$n"; return; fi
+            (( n++ ))
+        done
+        printf '02'
+    }
+    HIGH_SUB=$(threshold_substage "$ANNOT_HIGH")
+    MOD_SUB=$(threshold_substage "$ANNOT_MOD")
+
+    for genome_name in "${GENOME_NAMES[@]}"; do
+        GENOME_DIR="$CRISPR_DIR/${genome_name}"
+        GB_SUBPATH_RESOLVED="${ANNOT_GB_SUBPATH//\{genome\}/$genome_name}"
+        GB_DIR="$BASE_DIR/${GB_SUBPATH_RESOLVED}"
+        HIGH_DIR="$GENOME_DIR/${HIGH_SUB}_Filtered_Score_${ANNOT_HIGH}"
+        MOD_DIR="$GENOME_DIR/${MOD_SUB}_Filtered_Score_${ANNOT_MOD}"
+        CASOFF_OUTPUT_DIR="$GENOME_DIR/05_Off_Target_Cas-OFFinder/cas_offinder/output"
+        ANNOT_OUT_DIR="$GENOME_DIR/${ANNOT_OUT_NAME}"
+
+        if [[ ! -d "$GB_DIR" ]]; then
+            log_warn "  [$genome_name] gene-structure GB dir not found: $GB_DIR"
+            continue
+        fi
+        if [[ ! -d "$HIGH_DIR" ]] && [[ ! -d "$MOD_DIR" ]]; then
+            log_warn "  [$genome_name] no filtered-score directories found; run score_filter first"
+            continue
+        fi
+
+        log_info "  [$genome_name] annotating GenBank files (HIGH>=$ANNOT_HIGH, MOD>=$ANNOT_MOD, mm<=$ANNOT_MAX_MM)"
+        python3 "$MODULES/09_crispr_analysis/annotate_grna_genbank.py" \
+            --gb-dir              "$GB_DIR" \
+            --filtered-high-dir   "$HIGH_DIR" \
+            --filtered-mod-dir    "$MOD_DIR" \
+            --casoff-output-dir   "$CASOFF_OUTPUT_DIR" \
+            --output-dir          "$ANNOT_OUT_DIR" \
+            --high-threshold      "$ANNOT_HIGH" \
+            --mod-threshold       "$ANNOT_MOD" \
+            --max-mm              "$ANNOT_MAX_MM" \
+            | while IFS= read -r line; do log_info "$line"; done
     done
 fi
 

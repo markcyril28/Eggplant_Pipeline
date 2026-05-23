@@ -46,6 +46,9 @@ operations = [
 
     # ---- Figures & report ----
     "report",
+
+    # ---- Gene-structure annotation (07_GenBank_with_gRNA_Annotations/) ----
+    "annotate_genbank",
 ]
 
 # On-target score filtering (Doench 2016 RS2 / Azimuth scale, 0-1).
@@ -88,11 +91,12 @@ grna_fastas = [
 # ============================================================================
 
 [crispr.dirs]
-raw_results     = "01_Raw_Scoring_Results_from_CRISPR-P_V2_0"
-filtered_prefix = "0{n}_Filtered_Score_{t}"   # {n}=substage number, {t}=threshold
-blast_offtarget = "04_Off_Target_BLAST"
-cas_offinder    = "05_Off_Target_Cas-OFFinder"
-summary_report  = "06_Summary_Report"
+raw_results          = "01_Raw_Scoring_Results_from_CRISPR-P_V2_0"
+filtered_prefix      = "0{n}_Filtered_Score_{t}"   # {n}=substage number, {t}=threshold
+blast_offtarget      = "04_Off_Target_BLAST"
+cas_offinder         = "05_Off_Target_Cas-OFFinder"
+summary_report       = "06_Summary_Report"
+genbank_annotations  = "07_GenBank_with_gRNA_Annotations"
 
 
 # ============================================================================
@@ -119,6 +123,22 @@ pam            = "NNNNNNNNNNNNNNNNNNNNNGG"   # SpCas9 canonical NGG PAM
 device         = "C"   # C = CPU-only (WSL2: OpenCL GPU is unreliable; module auto-falls back anyway)
 max_mismatches = 3     # plant CRISPR safety standard [Wolter 2019]; SpCas9 cleavage
                        # at >3 mm is rare and usually seed-conserved [Hsu 2013].
+
+# ---- GenBank gRNA annotation (operation: annotate_genbank) ----
+# Pulls gene-structure .gb files from {gb_subpath} (relative to base_dir;
+# {genome} is substituted per genome) and writes annotated copies under
+# 07_GenBank_with_gRNA_Annotations/. Two variants per gene:
+#   01_Score_<HIGH>_above/         strict shortlist (score >= high_threshold)
+#   02_Score_<MOD>_above_incl_<H>/ combined (score >= mod_threshold; HIGH-tier
+#                                            guides tagged "_HIGH>=<H>" in label)
+# Off-target hits exceeding max_mm mismatches are excluded from the per-feature
+# mm0..mmN counts (default 3, matching cas_offinder.max_mismatches).
+[crispr.annotate_genbank]
+high_threshold  = 0.7
+mod_threshold   = 0.5
+max_mm          = 3
+gb_subpath      = "01_Identification/{genome}/e-value_1e-5/e_GENE_Structures/DMP/without_up_and_downstream"
+output_dir_name = "07_GenBank_with_gRNA_Annotations"
 
 
 # ============================================================================
@@ -156,14 +176,86 @@ offtarget_moderate = 8   # near-miss tolerance at 3-mm [Wolter 2019; Bortesi 201
 # ============================================================================
 # References
 # ============================================================================
-# Altschul et al. 1990. Basic local alignment search tool. JMB 215:403.
-# Bortesi & Fischer 2015. The CRISPR/Cas9 system for plant editing. Biotechnol Adv 33:41.
-# Concordet & Haeussler 2018. CRISPOR. Nucleic Acids Res 46:W242.
-# Doench et al. 2016. Optimized sgRNA design (RS2/Azimuth, CFD). Nat Biotechnol 34:184.
-# Hsu et al. 2013. DNA targeting specificity of RNA-guided Cas9. Nat Biotechnol 31:827.
-# Liu et al. 2020. Plant CRISPR guide efficiency benchmark. Plant Methods 16:21.
-# Modrzejewski et al. 2020. Plant CRISPR off-target meta-analysis (88 studies).
+# Verified via PubMed citation lookup (2026-05-23). Each entry: full author
+# list, title, journal, volume(issue):pages, DOI, PMID/PMC, and resolver URLs.
+#
+# Altschul SF, Gish W, Miller W, Myers EW, Lipman DJ. 1990.
+#     Basic local alignment search tool.
+#     J Mol Biol 215(3):403-410.
+#     DOI:  10.1016/S0022-2836(05)80360-2
+#     URL:  https://doi.org/10.1016/S0022-2836(05)80360-2
+#     PMID: 2231712  |  https://pubmed.ncbi.nlm.nih.gov/2231712/
+#
+# Bortesi L, Fischer R. 2015.
+#     The CRISPR/Cas9 system for plant genome editing and beyond.
+#     Biotechnol Adv 33(1):41-52.
+#     DOI:  10.1016/j.biotechadv.2014.12.006
+#     URL:  https://doi.org/10.1016/j.biotechadv.2014.12.006
+#     PMID: 25536441  |  https://pubmed.ncbi.nlm.nih.gov/25536441/
+#
+# Concordet JP, Haeussler M. 2018.
+#     CRISPOR: intuitive guide selection for CRISPR/Cas9 genome editing
+#     experiments and screens.
+#     Nucleic Acids Res 46(W1):W242-W245.
+#     DOI:  10.1093/nar/gky354
+#     URL:  https://doi.org/10.1093/nar/gky354
+#     PMID: 29762716  |  PMC: PMC6030908
+#     https://pubmed.ncbi.nlm.nih.gov/29762716/
+#     https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6030908/
+#
+# Doench JG, Fusi N, Sullender M, Hegde M, Vaimberg EW, Donovan KF, Smith I,
+# Tothova Z, Wilen C, Orchard R, Virgin HW, Listgarten J, Root DE. 2016.
+#     Optimized sgRNA design to maximize activity and minimize off-target
+#     effects of CRISPR-Cas9 (Rule Set 2 / Azimuth, CFD).
+#     Nat Biotechnol 34(2):184-191.
+#     DOI:  10.1038/nbt.3437
+#     URL:  https://doi.org/10.1038/nbt.3437
+#     PMID: 26780180  |  PMC: PMC4744125
+#     https://pubmed.ncbi.nlm.nih.gov/26780180/
+#     https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4744125/
+#
+# Hsu PD, Scott DA, Weinstein JA, Ran FA, Konermann S, Agarwala V, Li Y,
+# Fine EJ, Wu X, Shalem O, Cradick TJ, Marraffini LA, Bao G, Zhang F. 2013.
+#     DNA targeting specificity of RNA-guided Cas9 nucleases.
+#     Nat Biotechnol 31(9):827-832.
+#     DOI:  10.1038/nbt.2647
+#     URL:  https://doi.org/10.1038/nbt.2647
+#     PMID: 23873081  |  PMC: PMC3969858
+#     https://pubmed.ncbi.nlm.nih.gov/23873081/
+#     https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3969858/
+#
+# Liu et al. 2020. Plant CRISPR guide efficiency benchmark.
+#     Plant Methods 16:21.
+#     *** NEEDS VERIFICATION: not found in PubMed or Europe PMC at
+#         Plant Methods vol 16 page 21 (2020). First author, title, and DOI
+#         could not be confirmed. Re-check the original source before citing
+#         in publications. ***
+#
+# Modrzejewski D, Hartung F, Lehnert H, Sprink T, Kohl C, Keilwagen J,
+# Wilhelm R. 2020.
+#     Which Factors Affect the Occurrence of Off-Target Effects Caused by the
+#     Use of CRISPR/Cas: A Systematic Review in Plants.
 #     Front Plant Sci 11:574959.
-# Sun et al. 2022. Plant sgRNA efficiency benchmark. Plant Biotechnol J 20:1413.
-# Wolter, Schindele & Puchta 2019. Plant genome editing: 3-mm off-target standard.
-#     Plant J 100:1083.
+#     DOI:  10.3389/fpls.2020.574959
+#     URL:  https://doi.org/10.3389/fpls.2020.574959
+#     PMID: 33329634  |  PMC: PMC7719684
+#     https://pubmed.ncbi.nlm.nih.gov/33329634/
+#     https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7719684/
+#
+# Sun et al. 2022. Plant sgRNA efficiency benchmark.
+#     Plant Biotechnol J 20:1413.
+#     *** NEEDS VERIFICATION: not found in PubMed or Europe PMC at
+#         Plant Biotechnol J vol 20 page 1413 (2022). First author, title,
+#         and DOI could not be confirmed. Re-check the original source
+#         before citing in publications. ***
+#
+# Wolter F, Puchta H. 2019.
+#     In planta gene targeting can be enhanced by the use of CRISPR/Cas12a.
+#     Plant J 100(5):1083-1094.
+#     DOI:  10.1111/tpj.14488
+#     URL:  https://doi.org/10.1111/tpj.14488
+#     PMID: 31381206  |  https://pubmed.ncbi.nlm.nih.gov/31381206/
+#     NOTE: Authors are Wolter & Puchta (Schindele is not an author on this
+#           paper). The volume/page match the inline citation, but the topic
+#           is Cas12a-driven gene targeting rather than a "3-mm off-target
+#           standard". Confirm this is the intended source before publication.

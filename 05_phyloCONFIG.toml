@@ -142,13 +142,13 @@ color_haploid        = "#B71C1C"   # deep red — functionally validated haploid
 color_ortholog       = "#37474F"   # blue-gray — other DMP orthologs
 color_outgroup       = "#78909C"   # light gray — outgroup taxa
 
-# --- Taxon patterns (regex) ---
-eggplant_pattern     = "^SMEL5_|^Smel_|^SMELG"  # matches raw eggplant sequence IDs
+# --- Taxon pattens (regex) ---
+eggplant_patten     = "^SMEL5_|^Smel_|^SMELG"  # matches raw eggplant sequence IDs
 
 # --- Outgroup ---
 # Universal outgroup for both amino acid and nucleotide phylogenetic trees:
 #   PpDMP5-like  (Physcomitrella patens, moss — distant land plant)
-outgroup_pattern     = "PpDMP5-like"  # regex matching universal outgroup tip label; single-tip rooting on the moss DMP5-like sequence
+outgroup_patten     = "PpDMP5-like"  # regex matching universal outgroup tip label; single-tip rooting on the moss DMP5-like sequence
 exclude_tips         = "BdDMP2.*Outgroup,GrDMP10.*Outgroup,SiDMP10.*"  # remove AA-only outgroups absent from NT trees so AA/NT figures stay comparable; SiDMP10 dropped (PpDMP5-like is sole outgroup)
 root_outgroup        = true       # root tree on PpDMP5-like before rendering
 
@@ -182,8 +182,13 @@ dpi    = 600
 width  = 15          # single-tree figure with dual-method bootstrap labels
 height = 12          # auto-scaled up for large tip counts
 dpi    = 600
+bootstrap_label_size = 5.4
+manual_topology_dirs = []
+manual_topology_files = [
+    "GPE001970_SMEL5/v1_Full/MAFFT_aligned/MEGA12_GUI/Newick Export_PpDMP_rooted",
+]
 
-# Node label format (unique to this operation — overlays IQ-TREE2 + RAxML values)
-combined_style = "fraction"  # fraction = "UFBoot/RAX-BS" (e.g. "98/95"); dual = "IQ:98 RAX:95"
-combined_sep   = "/"         # separator between IQ-TREE2 and RAxML values
+# Node label format for combined support values.
+combined_style = "fraction"  # fraction = "MEGA/IQ/RAX" (e.g. "99/98/95"); dual = "MEGA:99 IQ:98 RAX:95"
+combined_sep   = "/"         # separator between support values
 xlim_expand    = 0.3         # x-axis expansion multiplier: >1 stretches tree wider, <1 tightens

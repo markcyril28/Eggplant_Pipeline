@@ -83,7 +83,16 @@
 #
 #######################################################################
 
-set -euo pipefail
+# NOTE: `nounset` (`-u`) is intentionally OMITTED here. Conda's compiler
+# activate/deactivate scripts (e.g. envs/.../etc/conda/deactivate.d/
+# deactivate-gcc_linux-64.sh) reference CONDA_BACKUP_* variables that may be
+# unbound during in-place env re-activation. Under `set -u` those references
+# abort the script with messages like:
+#     deactivate-gcc_linux-64.sh: line 39: CONDA_BACKUP_CONDA_BUILD_SYSROOT: unbound variable
+# The `safe_conda_activate` wrapper below also relaxes `-u`, but dropping it at
+# the script level is the robust fix because conda's hook function can be
+# invoked from multiple entry points.
+set -eo pipefail
 
 # Script directory — resolve once here, used throughout
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,7 +113,7 @@ GROMACS_URL="https://ftp.gromacs.org/gromacs/gromacs-${GROMACS_VERSION}.tar.gz"
 BUILD_DIR="${HOME}/.local/share/gromacs-build"
 
 # Number of parallel jobs for compilation
-NJOBS=8
+NJOBS=$(nproc 2>/dev/null || echo 8)
 
 # ROCm path (for AMD GPUs)
 ROCM_PATH="${ROCM_PATH:-/opt/rocm}"
@@ -760,6 +769,7 @@ build_gromacs_cuda() {
     local _cmake="cmake"
     if [ -n "$compiler_args" ]; then
         unset CFLAGS CXXFLAGS LDFLAGS FFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS DEBUG_FFLAGS 2>/dev/null || true
+        unset CMAKE_PREFIX_PATH CMAKE_ARGS CONDA_BUILD_SYSROOT HOST CONDA_TOOLCHAIN_HOST CONDA_TOOLCHAIN_BUILD 2>/dev/null || true
         if [ -x /usr/bin/cmake ]; then
             _cmake=/usr/bin/cmake
             log "Using system CMake: $($_cmake --version | head -1)"
@@ -830,7 +840,16 @@ build_gromacs_hip() {
 
     # Clear conda's sysroot-based compiler/linker flags (same issue as CUDA
     # path — conda sysroot references /lib64/ which doesn't exist on Debian).
+    # Also clear CMAKE_PREFIX_PATH/CONDA_BUILD_SYSROOT injected by activation:
+    # conda activation appends ".../sysroot/usr" to CMAKE_PREFIX_PATH which
+    # makes CMake add "-L .../sysroot/usr/lib" to link tests.  That directory
+    # contains a libm.so linker script hardcoded to /lib64/libm.so.6, which
+    # does not exist on Debian/Ubuntu (libm lives in /lib/x86_64-linux-gnu).
+    # The result is ld.lld errors like "cannot open /lib64/libm.so.6" during
+    # CMake's check_library_exists() for FFTW symbols.  We re-pass the conda
+    # prefix explicitly via $prefix_path_args, so unsetting is safe.
     unset CFLAGS CXXFLAGS LDFLAGS FFLAGS DEBUG_CFLAGS DEBUG_CXXFLAGS DEBUG_FFLAGS 2>/dev/null || true
+    unset CMAKE_PREFIX_PATH CMAKE_ARGS CONDA_BUILD_SYSROOT HOST CONDA_TOOLCHAIN_HOST CONDA_TOOLCHAIN_BUILD 2>/dev/null || true
 
     # Use system CMake to avoid conda CMake's sysroot injection.
     local _cmake="cmake"

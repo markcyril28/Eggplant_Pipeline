@@ -2,8 +2,19 @@
 # ============================================================================
 # Module: Phylogenetic Tree Comparison (Tanglegram)
 # ============================================================================
-# Finds matched IQ-TREE2 and RAxML tree pairs for the same alignment stem,
-# then produces a tanglegram comparison figure for each pair.
+# Finds matched tree pairs across IQ-TREE2, RAxML, and MEGA-CC for the same
+# alignment stem, then produces a tanglegram comparison figure for each pair.
+#
+# Pair-matching logic:
+#   For every IQ-TREE2 .treefile under <treedir>/<...subpath...>/IQTREE2/,
+#   look for the sibling RAxML output in <subpath>/RAXML/ (.raxml.support
+#   preferred, .raxml.bestTree as fallback). One IQ vs RAX pair per stem.
+#   Additionally, for every MEGA-CC .nwk under <subpath>/MEGA_CC/, pair it
+#   with any sibling IQ-TREE2 and/or RAxML tree to emit MEGA vs IQ and
+#   MEGA vs RAX comparisons.
+#
+# Output: <subpath>/Comparison/{Nucleotide|Protein}/<stem>_{IQ_vs_RAX|MEGA_vs_IQ|MEGA_vs_RAX}.png
+#         (written next to the tree pair, not under --outdir).
 #
 # Usage (standalone):
 #   bash compare_trees.sh \
@@ -11,28 +22,6 @@
 #       --outdir   <comparison_output_dir> \
 #       --config   <merged_config.toml> \
 #       [--threads N] [--overwrite true|false]
-#
-# Usage (from orchestrator):
-#   bash "$MODULES/05_phylogenetic_analysis/compare_trees.sh" \
-#       --treedir  "$PHYLO_DIR" \
-#       --outdir   "$PHYLO_DIR" \
-#       --config   "$CONFIG_FILE" \
-#       --threads  "$CPU" \
-#       --overwrite "$OVERWRITE"
-#
-# Pair-matching logic:
-#   For every file matching:
-#     <treedir>/<...subpath...>/IQTREE2/<stem>_IQTREE2.treefile
-#   where <subpath> mirrors the MSA folder hierarchy
-#   (e.g. <genome>/<output_subdir>/<set_name>/<METHOD>_aligned/), and falls
-#   back to a single <genome>/ component for the legacy flat layout.
-#   the script looks for the sibling RAxML output:
-#     <treedir>/<...subpath...>/RAXML/<stem>_RAXML.raxml.support   (mode=all)
-#     <treedir>/<...subpath...>/RAXML/<stem>_RAXML.raxml.bestTree  (mode=search, fallback)
-#   Pairs sharing the same <subpath> and <stem> are compared.
-#
-# Output: <subpath>/Comparison/{Nucleotide|Protein}/<stem>_IQ_vs_RAX.png
-#         (written next to the tree pair, not under --outdir).
 # ============================================================================
 
 set -euo pipefail
@@ -51,8 +40,7 @@ OVERWRITE="true"
 
 # Visualization defaults — aligned with visualize_tree.sh for consistent figures.
 # Tanglegram-specific overrides (width, height) come from [visualization.compare_trees] TOML.
-LABEL1="IQ-TREE2"
-LABEL2="RAxML"
+# Per-pair labels (IQ-TREE2 / RAxML / MEGA-CC) are assigned during the pair scan.
 DPI=600
 WIDTH=14
 HEIGHT=10
@@ -154,8 +142,6 @@ if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
     unset _val
 fi
 
-# ======================== Find IQ-TREE2 / RAxML Pairs ========================
-
 # ======================== Sequence Type Detection ========================
 
 detect_seq_type() {
@@ -170,30 +156,44 @@ detect_seq_type() {
     fi
 }
 
-log_info "Scanning for IQ-TREE2/RAxML tree pairs in: $TREE_DIR"
+# Resolve a sibling MEGA_CC tree under <genome_dir>/MEGA_CC/, preferring the
+# ML best tree over the bootstrap consensus variant. Empty if none.
+find_sibling_mega_tree() {
+    local genome_dir="$1"
+    local mega_dir="$genome_dir/MEGA_CC"
+    [[ -d "$mega_dir" ]] || return 0
+    local best
+    best=$(find "$mega_dir" -maxdepth 1 -type f -name "*.nwk" ! -name "*_consensus.nwk" 2>/dev/null | sort | head -n 1)
+    if [[ -z "$best" ]]; then
+        best=$(find "$mega_dir" -maxdepth 1 -type f -name "*_consensus.nwk" 2>/dev/null | sort | head -n 1)
+    fi
+    [[ -n "$best" ]] && echo "$best" || true
+}
 
-PAIR_IQTREE=()
-PAIR_RAXML=()
+# ======================== Find Tree Pairs ========================
+
+log_info "Scanning for tree pairs (IQ vs RAX, and MEGA vs IQ/RAX where present) in: $TREE_DIR"
+
+PAIR_TREE1=()
+PAIR_TREE2=()
+PAIR_LABEL1=()
+PAIR_LABEL2=()
 PAIR_OUTPUT=()
 PAIR_SEQTYPE=()
 
-# Find every IQ-TREE2 .treefile
+# --- IQ-TREE2 vs RAxML (the canonical comparison) ---
 while IFS= read -r iq_tree; do
-    # Expected path: <TREE_DIR>/<genome>/IQTREE2/<stem>_IQTREE2.treefile
     iq_dir="$(dirname "$iq_tree")"          # .../IQTREE2
     genome_dir="$(dirname "$iq_dir")"       # .../<genome>
     iq_fname="$(basename "$iq_tree")"       # <stem>_IQTREE2.treefile
     stem="${iq_fname%_IQTREE2.treefile}"    # <stem>
 
-    # Guard: must be inside an IQTREE2 subdirectory
     if [[ "$(basename "$iq_dir")" != "IQTREE2" ]]; then
         log_warn "Skipping unexpected path (not inside IQTREE2/): $iq_tree"
         continue
     fi
 
     raxml_dir="$genome_dir/RAXML"
-
-    # Prefer .raxml.support (mode=all); fall back to .raxml.bestTree (mode=search)
     raxml_tree=""
     if [[ -f "$raxml_dir/${stem}_RAXML.raxml.support" ]]; then
         raxml_tree="$raxml_dir/${stem}_RAXML.raxml.support"
@@ -207,29 +207,71 @@ while IFS= read -r iq_tree; do
         continue
     fi
 
-    # genome_dir is the parent of IQTREE2/ — for the new MSA-mirrored layout
-    # this is .../<METHOD>_aligned/, not the genome folder. Use the relative
-    # path (treedir-stripped) for a clearer log label.
     rel_subpath="${genome_dir#$TREE_DIR/}"
     seq_type="$(detect_seq_type "$stem")"
-    # Place comparison figures next to the trees they compare (i.e. inside the
-    # parent of IQTREE2/ and RAXML/). This works for both the new MSA-mirrored
-    # layout (.../<METHOD>_aligned/Comparison/...) and the legacy flat layout
-    # (.../<genome>/Comparison/...).
     out_png="$genome_dir/Comparison/${seq_type}/${stem}_IQ_vs_RAX.png"
 
-    PAIR_IQTREE+=("$iq_tree")
-    PAIR_RAXML+=("$raxml_tree")
+    PAIR_TREE1+=("$iq_tree")
+    PAIR_TREE2+=("$raxml_tree")
+    PAIR_LABEL1+=("IQ-TREE2")
+    PAIR_LABEL2+=("RAxML")
     PAIR_OUTPUT+=("$out_png")
     PAIR_SEQTYPE+=("$seq_type")
 
-    log_info "Matched pair: [$rel_subpath] [$seq_type] $stem"
+    log_info "Matched pair [IQ vs RAX]: [$rel_subpath] [$seq_type] $stem"
 done < <(find "$TREE_DIR" -type f -name "*_IQTREE2.treefile" 2>/dev/null | sort)
 
-n_pairs=${#PAIR_IQTREE[@]}
+# --- MEGA-CC vs IQ-TREE2 and MEGA-CC vs RAxML (when MEGA output exists) ---
+while IFS= read -r mega_tree; do
+    mega_dir="$(dirname "$mega_tree")"      # .../MEGA_CC
+    [[ "$(basename "$mega_dir")" == "MEGA_CC" ]] || continue
+    # Skip MEGA consensus variant when sibling ML best tree exists
+    mega_fname="$(basename "$mega_tree")"
+    if [[ "$mega_fname" == *_consensus.nwk ]]; then
+        sibling="${mega_tree%_consensus.nwk}.nwk"
+        [[ -s "$sibling" ]] && continue
+    fi
+    genome_dir="$(dirname "$mega_dir")"
+    mega_stem="${mega_fname%.nwk}"
+    rel_subpath="${genome_dir#$TREE_DIR/}"
+    seq_type="$(detect_seq_type "$mega_stem")"
+
+    # MEGA vs IQ
+    iq_dir="$genome_dir/IQTREE2"
+    iq_candidate=$(find "$iq_dir" -maxdepth 1 -type f -name "*_IQTREE2.treefile" 2>/dev/null | sort | head -n 1)
+    if [[ -n "$iq_candidate" ]]; then
+        out_png="$genome_dir/Comparison/${seq_type}/${mega_stem}_MEGA_vs_IQ.png"
+        PAIR_TREE1+=("$mega_tree")
+        PAIR_TREE2+=("$iq_candidate")
+        PAIR_LABEL1+=("MEGA-CC")
+        PAIR_LABEL2+=("IQ-TREE2")
+        PAIR_OUTPUT+=("$out_png")
+        PAIR_SEQTYPE+=("$seq_type")
+        log_info "Matched pair [MEGA vs IQ]: [$rel_subpath] [$seq_type] $mega_stem"
+    fi
+
+    # MEGA vs RAX (prefer .raxml.support over .raxml.bestTree)
+    raxml_dir="$genome_dir/RAXML"
+    rax_candidate=$(find "$raxml_dir" -maxdepth 1 -type f -name "*.raxml.support" 2>/dev/null | sort | head -n 1)
+    if [[ -z "$rax_candidate" ]]; then
+        rax_candidate=$(find "$raxml_dir" -maxdepth 1 -type f -name "*.raxml.bestTree" 2>/dev/null | sort | head -n 1)
+    fi
+    if [[ -n "$rax_candidate" ]]; then
+        out_png="$genome_dir/Comparison/${seq_type}/${mega_stem}_MEGA_vs_RAX.png"
+        PAIR_TREE1+=("$mega_tree")
+        PAIR_TREE2+=("$rax_candidate")
+        PAIR_LABEL1+=("MEGA-CC")
+        PAIR_LABEL2+=("RAxML")
+        PAIR_OUTPUT+=("$out_png")
+        PAIR_SEQTYPE+=("$seq_type")
+        log_info "Matched pair [MEGA vs RAX]: [$rel_subpath] [$seq_type] $mega_stem"
+    fi
+done < <(find "$TREE_DIR" -type f -path "*/MEGA_CC/*.nwk" 2>/dev/null | sort)
+
+n_pairs=${#PAIR_TREE1[@]}
 
 if (( n_pairs == 0 )); then
-    log_warn "No IQ-TREE2/RAxML pairs found — skipping tree comparison"
+    log_warn "No tree pairs found — skipping tree comparison"
     exit 0
 fi
 
@@ -249,8 +291,10 @@ skipped=0
 pids=()
 
 for (( i=0; i<n_pairs; i++ )); do
-    iq_tree="${PAIR_IQTREE[$i]}"
-    raxml_tree="${PAIR_RAXML[$i]}"
+    tree1="${PAIR_TREE1[$i]}"
+    tree2="${PAIR_TREE2[$i]}"
+    label1="${PAIR_LABEL1[$i]}"
+    label2="${PAIR_LABEL2[$i]}"
     out_png="${PAIR_OUTPUT[$i]}"
     seq_type="${PAIR_SEQTYPE[$i]}"
 
@@ -265,13 +309,13 @@ for (( i=0; i<n_pairs; i++ )); do
     wait_for_slot "$MAX_PARALLEL"
 
     (
-        log_info "Comparing: $(basename "$iq_tree") vs $(basename "$raxml_tree")"
+        log_info "Comparing: $label1 ($(basename "$tree1")) vs $label2 ($(basename "$tree2"))"
         rc=0
         Rscript "$COMPARE_R" \
-            --tree1                 "$iq_tree" \
-            --tree2                 "$raxml_tree" \
-            --label1                "$LABEL1" \
-            --label2                "$LABEL2" \
+            --tree1                 "$tree1" \
+            --tree2                 "$tree2" \
+            --label1                "$label1" \
+            --label2                "$label2" \
             --output                "$out_png" \
             --dpi                   "$DPI" \
             --width                 "$WIDTH" \
@@ -307,7 +351,7 @@ for (( i=0; i<n_pairs; i++ )); do
             2>&1 || rc=$?
 
         if (( rc != 0 )); then
-            log_error "compare_trees.R failed for pair: $iq_tree (exit code $rc)"
+            log_error "compare_trees.R failed for pair: $tree1 vs $tree2 (exit code $rc)"
             exit 1
         fi
 

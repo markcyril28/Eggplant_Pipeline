@@ -1,0 +1,201 @@
+# ============================================================================
+# Stage 14: In silico domain mapping of the HAP2-DMP interaction
+# Config consumed by 14_HAP2_Domain_Mapping.sh
+# ============================================================================
+# This file encodes the wet-lab deletion-binding experiment from
+# Wang et al. 2022 (PMC9659367, Fig. 3A and SI Appendix Fig. S7-S8) as a
+# structural/energetic pipeline. The [variants] table below IS the in silico
+# analogue of the truncated HAP2 constructs the paper expressed in yeast.
+# The orchestrator's `prepare_variants` op rewrites the HAP2 FASTA with each
+# deletion applied; those trimmed FASTAs are then submitted to AlphaFold3 as
+# the HAP2 chain of the complex (see [M3] in --show-manual-steps).
+#
+# IMPORTANT: the residue ranges below are from the paper (AtHAP2/At4g11720,
+# 705 aa). If you use SmelHAP2 instead of AtHAP2, you MUST remap these cut
+# points via a pairwise alignment before the deletions are biologically
+# equivalent. See [M2] in --show-manual-steps.
+# ============================================================================
+
+[pipeline]
+gene_groups = ["DMP"]
+machine     = "Local"
+overwrite   = false
+
+[pipeline.compute.Local]
+threads      = 12
+max_parallel = 2
+
+[pipeline.compute.HPC]
+threads      = 48
+max_parallel = 8
+
+[general]
+base_dir = "III_RESULT/DMP"
+
+# ── Master switch and operation gating ──────────────────────────────────────
+[domain_mapping]
+enabled = true
+operations = [
+    "prepare_variants",
+    "predict_complexes",
+    "interface_analysis",
+    "md_equilibration",
+    "binding_energy",
+    "alanine_scan",
+    "comparative_report",
+]
+
+# ── Source sequences ────────────────────────────────────────────────────────
+# Paths may be relative (resolved against PIPELINE_DIR) or absolute.
+# Default points at AtHAP2 + SmelDMPv5_10.610 so the in silico run reproduces
+# the paper's species pair; swap hap2_fasta to your SmelHAP2 FASTA for the
+# eggplant-native run (and remap the ranges in [variants] - see [M2]).
+[inputs]
+hap2_fasta          = "II_INPUTS/HAP2/AtHAP2_At4g11720.fasta"
+dmp_fasta           = "II_INPUTS/DMP/SmelDMPv5_10.610.fasta"
+# Optional: experimental HAP2 ectodomain crystal (PDB 5OW3, Fedry et al. 2017)
+# used as a sanity reference, never as input to AF3.
+hap2_reference_pdb  = ""
+
+# ── Variant table (parallel arrays; index i across all three is one variant)
+# ────────────────────────────────────────────────────────────────────────────
+# `deletions` format: comma-separated "start-end" ranges, 1-indexed, inclusive.
+# Empty string = WT (no deletion). Multiple ranges in one variant = applied
+# simultaneously, in order, with the sequence reindexed after each cut.
+#
+# Provenance of each row (Wang et al. 2022 Fig. 3A + SI Fig. S7-S8):
+#
+#   WT             : positive control, full-length HAP2 (1-705)
+#   delC_596_705   : "lacked the C terminus (596-705)"; 13 aa adjacent to TMD
+#                    are kept because TMD ends near residue 595
+#   delEcto_25_530 : "HAP2 variant without the ectodomain (25-530)"; only the
+#                    signal peptide (1-24), TMD, and cytoplasmic tail remain;
+#                    this is the variant that still gave a weak DMP9 signal
+#   delEcto_D1     : N-terminal beta-sandwich of the ectodomain
+#   delEcto_D2     : middle subdomain housing the fusion loop
+#   delEcto_D3     : C-terminal subdomain of the ectodomain
+#   delEcto_FL     : fusion-loop-only deletion (subset of D2)
+#
+# VERIFY: the D1/D2/D3/FL boundaries below are reasonable estimates based on
+# the Fedry et al. 2017 crystal (PDB 5OW3). Confirm against Fig. 3A / SI
+# Fig. S7 of the paper and edit before submitting AF3 jobs.
+[variants]
+names = [
+    "WT",
+    "delC_596_705",
+    "delEcto_25_530",
+    "delEcto_D1",
+    "delEcto_D2",
+    "delEcto_D3",
+    "delEcto_FL",
+]
+descriptions = [
+    "Full-length HAP2 (positive control)",
+    "C-terminal deletion 596-705 (paper Fig. 3A)",
+    "Ectodomain deletion 25-530 (paper Fig. 3A)",
+    "Ectodomain D1 beta-sandwich deletion (estimate; VERIFY against Fig. 3A)",
+    "Ectodomain D2 middle subdomain deletion (estimate; VERIFY against Fig. 3A)",
+    "Ectodomain D3 C-terminal subdomain deletion (estimate; VERIFY)",
+    "Fusion-loop-only deletion (estimate; VERIFY)",
+]
+deletions = [
+    "",
+    "596-705",
+    "25-530",
+    "51-188",
+    "189-330",
+    "331-530",
+    "220-260",
+]
+
+# ── Stoichiometry table (parallel arrays) ──────────────────────────────────
+# Mirrors the three AF3 models you already have on hand: monomeric, dimeric,
+# trimeric HAP2 each paired with one SmelDMP copy. The orchestrator submits
+# one AF3 job per (variant, stoichiometry) cell of this matrix.
+[stoichiometry]
+labels       = ["monomeric", "dimeric", "trimeric"]
+chain_counts = [1, 2, 3]
+dmp_copies   = 1
+
+# ── Complex prediction backend ─────────────────────────────────────────────
+# "manual" (default): the orchestrator writes a submission manifest TSV and
+#   stages output directories; you submit each job at https://alphafoldserver.com/
+#   and drop the downloads in place. See [M3] in --show-manual-steps.
+# "local": run AF3 locally via a commercial-licence binary at [tools].af3_binary.
+[predict_complexes]
+backend     = "manual"
+af3_seeds   = 5     # ignored in manual mode (server picks its own)
+
+# ── Interface analysis (freesasa + Biopython + PRODIGY) ────────────────────
+[interface]
+contact_cutoff_angstrom = 5.0    # heavy-atom distance for interface contacts
+sasa_probe_radius       = 1.4    # water probe in Angstrom
+include_water_in_sasa   = false
+report_per_chain_bsa    = true
+
+# ── MD equilibration (delegates to PPI stage-10 GROMACS modules) ───────────
+# membrane = true requires a CHARMM-GUI-prepared POPC/POPE box (see [M6]).
+# Production length is short by design - this stage tests interface stability
+# rather than sampling slow conformational change.
+[md_equilibration]
+backend            = "gromacs"
+forcefield         = "amber99sb-ildn"
+water_model        = "tip3p"
+box_padding_nm     = 1.2
+ion_concentration  = 0.15
+em_steps           = 50000
+nvt_ps             = 100
+npt_ps             = 100
+production_ns      = 50
+temperature_k      = 310
+membrane           = false       # set true after preparing CHARMM-GUI input
+gpu_offload        = true        # CUDA GROMACS required; see [M5]
+
+# ── Binding free energy decomposition ──────────────────────────────────────
+# Three independent backends - run all three and report the spread.
+#   mmpbsa : gmx_MMPBSA over the production trajectory (slowest, most physical)
+#   foldx  : FoldX AnalyseComplex on a single relaxed snapshot (fast, static)
+#   prodigy: PRODIGY regression on the predicted complex (instant, coarse)
+[binding_energy]
+backends                  = "mmpbsa foldx prodigy"
+mmpbsa_start_frame        = 100    # skip first 100 frames (equilibration)
+mmpbsa_stride             = 5
+mmpbsa_internal_dielectric = 4.0
+foldx_n_runs              = 5      # FoldX RepairPDB + AnalyseComplex repeats
+prodigy_temperature_c     = 25
+
+# ── Computational alanine scan (MutaTeX + FoldX) ───────────────────────────
+# Scans interface residues of the WT complex only - the deletion variants
+# give the domain-level map; this gives the residue-level map.
+[alanine_scan]
+reference_variant        = "WT"
+reference_stoichiometry  = "monomeric"
+ddg_threshold_hotspot    = 2.0     # kcal/mol; residues above this = hot spot
+include_dmp_side         = true    # scan both HAP2 and DMP interface residues
+
+# ── Comparative report ─────────────────────────────────────────────────────
+[comparative_report]
+figure_format            = "pdf"   # pdf | svg | png
+include_paper_overlay    = true    # mark which variants disagree with Wang 2022
+ranking_metric           = "mmpbsa_dg"   # mmpbsa_dg | foldx_dg | prodigy_dg | composite
+
+# ── Tool paths ─────────────────────────────────────────────────────────────
+[tools]
+gromacs_binary      = "gmx"        # use "gmx_mpi" on HPC
+foldx_binary        = ""           # set after [M4]; e.g. "tools/foldx/foldx_20251231"
+af3_binary          = ""           # only if predict_complexes.backend = "local"
+prodigy_conda_env   = "egg"
+gmx_mmpbsa_env      = "gmxmmpbsa"  # create via mamba install gmx_MMPBSA
+
+# ============================================================================
+# References (also printed inside 14_HAP2_Domain_Mapping.sh header)
+#   AlphaFold3       Abramson et al. 2024     10.1038/s41586-024-07487-w
+#   GROMACS          Abraham et al. 2015      10.1016/j.softx.2015.06.001
+#   gmx_MMPBSA       Valdes-Tresanco 2021     10.1021/acs.jctc.1c00645
+#   FoldX            Schymkowitz et al. 2005  10.1093/nar/gki387
+#   MutaTeX          Tiberti et al. 2022      10.5281/zenodo.6346203
+#   freesasa         Mitternacht 2016         10.12688/f1000research.7931.1
+#   PRODIGY          Xue et al. 2016          10.1093/bioinformatics/btw514
+#   HAP2 crystal     Fedry et al. 2017        10.1016/j.cell.2017.10.024 (PDB 5OW3)
+#   Paper basis      Wang et al. 2022         PMC9659367
+# ============================================================================

@@ -94,7 +94,7 @@ ONLY_VARIANT=""
 
 print_usage() {
     cat <<USAGE
-Usage: bash 14_Special_Pipeline.sh [options]
+Usage: bash 14_HAP2_Domain_Mapping.sh [options]
 
 Options:
   --dry-run                Print the actions for each stage without running them.
@@ -207,7 +207,7 @@ fi
 # ── Gene-group iteration ────────────────────────────────────────────────────
 mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null)
 if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
-    echo "ERROR: pipeline.gene_groups is empty in 14_special_pipelineCONFIG.toml" >&2
+    echo "ERROR: pipeline.gene_groups is empty in 14_HAP2_Domain_MappingCONFIG.toml" >&2
     exit 1
 fi
 
@@ -259,9 +259,9 @@ for GENE_GROUP in "${GENE_GROUPS[@]}"; do
 
 # Config resolution: shared root + optional per-group override (cat-merged)
 CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
-PER_GROUP_CFG="$CONFIG_DIR/14_special_pipeline_${GENE_GROUP}.toml"
+PER_GROUP_CFG="$CONFIG_DIR/14_HAP2_Domain_Mapping_${GENE_GROUP}.toml"
 if [[ -f "$PER_GROUP_CFG" ]]; then
-    CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_special_cfg_XXXXXX.toml")
+    CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_domain_mapping_cfg_XXXXXX.toml")
     cat "$SHARED_CONFIG" "$PER_GROUP_CFG" > "$CONFIG_FILE"
     TMP_CONFIG_FILES+=("$CONFIG_FILE")
 else

@@ -403,7 +403,7 @@ run_meme_analysis() {
         echo "JASPAR/JASPAR2024_CORE_plants_non-redundant_v2.meme,ARABD/ArabidopsisDAPv1.meme")
 
     # JPEG / color scheme parameters
-    local color_scheme jpeg_dpi jpeg_columns jpeg_quality jpeg_logo_padding motif_location_palette motif_location_bg
+    local color_scheme jpeg_dpi jpeg_columns jpeg_quality jpeg_logo_padding motif_location_palette motif_location_bg motif_location_font_scale
     color_scheme=$(get_toml meme color_scheme 2>/dev/null || echo "default")
     jpeg_dpi=$(get_toml meme jpeg_dpi 2>/dev/null || echo "300")
     jpeg_columns=$(get_toml meme jpeg_columns 2>/dev/null || echo "5")
@@ -411,6 +411,7 @@ run_meme_analysis() {
     jpeg_logo_padding=$(get_toml meme jpeg_logo_padding 2>/dev/null || echo "10")
     motif_location_palette=$(get_toml meme motif_location_palette 2>/dev/null || echo "wong")
     motif_location_bg=$(get_toml meme motif_location_bg 2>/dev/null || echo "")
+    motif_location_font_scale=$(get_toml meme motif_location_font_scale 2>/dev/null || echo "1.4")
 
     # MEME is multi-threaded: run floor(CPU / optimal_threads) genomes in parallel.
     # TOMTOM/FIMO are single-threaded: pass CPU as max-parallel inside the module.
@@ -548,6 +549,7 @@ run_meme_analysis() {
                 --jpeg-logo-padding "$jpeg_logo_padding"
                 --motif-palette     "$motif_location_palette"
                 --motif-bg          "$motif_location_bg"
+                --motif-font-scale  "$motif_location_font_scale"
             )
             [[ -n "$phylo_order_file" ]] && cmd+=(--phylo-order-file "$phylo_order_file")
             [[ -n "$overwrite_arg" ]] && cmd+=("$overwrite_arg")
@@ -616,6 +618,7 @@ run_meme_analysis() {
             --jpeg-logo-padding "$jpeg_logo_padding"
             --motif-palette     "$motif_location_palette"
             --motif-bg          "$motif_location_bg"
+            --motif-font-scale  "$motif_location_font_scale"
         )
         [[ -n "$overwrite_arg" ]] && cmd+=("$overwrite_arg")
 

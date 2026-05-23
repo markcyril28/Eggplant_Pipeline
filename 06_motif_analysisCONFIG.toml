@@ -54,6 +54,10 @@ jpeg_logo_padding = 10        # px between logo tiles
 # (wong|warm|cool|pastel|high_contrast|dark|dmp_interaction) or comma-separated hex.
 motif_location_palette = "dmp_interaction"
 motif_location_bg      = "light"   # dark|light or hex (empty = white)
+# Global font scale for the motif locations figure (MEME web-default layout
+# with Name | p-value | Motif Locations columns and a Motif Consensus table
+# at the bottom). 1.0 = native sizes; 1.4 boosts every text element for print.
+motif_location_font_scale = 1.4
 
 # --- Discovery ---
 # Tuned for small families (~7 paralogs); for larger sets raise nmotifs and

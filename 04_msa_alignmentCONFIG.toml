@@ -36,8 +36,8 @@ overwrite    = true
 #   "v3_Full_and_HI_DMPs"            - Selected Crop Species + verified HI panel (deduped)
 #   "v4_BLAST_Groups_bitscore200"    - per-paralog BLAST groups (bit score >= 200)
 input_sets = [
-    #"v1_Full",
-    #"v2_Reduced",
+    "v1_Full",
+    "v2_Reduced",
     "v3_Full_and_HI_DMPs",
     "v4_BLAST_Groups_bitscore200",
 ]

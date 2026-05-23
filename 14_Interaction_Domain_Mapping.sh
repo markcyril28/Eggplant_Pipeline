@@ -257,6 +257,82 @@ run_or_echo() {
     fi
 }
 
+# Dynamic per-tool conda-env switching. Each Stage 14 operation lives in
+# its own conda env (Biopython / AlphaFold3 / PRODIGY / GROMACS / gmx_MMPBSA
+# / MutaTeX / plotting); the env name is taken from [conda_envs] in the
+# TOML and resolved by `env_for <op>` below. `conda_run_in <env> <cmd...>`
+# wraps the command with `conda run -n <env> --no-capture-output` and
+# honours $DRY_RUN. An empty env name skips the wrapping (runs in the
+# orchestrator's inherited env), which is the right behaviour for tools
+# that are static binaries (FoldX) or whose wrapper script handles its
+# own activation.
+conda_run_in() {
+    local env="$1"; shift
+    if [[ "$DRY_RUN" == "true" ]]; then
+        if [[ -z "$env" ]]; then
+            log_info "[DRY-RUN] $*"
+        else
+            log_info "[DRY-RUN] conda run -n $env --no-capture-output $*"
+        fi
+        return 0
+    fi
+    if [[ -z "$env" ]]; then
+        log_info "Running (no conda wrap): $*"
+        "$@"
+    else
+        log_info "Running (env=$env): $*"
+        conda run -n "$env" --no-capture-output "$@"
+    fi
+}
+
+# Trim leading/trailing whitespace from a string. Uses bash parameter
+# expansion so it's quick and dependency-free.
+trim_ws() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    printf '%s' "$s"
+}
+
+# Split a "name | description" row from [variants].rows / [dmp_variants].rows
+# into the global _ROW_NAME / _ROW_DESC. Empty / whitespace-only rows
+# return empty _ROW_NAME so the caller can skip.
+parse_variant_row() {
+    local row="$1"
+    _ROW_NAME=""
+    _ROW_DESC=""
+    [[ -z "$(trim_ws "$row")" ]] && return
+    local rest
+    _ROW_NAME="${row%%|*}"
+    rest="${row#*|}"
+    if [[ "$rest" == "$row" ]]; then
+        # No '|' in the row; treat the whole row as the name, blank desc.
+        rest=""
+    fi
+    _ROW_NAME="$(trim_ws "$_ROW_NAME")"
+    _ROW_DESC="$(trim_ws "$rest")"
+}
+
+# Resolve the conda env for a given operation key. Looks up
+# [conda_envs].<op> first; falls back to legacy [tools].prodigy_conda_env
+# / gmx_mmpbsa_env where appropriate so older configs still work. Returns
+# empty string when neither is set.
+env_for() {
+    local op="$1" val=""
+    val=$(get_toml conda_envs "$op" 2>/dev/null || echo "")
+    if [[ -z "$val" ]]; then
+        case "$op" in
+            interface_analysis|prodigy_dg|comparative_report)
+                val=$(get_toml tools prodigy_conda_env 2>/dev/null || echo "")
+                ;;
+            mmpbsa)
+                val=$(get_toml tools gmx_mmpbsa_env 2>/dev/null || echo "")
+                ;;
+        esac
+    fi
+    printf '%s' "$val"
+}
+
 TMP_CONFIG_FILES=()
 cleanup_tmp_configs() {
     local cfg
@@ -334,27 +410,104 @@ if [[ ! -f "$HAP2_FASTA" || ! -f "$DMP_FASTA" ]]; then
     continue
 fi
 
-# HAP2 variant table (parallel arrays so parse_toml.py can read them)
-mapfile -t VARIANT_NAMES        < <(get_toml variants names 2>/dev/null)
-mapfile -t VARIANT_DESCRIPTIONS < <(get_toml variants descriptions 2>/dev/null)
-mapfile -t VARIANT_DELETIONS    < <(get_toml variants deletions 2>/dev/null)
-if [[ ${#VARIANT_NAMES[@]} -eq 0 ]]; then
-    log_error "[variants].names is empty - nothing to map."
+# ── HAP2 variant table ──────────────────────────────────────────────────────
+# Single-list layout: [hap2_variants].rows holds "name | description" rows;
+# residue ranges live in [hap2_variants.coords.<at|sm>].<name>.
+# coords_column selects which per-species coord table the orchestrator
+# reads. Anything in coords with value "TBD" (or empty) is treated as
+# "not yet remapped" and that variant is skipped with a warning.
+HAP2_COORDS_COL=$(get_toml hap2_variants coords_column 2>/dev/null || echo "at")
+case "$HAP2_COORDS_COL" in
+    at|sm) ;;
+    *)
+        log_error "[hap2_variants].coords_column = '$HAP2_COORDS_COL'; must be 'at' or 'sm'"
+        teardown_logging
+        continue
+        ;;
+esac
+
+mapfile -t _VARIANT_ROWS < <(get_toml hap2_variants rows 2>/dev/null)
+if [[ ${#_VARIANT_ROWS[@]} -eq 0 ]]; then
+    log_error "[hap2_variants].rows is empty - nothing to map."
     teardown_logging
     continue
 fi
 
-# DMP variant table (orthogonal counterpart to [variants]; optional - if
-# omitted, a single WT DMP partner is inferred from [inputs].dmp_fasta so the
-# legacy HAP2-only setup still works)
-mapfile -t DMP_VARIANT_NAMES        < <(get_toml dmp_variants names 2>/dev/null)
-mapfile -t DMP_VARIANT_DESCRIPTIONS < <(get_toml dmp_variants descriptions 2>/dev/null)
-mapfile -t DMP_VARIANT_DELETIONS    < <(get_toml dmp_variants deletions 2>/dev/null)
-if [[ ${#DMP_VARIANT_NAMES[@]} -eq 0 ]]; then
-    log_info "[dmp_variants] not declared - using single WT DMP partner from [inputs].dmp_fasta"
+VARIANT_NAMES=()
+VARIANT_DESCRIPTIONS=()
+VARIANT_DELETIONS=()
+for _row in "${_VARIANT_ROWS[@]}"; do
+    parse_variant_row "$_row"
+    [[ -z "$_ROW_NAME" ]] && continue
+    if [[ "$_ROW_NAME" == "WT" ]]; then
+        _coord=""
+    else
+        _coord=$(get_toml hap2_variants coords "$HAP2_COORDS_COL" "$_ROW_NAME" 2>/dev/null || echo "")
+        if [[ -z "$_coord" || "$_coord" == "TBD" ]]; then
+            log_warn "[hap2_variants] '$_ROW_NAME': no $HAP2_COORDS_COL coords (value '$_coord'); skipping. Add a range under [hap2_variants.coords.$HAP2_COORDS_COL].$_ROW_NAME to enable."
+            continue
+        fi
+    fi
+    VARIANT_NAMES+=("$_ROW_NAME")
+    VARIANT_DESCRIPTIONS+=("$_ROW_DESC")
+    VARIANT_DELETIONS+=("$_coord")
+done
+unset _row _coord
+
+if [[ ${#VARIANT_NAMES[@]} -eq 0 ]]; then
+    log_error "[hap2_variants]: all rows skipped (no usable $HAP2_COORDS_COL coords). Fix [hap2_variants.coords.$HAP2_COORDS_COL] and re-run."
+    teardown_logging
+    continue
+fi
+
+# ── DMP variant table ───────────────────────────────────────────────────────
+# Symmetric peer of the HAP2 block above: same layout, same coords_column
+# selector, same at/sm sub-tables. Default = "sm" since the shared
+# [inputs].dmp_fasta is SmelDMP; the DMP_x_AtHAP2 per-run override flips
+# it to "at" alongside its dmp_fasta override.
+DMP_COORDS_COL=$(get_toml dmp_variants coords_column 2>/dev/null || echo "sm")
+case "$DMP_COORDS_COL" in
+    at|sm) ;;
+    *)
+        log_error "[dmp_variants].coords_column = '$DMP_COORDS_COL'; must be 'at' or 'sm'"
+        teardown_logging
+        continue
+        ;;
+esac
+
+mapfile -t _DMP_VARIANT_ROWS < <(get_toml dmp_variants rows 2>/dev/null)
+DMP_VARIANT_NAMES=()
+DMP_VARIANT_DESCRIPTIONS=()
+DMP_VARIANT_DELETIONS=()
+if [[ ${#_DMP_VARIANT_ROWS[@]} -eq 0 ]]; then
+    log_info "[dmp_variants].rows not declared - using single WT DMP partner from [inputs].dmp_fasta"
     DMP_VARIANT_NAMES=("WT")
-    DMP_VARIANT_DESCRIPTIONS=("Full-length DMP (inferred default; [dmp_variants] not declared)")
+    DMP_VARIANT_DESCRIPTIONS=("Full-length DMP (inferred default; [dmp_variants].rows not declared)")
     DMP_VARIANT_DELETIONS=("")
+else
+    for _row in "${_DMP_VARIANT_ROWS[@]}"; do
+        parse_variant_row "$_row"
+        [[ -z "$_ROW_NAME" ]] && continue
+        if [[ "$_ROW_NAME" == "WT" ]]; then
+            _coord=""
+        else
+            _coord=$(get_toml dmp_variants coords "$DMP_COORDS_COL" "$_ROW_NAME" 2>/dev/null || echo "")
+            if [[ -z "$_coord" || "$_coord" == "TBD" ]]; then
+                log_warn "[dmp_variants] '$_ROW_NAME': no $DMP_COORDS_COL coords (value '$_coord'); skipping. Add a range under [dmp_variants.coords.$DMP_COORDS_COL].$_ROW_NAME to enable."
+                continue
+            fi
+        fi
+        DMP_VARIANT_NAMES+=("$_ROW_NAME")
+        DMP_VARIANT_DESCRIPTIONS+=("$_ROW_DESC")
+        DMP_VARIANT_DELETIONS+=("$_coord")
+    done
+    unset _row _coord
+    if [[ ${#DMP_VARIANT_NAMES[@]} -eq 0 ]]; then
+        log_warn "[dmp_variants]: all rows skipped (no usable $DMP_COORDS_COL coords) - falling back to WT partner."
+        DMP_VARIANT_NAMES=("WT")
+        DMP_VARIANT_DESCRIPTIONS=("Full-length DMP (fallback; all rows skipped)")
+        DMP_VARIANT_DELETIONS=("")
+    fi
 fi
 
 # Build pairs from HAP2 ladder x DMP ladder per [pairing].mode
@@ -434,6 +587,21 @@ FOLDX_BIN=$(get_toml tools foldx_binary 2>/dev/null || echo "")
 GMX_BIN=$(get_toml tools gromacs_binary 2>/dev/null || echo "gmx")
 PRODIGY_ENV=$(get_toml tools prodigy_conda_env 2>/dev/null || echo "egg")
 
+# Per-operation conda envs resolved once per gene group. Each one is
+# applied as `conda run -n <env>` around the matching invocation below.
+# Empty values fall through to running in the orchestrator's inherited
+# env (correct for static-binary tools like FoldX). See [conda_envs] in
+# 14_Interaction_Domain_MappingCONFIG.toml for the per-op mapping.
+ENV_PREPARE=$(env_for prepare_variants)
+ENV_PREDICT=$(env_for predict_complexes)
+ENV_IFACE=$(env_for interface_analysis)
+ENV_MD=$(env_for md_equilibration)
+ENV_MMPBSA=$(env_for mmpbsa)
+ENV_FOLDX=$(env_for foldx_dg)
+ENV_PRODIGY_DG=$(env_for prodigy_dg)
+ENV_ASCAN=$(env_for alanine_scan)
+ENV_REPORT=$(env_for comparative_report)
+
 log_step "Stage 14 (Domain Mapping): $GENE_GROUP"
 log_info "Operations:    ${OPERATIONS[*]}"
 log_info "HAP2 variants: ${VARIANT_NAMES[*]}"
@@ -442,6 +610,16 @@ log_info "Pairing mode:  $PAIRING_MODE  (=> ${#PAIR_LABEL[@]} pairs per stoichio
 log_info "Stoichiometry: ${STOICH_LABELS[*]} (${STOICH_COUNTS[*]} HAP2 copies)"
 log_info "Predict backend: $PREDICT_BACKEND   MD backend: $MD_BACKEND"
 log_info "Compute: host=${HOST_CPU}c  CPU=$CPU  MAX_PARALLEL=$MAX_PARALLEL"
+log_info "Conda envs (per op):"
+log_info "  prepare_variants   = '${ENV_PREPARE}'"
+log_info "  predict_complexes  = '${ENV_PREDICT}'   (used only when backend=local)"
+log_info "  interface_analysis = '${ENV_IFACE}'"
+log_info "  md_equilibration   = '${ENV_MD}'"
+log_info "  mmpbsa             = '${ENV_MMPBSA}'"
+log_info "  foldx_dg           = '${ENV_FOLDX}'   (empty = static binary, no env)"
+log_info "  prodigy_dg         = '${ENV_PRODIGY_DG}'"
+log_info "  alanine_scan       = '${ENV_ASCAN}'"
+log_info "  comparative_report = '${ENV_REPORT}'"
 log_info "Output:        $OUT_DIR"
 
 # ============================================================================
@@ -463,7 +641,7 @@ if op_enabled "prepare_variants"; then
             continue
         fi
         log_info "    [$VNAME] $VDESC  (delete='$VDEL')"
-        run_or_echo python3 "$GEN_SCRIPT" \
+        conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
             --input "$HAP2_FASTA" \
             --name "$VNAME" \
             --description "$VDESC" \
@@ -483,7 +661,7 @@ if op_enabled "prepare_variants"; then
             continue
         fi
         log_info "    [$DNAME] $DDESC  (delete='$DDEL')"
-        run_or_echo python3 "$GEN_SCRIPT" \
+        conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
             --input "$DMP_FASTA" \
             --name "$DNAME" \
             --description "$DDESC" \
@@ -558,7 +736,7 @@ EOF
             else
                 # Local AF3 wrapper (commercial licence required)
                 PRED_WRAP="$MODULES/14_special_pipeline/predict_af3_local.sh"
-                run_or_echo bash "$PRED_WRAP" \
+                conda_run_in "$ENV_PREDICT" bash "$PRED_WRAP" \
                     --hap2-fasta "$H_FASTA" \
                     --hap2-copies "$NHAP" \
                     --dmp-fasta "$D_FASTA" \
@@ -638,7 +816,7 @@ if op_enabled "interface_analysis"; then
             fi
             wait_for_slot "$MAX_PARALLEL"
             (
-                run_or_echo conda run -n "$PRODIGY_ENV" python3 "$ANALYZER" \
+                conda_run_in "$ENV_IFACE" python3 "$ANALYZER" \
                     --complex "$CIF" \
                     --hap2-chain-prefix A \
                     --dmp-chain-prefix B \
@@ -678,7 +856,7 @@ if op_enabled "md_equilibration"; then
             mkdir -p "$MD_SUB"
             [[ ! -s "$CIF" ]] && { log_warn "  [skip] $CIF missing"; continue; }
             log_info "  [$PLAB/$SLAB] MD = ${NS} ns, membrane=$USE_MEMBRANE"
-            run_or_echo bash "$MD_WRAP" \
+            conda_run_in "$ENV_MD" bash "$MD_WRAP" \
                 --complex "$CIF" \
                 --output "$MD_SUB" \
                 --gmx "$GMX_BIN" \
@@ -714,20 +892,22 @@ if op_enabled "binding_energy"; then
             [[ ! -s "$CIF" ]] && { log_warn "  [skip] $CIF missing"; continue; }
 
             if [[ "$DG_BACKENDS" == *mmpbsa* ]]; then
-                run_or_echo bash "$MMPBSA_WRAP" \
+                conda_run_in "$ENV_MMPBSA" bash "$MMPBSA_WRAP" \
                     --md-dir "$MD_SUB" --out "$DG_SUB/mmpbsa" --threads "$CPU"
             fi
             if [[ "$DG_BACKENDS" == *foldx* ]]; then
                 if [[ -z "$FOLDX_BIN" || ! -x "$FOLDX_BIN" ]]; then
                     log_warn "  FoldX binary not set or not executable (set [run].show_manual = true in the TOML to print step [M4]); skipping FoldX backend."
                 else
-                    run_or_echo bash "$FOLDX_WRAP" \
+                    conda_run_in "$ENV_FOLDX" bash "$FOLDX_WRAP" \
                         --complex "$CIF" --foldx "$FOLDX_BIN" --out "$DG_SUB/foldx"
                 fi
             fi
             if [[ "$DG_BACKENDS" == *prodigy* ]]; then
-                run_or_echo bash "$PRODIGY_WRAP" \
-                    --complex "$CIF" --env "$PRODIGY_ENV" --out "$DG_SUB/prodigy"
+                # --env kept for back-compat with wrappers that activate
+                # PRODIGY themselves; the outer conda_run_in is authoritative.
+                conda_run_in "$ENV_PRODIGY_DG" bash "$PRODIGY_WRAP" \
+                    --complex "$CIF" --env "$ENV_PRODIGY_DG" --out "$DG_SUB/prodigy"
             fi
         done
     done
@@ -750,7 +930,7 @@ if op_enabled "alanine_scan"; then
         if [[ -z "$FOLDX_BIN" || ! -x "$FOLDX_BIN" ]]; then
             log_warn "  FoldX binary missing (set [run].show_manual = true in the TOML to print step [M4]); skip alanine scan."
         else
-            run_or_echo bash "$SCAN_WRAP" \
+            conda_run_in "$ENV_ASCAN" bash "$SCAN_WRAP" \
                 --complex "$WT_CIF" \
                 --foldx "$FOLDX_BIN" \
                 --interface-tsv "$IFACE_DIR/$WT_STOICH/$WT_PLAB/interface_residues.tsv" \
@@ -771,7 +951,7 @@ if op_enabled "comparative_report"; then
     log_step "Op 7/7: comparative_report"
     REPORT_WRAP="$MODULES/14_special_pipeline/compare_variants.py"
     PRIMARY_STOICH=$(get_toml stoichiometry primary_stoichiometry 2>/dev/null || echo "monomeric")
-    run_or_echo conda run -n "$PRODIGY_ENV" python3 "$REPORT_WRAP" \
+    conda_run_in "$ENV_REPORT" python3 "$REPORT_WRAP" \
         --hap2-variants "${VARIANT_NAMES[*]}" \
         --dmp-variants "${DMP_VARIANT_NAMES[*]}" \
         --pair-labels "${PAIR_LABEL[*]}" \

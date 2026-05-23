@@ -838,6 +838,45 @@ After the job finishes:
 Re-run "bash 14_Interaction_Domain_Mapping.sh" once the drop is in place.
 EOF
 
+            # deletion_ladder WT__WT: lift the CIF from stoichiometry_comparison so we
+            # don't need a separate AF3 submission for the anchor pair. The monomeric
+            # WT__WT complex is identical across both experiments for the same run label.
+            if [[ "$EXPERIMENT" == "deletion_ladder" && "$PLAB" == "WT__WT" \
+                    && ( ! -s "$EXPECT_CIF" || "$OVERWRITE" == "true" ) ]]; then
+                _SIBLING_CIF="$OUT_DIR/stoichiometry_comparison/02_Complexes/$SLAB/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
+                if [[ -s "$_SIBLING_CIF" ]]; then
+                    log_info "  [LIFT] WT__WT / $SLAB: copying CIF from stoichiometry_comparison (no new AF3 job needed)"
+                    cp "$_SIBLING_CIF" "$EXPECT_CIF"
+                fi
+            fi
+
+            # Auto-extract any downloaded AF3 zip in this slot directory.
+            # Zip files are always kept as backup - never deleted after extraction.
+            # If the extracted CIF has a different name than expected, it is
+            # renamed to the canonical EXPECT_CIF path so downstream ops find it.
+            _ZIPS=()
+            while IFS= read -r _z; do _ZIPS+=("$_z"); done \
+                < <(find "$JOB_DIR" -maxdepth 1 -name '*.zip' 2>/dev/null | sort)
+            if (( ${#_ZIPS[@]} > 0 )); then
+                _ZIP="${_ZIPS[-1]}"   # use the most recent zip if multiple exist
+                if [[ ! -s "$EXPECT_CIF" || "$OVERWRITE" == "true" ]]; then
+                    log_info "  [ZIP] Extracting $(basename "$_ZIP") -> $JOB_DIR  (zip kept as backup)"
+                    unzip -o -q "$_ZIP" -d "$JOB_DIR" \
+                        || log_warn "  [ZIP] unzip failed for $(basename "$_ZIP")"
+                    # Normalise CIF path: AF3 server may name the file differently.
+                    if [[ ! -s "$EXPECT_CIF" ]]; then
+                        _FOUND_CIF=$(find "$JOB_DIR" -maxdepth 2 -name '*.cif' \
+                            ! -path "$EXPECT_CIF" 2>/dev/null | head -1)
+                        if [[ -n "$_FOUND_CIF" ]]; then
+                            mv "$_FOUND_CIF" "$EXPECT_CIF"
+                            log_info "  [ZIP] Renamed $(basename "$_FOUND_CIF") -> $(basename "$EXPECT_CIF")"
+                        fi
+                    fi
+                else
+                    log_info "  [ZIP] $(basename "$_ZIP") present; CIF already extracted (OVERWRITE=false, zip kept)"
+                fi
+            fi
+
             if [[ "$PREPARE_BACKEND" == "manual" ]]; then
                 if [[ ! -s "$EXPECT_CIF" ]]; then
                     log_warn "  [MISSING] $PLAB / $SLAB ($NHAP HAP2[$H] + 1 DMP[$D]) - upload to https://alphafoldserver.com/ and save to $JOB_DIR/"

@@ -63,7 +63,10 @@ only_dmp_variants = []
 #   DMP_x_AtHAP2    AtHAP2/At4g11720 + AtDMP8/AT1G09157     (paper-mirroring)
 #   DMP_x_SmelHAP2  SmelHAP2 ortholog + SmelDMPv5_10.610    (eggplant-native)
 [pipeline]
-gene_groups = ["DMP_x_AtHAP2", "DMP_x_SmelHAP2"]
+gene_groups = [
+    "DMP_x_AtHAP2", 
+    "DMP_x_SmelHAP2"
+]
 machine     = "Local"
 overwrite   = true
 
@@ -106,8 +109,8 @@ enabled = true
 
 [domain_mapping.operations]
 stoichiometry_comparison = [
-    "prepare_variants",          # Build WT FASTA + 3 per-stoichiometry complex FASTAs (1:1, 2:1, 3:1)
-    #"prepare_complexes",         # Submit/run AF3 per stoichiometry; collect rank-1 model + ipTM/pTM
+    #"prepare_variants",          # Build WT FASTA + 3 per-stoichiometry complex FASTAs (1:1, 2:1, 3:1)
+    "prepare_complexes",         # Submit/run AF3 per stoichiometry; collect rank-1 model + ipTM/pTM
     #"interface_analysis",        # freesasa BSA, heavy-atom contacts, per-chain SASA
     ##"md_equilibration",         # POSTPONED - GROMACS short MD
     #"binding_energy",            # FoldX + PRODIGY DG (mmpbsa gated off with GROMACS)
@@ -115,8 +118,8 @@ stoichiometry_comparison = [
 ]
 
 deletion_ladder = [
-    "prepare_variants",          # Build HAP2 + DMP truncation FASTAs and per-pair complex FASTAs
-    #"prepare_complexes",         # Submit/run AF3 per pair; collect rank-1 model + ipTM/pTM
+    #"prepare_variants",          # Build HAP2 + DMP truncation FASTAs and per-pair complex FASTAs
+    "prepare_complexes",         # Extract downloaded AF3 zips (zip kept as backup); verify rank-1 CIF
     #"interface_analysis",        # freesasa BSA, heavy-atom contacts, per-chain SASA
     ##"md_equilibration",         # POSTPONED - GROMACS short MD
     #"binding_energy",            # FoldX + PRODIGY DG (mmpbsa gated off with GROMACS)

@@ -104,7 +104,7 @@ GROMACS_URL="https://ftp.gromacs.org/gromacs/gromacs-${GROMACS_VERSION}.tar.gz"
 BUILD_DIR="${HOME}/.local/share/gromacs-build"
 
 # Number of parallel jobs for compilation
-NJOBS=$(nproc 2>/dev/null || echo 8)
+NJOBS=8
 
 # ROCm path (for AMD GPUs)
 ROCM_PATH="${ROCM_PATH:-/opt/rocm}"

@@ -47,7 +47,7 @@ PIPELINE_DIR = _HERE.parents[2]
 
 _MSA_DIR = (
     PIPELINE_DIR
-    / "3_RESULT/DMP/09_Secondary_Structure_Analysis"
+    / "3_RESULT/DMP/10_Secondary_Structure_Analysis"
     / "GPE001970_SMEL5/INPUTS/MAFFT_aligned"
 )
 _STEM = "per_genome_gpe001970_and_Selected_Crop_Species_AMINO_ACID_Sequence"
@@ -79,7 +79,7 @@ DEFAULT_STRUCTURES = [
 ]
 DEFAULT_ESPRIPT_DIR = (
     PIPELINE_DIR
-    / "3_RESULT/DMP/09_Secondary_Structure_Analysis"
+    / "3_RESULT/DMP/10_Secondary_Structure_Analysis"
     / "GPE001970_SMEL5/INPUTS/ESPript3"
 )
 # ---------------------------------------------------------------------------

@@ -231,10 +231,15 @@ run_operation() {
     # Wrap in run_with_space_time_log so each operation gets its own time/space
     # row in logs/space_time_logs/*.csv; --output points at II_RESULTS so the
     # post-run delta size is recorded. `env PROJECT_ROOT=...` only sets the
-    # var for the child process — the orchestrator's own PROJECT_ROOT is not
+    # var for the child process, the orchestrator's own PROJECT_ROOT is not
     # mutated, so no save/restore is needed.
+    #
+    # BASE_DIR must also be set: the patched runner lives in /tmp, so its
+    # BASH_SOURCE-based path resolution would otherwise look for sibling
+    # modules under /tmp and fail silently. Passing BASE_DIR overrides the
+    # runner's self-resolution (see run_post_processing.sh:138-149).
     run_with_space_time_log --output "$RNASEQ_DIR/II_RESULTS" \
-        env PROJECT_ROOT="$RNASEQ_DIR" bash "$tmp_runner"
+        env PROJECT_ROOT="$RNASEQ_DIR" BASE_DIR="$RNASEQ_DIR" bash "$tmp_runner"
 }
 
 # ---- Run all enabled operations in order -------------------------------------

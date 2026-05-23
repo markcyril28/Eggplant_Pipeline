@@ -227,7 +227,12 @@ case "$SOFTWARE" in
         fi
         [[ -z "$EFFECTIVE_MEGA_CONFIG" || ! -f "$EFFECTIVE_MEGA_CONFIG" ]] && { log_error "MEGA_CC requires a valid config file (alphabet: $SEQ_ALPHABET)"; exit 1; }
         CONFIG_BASE=$(basename "$EFFECTIVE_MEGA_CONFIG" .mao)
-        OUTPUT_FILE="$TREE_DIR/${BASENAME}_${CONFIG_BASE}.nwk"
+        # megacc -o is a BASE PREFIX, not a filename. It writes <base>.nwk
+        # (ML best tree) and, with bootstrap, <base>_consensus.nwk plus a
+        # <base>_summary.txt. Passing a path ending in .nwk produced
+        # <base>.nwk.nwk and broke the rerun guard.
+        OUTPUT_BASE="$TREE_DIR/${BASENAME}_${CONFIG_BASE}"
+        OUTPUT_FILE="${OUTPUT_BASE}.nwk"
         MEGA_LOG="$TREE_DIR/${BASENAME}_MEGA.log"
 
         if [[ -s "$OUTPUT_FILE" ]]; then
@@ -238,15 +243,22 @@ case "$SOFTWARE" in
 
         log_step "MEGA_CC: $BASENAME"
         rc=0
+        # megacc has no --cpu flag; thread count is read from the .mao file
+        # ("Number of Threads = N"). Passing --cpu aborts with "unrecognized option".
         megacc \
             -d "$DEDUP_FASTA" \
             -a "$EFFECTIVE_MEGA_CONFIG" \
-            -o "$OUTPUT_FILE" \
-            --cpu "$CPU" \
+            -o "$OUTPUT_BASE" \
             > "$MEGA_LOG" 2>&1 || rc=$?
         if (( rc != 0 )); then
             log_error "MEGA_CC failed with exit code $rc (see $MEGA_LOG)"
             exit 1
+        fi
+
+        # Prefer the ML best tree; fall back to the bootstrap consensus tree
+        # if megacc only emitted that variant for this analysis.
+        if [[ ! -s "$OUTPUT_FILE" && -s "${OUTPUT_BASE}_consensus.nwk" ]]; then
+            OUTPUT_FILE="${OUTPUT_BASE}_consensus.nwk"
         fi
 
         if [[ -s "$OUTPUT_FILE" ]]; then

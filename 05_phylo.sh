@@ -147,6 +147,14 @@ MEGACC_CONFIG_NUC=$(resolve_megacc_config config_file_nucleotide)
 MEGACC_CONFIG_AA=$(resolve_megacc_config config_file_protein)
 MEGACC_MODELSEL_NUC=$(resolve_megacc_config modelsel_file_nucleotide)
 MEGACC_MODELSEL_AA=$(resolve_megacc_config modelsel_file_protein)
+MEGACC_MODELSEL_BACKEND=$(get_toml phylogenetics megacc modelsel_backend 2>/dev/null || true)
+
+# ModelTest-NG knobs (read regardless of backend; forwarded only when relevant).
+MODELTEST_THREADS=$(get_toml phylogenetics modeltest_ng optimal_threads 2>/dev/null || echo "")
+MODELTEST_CRITERION=$(get_toml phylogenetics modeltest_ng criterion 2>/dev/null || echo "bic")
+MODELTEST_STARTING_TREE=$(get_toml phylogenetics modeltest_ng starting_tree 2>/dev/null || echo "ml")
+MODELTEST_TEMPLATE=$(get_toml phylogenetics modeltest_ng template 2>/dev/null || echo "")
+MODELTEST_GAMMA_CATS=$(get_toml phylogenetics modeltest_ng gamma_categories 2>/dev/null || echo "")
 
 mapfile -t _raw_software < <(get_toml phylogenetics software 2>/dev/null || true)
 PHYLO_SOFTWARE=()
@@ -349,6 +357,12 @@ for software in "${PHYLO_SOFTWARE[@]}"; do
                 [[ -n "$MEGACC_CONFIG_AA"  ]] && extra_args+=(--megacc-config-aa  "$MEGACC_CONFIG_AA")
                 [[ -n "$MEGACC_MODELSEL_NUC" ]] && extra_args+=(--megacc-modelsel-nuc "$MEGACC_MODELSEL_NUC")
                 [[ -n "$MEGACC_MODELSEL_AA"  ]] && extra_args+=(--megacc-modelsel-aa  "$MEGACC_MODELSEL_AA")
+                [[ -n "$MEGACC_MODELSEL_BACKEND" ]] && extra_args+=(--modelsel-backend "$MEGACC_MODELSEL_BACKEND")
+                [[ -n "$MODELTEST_THREADS"       ]] && extra_args+=(--modeltest-threads       "$MODELTEST_THREADS")
+                [[ -n "$MODELTEST_CRITERION"     ]] && extra_args+=(--modeltest-criterion     "$MODELTEST_CRITERION")
+                [[ -n "$MODELTEST_STARTING_TREE" ]] && extra_args+=(--modeltest-starting-tree "$MODELTEST_STARTING_TREE")
+                [[ -n "$MODELTEST_TEMPLATE"      ]] && extra_args+=(--modeltest-template      "$MODELTEST_TEMPLATE")
+                [[ -n "$MODELTEST_GAMMA_CATS"    ]] && extra_args+=(--modeltest-gamma-categories "$MODELTEST_GAMMA_CATS")
             fi
 
             if [[ "$software" == "IQTREE2" ]]; then

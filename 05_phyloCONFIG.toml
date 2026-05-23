@@ -22,8 +22,8 @@ overwrite = true
 operations = [
     "build_tree",          # Already built from the HPC.
     "visualize_tree",
-    "compare_trees",   # IQ-TREE2 vs RAxML tanglegram; exits gracefully if only one software was run
-    "combined_bootstrap_tree"
+    #"compare_trees",   # IQ-TREE2 vs RAxML tanglegram; exits gracefully if only one software was run
+    #"combined_bootstrap_tree"
 ]
 
 # Curated input sets to run. Filters phylogenetics.input_files by path substring:
@@ -75,11 +75,46 @@ config_file_nucleotide = "config/1_CONFIG_FILES_Phylo/infer_ML_nucleotide.mao"
 config_file_protein    = "config/1_CONFIG_FILES_Phylo/infer_ML_amino_acid.mao"
 config_file            = "config/1_CONFIG_FILES_Phylo/infer_ML_amino_acid.mao"
 
-# Optional model-selection templates. When set, build_tree.sh runs megacc
-# "Find Best Models" first, then templates the chosen model into a per-input
-# derived .mao stored next to the tree output. Leave blank to skip auto fit.
+# Model-selection backend (auto-fit before inference). Selector writes the best
+# Model/Method + Rates among Sites into a per-input derived .mao alongside the
+# tree output; that derived .mao drives the megacc inference run.
+#   "modeltest-ng" - external ModelTest-NG (recommended; requires modeltest-ng on PATH)
+#   "megacc"       - MEGA-CC built-in "Find Best Models" (requires modelsel_file_* .mao prototypes;
+#                    regenerate from MEGA-GUI: Models -> Find Best DNA/Protein Models -> Prototype -> Save)
+#   "none" / ""    - skip selection; inference templates are used as-is
+modelsel_backend = "modeltest-ng"
+
+# Used only when modelsel_backend = "megacc".
 modelsel_file_nucleotide = "config/1_CONFIG_FILES_Phylo/find_best_DNA_models.mao"
 modelsel_file_protein    = "config/1_CONFIG_FILES_Phylo/find_best_protein_models.mao"
+
+# ----------------------------------------------------------------------------
+# ModelTest-NG (used when phylogenetics.megacc.modelsel_backend = "modeltest-ng")
+# ----------------------------------------------------------------------------
+[phylogenetics.modeltest_ng]
+# Threads passed to `modeltest-ng -p`. Set to 0 (or leave blank) to inherit the
+# caller's per-job CPU budget — usually what you want, so model selection scales
+# with the same allocation as the downstream megacc inference run.
+optimal_threads  = 8
+
+# Ranking the pipeline picks as "best" from the modeltest-ng .out report:
+#   "bic"  - Bayesian Information Criterion (recommended; penalizes overfitting)
+#   "aicc" - corrected Akaike (small-sample correction)
+#   "aic"  - Akaike Information Criterion
+#   "dt"   - decision-theoretic
+criterion = "bic"
+
+# Initial topology used to score candidate models:
+#   "ml" - maximum-likelihood NJ tree (default, more accurate, slower)
+#   "mp" - maximum-parsimony tree (faster, fine for routine selection)
+starting_tree = "ml"
+
+# Constrains the model set to a preset compatible with a downstream tool.
+#   "" | "raxml" | "phyml" | "mrbayes" | "paup"
+template = ""
+
+# Discrete gamma rate categories (modeltest-ng -g). Blank = tool default (4).
+gamma_categories = 4
 
 [phylogenetics.iqtree2]
 optimal_threads = 12

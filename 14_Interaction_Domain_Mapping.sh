@@ -1,20 +1,19 @@
 #! /bin/bash
 
-:
-<<'EOF'
-Result to test:
-
-Interactions between HAP2/GCS1 and DMP9.
-
-Arabidopsis HAP2/GCS1 is a type-1 membrane protein of 705 amino acids, with a long extracellular domain, a single TMD, and a rather short and histidine-rich cytoplasmic tail (7, 15, 42). To identify DMP9-interacting domains of HAP2/GCS1, we introduced deletions in its ectodomain and the cytoplasmic carboxy(C)-terminus for testing binding ability. Notably, their interaction with DMP9 was not compromised when HAP2 lacked the C terminus (596-705, leaving 13 amino acids adjacent to TM domain), or when defined regions of the HAP2 ectodomain were deleted according the HAP2 crystal structure (43) (Fig. 3A and SI Appendix, Fig. S7). Even the HAP2 variant without the ectodomain (25-530) was able to weakly interact with DMP9 in yeast (Fig. 3A and SI Appendix, Fig. S8). This suggests large interaction interfaces involving both extra- and intracellular parts of HAP2, and potentially also involving the membrane-embedded domains of HAP2. Thus, our interaction studies support a previous genetic study in Arabidopsis showing that the extra- and intracellular parts of HAP2 are equally important to rescue the fertility in hap2/gcs1 mutant plants (42). Although this study did not examine the subcellular location of truncated HAP2 proteins, the molecular dissection of C. reinhardtii HAP2 showed that its ectodomain is required for trafficking to the cell surface, whereas the cytoplasmic region is crucial to target CrHAP2 to the minus gamete mating structure and to regulate its fusion activity (44). Currently, it remains unclear whether the HAP2 forms expressed in heterologous systems could fold into a native conformation or the unproper folding forms could be generated since large segments of HAP2 were deleted in the MbY2H assays.
-
-Reference Paper: https://pmc.ncbi.nlm.nih.gov/articles/PMC9659367/
-
-Then, I already have a AlphaFold3 PPI interaction model of;
-    monomeric HAP2 with SmelDMPv5_10.610
-    dimeric HAP2 with SmelDMPv5_10.610
-    trimeric HAP2 with SmelDMPv5_10.610
-EOF
+# Rationale, paper excerpts, and the HAP2 prefusion-postfusion conformational
+# pathway (Feng et al. 2022, Nat Commun) that motivates the three AF3
+# stoichiometries below have been moved out of this script to keep the
+# orchestrator readable. See:
+#     14_Interaction_Domain_Mapping_NOTES.md  (project root, next to this script)
+#
+# AF3 inputs already on disk (one HAP2 model per stoichiometry, paired with
+# SmelDMPv5_10.610):
+#     1 HAP2 + 1 DMP  - prefusion monomer analogue (most consistent with the
+#                       Wang et al. 2022 MbY2H / co-IP setup)
+#     2 HAP2 + 1 DMP  - on-pathway intermediate (not directly supported by
+#                       the paper; included for completeness)
+#     3 HAP2 + 1 DMP  - postfusion class II trimer analogue (tests whether
+#                       DMP can still engage the activated assembly)
 
 # ============================================================================
 # Program 14: In Silico Domain Mapping of the HAP2-DMP Interaction
@@ -26,24 +25,30 @@ EOF
 # SmelDMPv5_10.610, the eggplant DMP candidate identified in this thesis.
 #
 # Strategy:
-#   1. Build truncation variants of SmelHAP2 (or AtHAP2) matching the paper.
-#   2. Predict each variant + SmelDMPv5_10.610 complex at 1:1, 2:1, 3:1
+#   1. Build truncation variants of SmelHAP2 (or AtHAP2) matching the paper,
+#      and (in silico-only) parallel truncations of DMP probing the regions
+#      the paper could not test in MbY2H (notably the DMP N-terminal
+#      cytoplasmic specificity region established by Wang et al. 2022 Fig. 5
+#      chimera rescue). HAP2 and DMP ladders combine into AF3 jobs via the
+#      [pairing] section of the TOML; default = orthogonal ladders.
+#   2. Predict each (HAP2_variant x DMP_variant) complex at 1:1, 2:1, 3:1
 #      stoichiometry via AlphaFold3.
 #   3. Score the predicted interface (BSA, contacts, PRODIGY DG_pred, ipTM).
 #   4. Run short GROMACS MD (NVT + NPT + 50 ns production) to relax each
 #      complex and confirm the interface is stable, not a docking artefact.
 #   5. Decompose binding free energy via gmx_MMPBSA on the MD ensemble and
 #      via FoldX AnalyseComplex on the predicted snapshot.
-#   6. Computational alanine scan of the WT-complex interface (MutaTeX) to
-#      flag hot-spot residues; cross-reference with the regions deleted in
-#      the paper.
-#   7. Rank variants by predicted DG and interface preservation; emit a
+#   6. Computational alanine scan of the WT/WT complex interface (HAP2 WT x
+#      DMP WT) via MutaTeX to flag hot-spot residues; cross-reference with
+#      the regions deleted in the HAP2 and DMP ladders.
+#   7. Rank pairs by predicted DG and interface preservation; emit a
 #      heatmap and a summary TSV that mirrors the paper's Fig. 3A panel.
 #
 # Operations (gated via [domain_mapping].operations in the TOML):
 #   prepare_variants    - build truncated HAP2 FASTAs from variant table
 #   predict_complexes   - AlphaFold3 multimer prediction (USER ACTION required;
-#                         see --show-manual-steps)
+#                         set [run].show_manual = true in the TOML to print
+#                         the submission checklist)
 #   interface_analysis  - residue contacts, BSA, ipTM, PRODIGY DG_pred
 #   md_equilibration    - short GROMACS MD via the existing PPI stage-10 modules
 #   binding_energy      - gmx_MMPBSA on the trajectory + FoldX AnalyseComplex
@@ -51,24 +56,29 @@ EOF
 #   comparative_report  - cross-variant heatmap, ranking, summary TSV / PDF
 #
 # Output layout under III_RESULT/{GROUP}/14_Domain_Mapping/:
-#   01_Variants/                            (truncated HAP2 FASTAs)
-#   02_Complexes/{stoich}/{variant}/        (AF3 .cif / ranking_debug.json)
-#   03_Interfaces/{stoich}/{variant}/       (interface .tsv, BSA, contacts)
-#   04_MD/{stoich}/{variant}/               (GROMACS .gro/.xtc/.edr)
-#   05_BindingEnergy/{stoich}/{variant}/    (MM-PBSA, FoldX dG)
-#   06_AlanineScan/                         (per-residue DDG; WT only)
-#   07_Summary/                             (cross-variant ranking, figures)
+#   01_Variants/HAP2/                       (truncated HAP2 FASTAs)
+#   01_Variants/DMP/                        (truncated DMP FASTAs)
+#   02_Complexes/{stoich}/{pair}/           (AF3 .cif / ranking_debug.json)
+#   03_Interfaces/{stoich}/{pair}/          (interface .tsv, BSA, contacts)
+#   04_MD/{stoich}/{pair}/                  (GROMACS .gro/.xtc/.edr)
+#   05_BindingEnergy/{stoich}/{pair}/       (MM-PBSA, FoldX dG)
+#   06_AlanineScan/                         (per-residue DDG; WT/WT pair only)
+#   07_Summary/                             (cross-pair ranking, figures)
 #
-# References (cite when reusing this pipeline in the manuscript):
-#   AlphaFold3       Abramson et al. 2024     10.1038/s41586-024-07487-w
-#   GROMACS          Abraham et al. 2015      10.1016/j.softx.2015.06.001
-#   gmx_MMPBSA       Valdes-Tresanco 2021     10.1021/acs.jctc.1c00645
-#   FoldX            Schymkowitz et al. 2005  10.1093/nar/gki387
-#   MutaTeX          Tiberti et al. 2022      10.5281/zenodo.6346203
-#   freesasa         Mitternacht 2016         10.12688/f1000research.7931.1
-#   PRODIGY          Xue et al. 2016          10.1093/bioinformatics/btw514
-#   PyMOL            Schroedinger LLC (no DOI; cite version)
-#   Paper basis      Wang et al. 2022         PMC9659367
+# {pair} = "{hap2_variant_name}__{dmp_variant_name}", e.g. "WT__WT",
+# "delC_596_705__WT", "WT__delN_1_64". Built from [variants] x [dmp_variants]
+# according to [pairing].mode (see TOML).
+#
+# References:
+#   Tooling DOIs are listed at the bottom of 14_Interaction_Domain_MappingCONFIG.toml.
+#   All biological background and paper-anchored design decisions (Wang 2022
+#   deletion-binding paper; Feng 2022 HAP2 prefusion-monomer structure;
+#   Cyprys 2019 DMP8/9 discovery; Shiba 2023 GCS1/HAP2 review; EC1 trigger
+#   via Sprunck 2012; Zhang 2021 species-specific gamete recognition; DMP
+#   haploid-induction lineage from Zhong 2019 onward) are documented with
+#   full, citation-checked references in:
+#       14_Interaction_Domain_Mapping_NOTES.md   (project root, Section 10)
+#   Keep biological citations in sync there, not here.
 # ============================================================================
 
 set -euo pipefail
@@ -84,43 +94,16 @@ source "$MODULES/logging/logging_utils.sh"
 TOML_PARSER="$MODULES/utils/parse_toml.py"
 get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 
-SHARED_CONFIG="$PIPELINE_DIR/14_HAP2_Domain_MappingCONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/14_Interaction_Domain_MappingCONFIG.toml"
+get_toml_shared() { python3 "$TOML_PARSER" "$SHARED_CONFIG" "$@"; }
 
-# ── CLI flags ───────────────────────────────────────────────────────────────
-DRY_RUN=false
-SHOW_MANUAL=false
-ONLY_OP=""
-ONLY_VARIANT=""
-
-print_usage() {
-    cat <<USAGE
-Usage: bash 14_HAP2_Domain_Mapping.sh [options]
-
-Options:
-  --dry-run                Print the actions for each stage without running them.
-  --show-manual-steps      Print the steps you (the operator) must do by hand,
-                           then exit. Use this to scope wet-lab-equivalent work
-                           (AlphaFold3 submissions, FoldX licensing, etc.).
-  --op <name>              Run only one operation (e.g. interface_analysis).
-                           Repeatable.
-  --variant <name>         Restrict variant iteration to one name from
-                           [variants].names. Repeatable.
-  -h, --help               Show this message.
-USAGE
-}
-
-ONLY_OPS=()
-ONLY_VARIANTS=()
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --dry-run)            DRY_RUN=true; shift ;;
-        --show-manual-steps)  SHOW_MANUAL=true; shift ;;
-        --op)                 ONLY_OPS+=("$2"); shift 2 ;;
-        --variant)            ONLY_VARIANTS+=("$2"); shift 2 ;;
-        -h|--help)            print_usage; exit 0 ;;
-        *)  echo "ERROR: unknown flag '$1'" >&2; print_usage; exit 1 ;;
-    esac
-done
+# ── Run-mode toggles (all sourced from [run] in 14_Interaction_Domain_MappingCONFIG.toml) ──
+# Edit the TOML, not this script. No CLI flags are accepted.
+DRY_RUN=$(get_toml_shared run dry_run 2>/dev/null || echo "false")
+SHOW_MANUAL=$(get_toml_shared run show_manual 2>/dev/null || echo "false")
+mapfile -t ONLY_OPS          < <(get_toml_shared run only_ops 2>/dev/null)
+mapfile -t ONLY_VARIANTS     < <(get_toml_shared run only_variants 2>/dev/null)
+mapfile -t ONLY_DMP_VARIANTS < <(get_toml_shared run only_dmp_variants 2>/dev/null)
 
 # ── Manual steps panel ──────────────────────────────────────────────────────
 # Steps the orchestrator cannot perform on its own. AlphaFold3 in particular
@@ -132,6 +115,30 @@ print_manual_steps() {
 ============================================================================
 USER ACTION REQUIRED - steps only you can do
 ============================================================================
+
+  [M0] Scope reminder: this pipeline tests DMP-HAP2 *binding*, not the
+       upstream EC1 signalling that triggers it.
+       In vivo, gamete fusion is a three-stage signalling cascade
+       (Sprunck 2012 Science 338:1093; Wang 2022 PMC9659367; Shiba 2023
+       PMC9953686 - see Section 6 of 14_Interaction_Domain_Mapping_NOTES.md):
+         (i)  EGG SIDE: EC1.1-EC1.5 peptides stored in egg cytoplasmic
+              vesicles; released by regulated exocytosis upon sperm
+              arrival.
+         (ii) SPERM SIDE: an as-yet-unidentified receptor on the sperm
+              PM senses EC1; this somehow activates DMP8/9. Wang 2022 SI
+              Fig. S4 showed DMP9 does NOT bind EC1 directly, so the
+              sensor is not DMP8/9 itself.
+         (iii)DOWNSTREAM: DMP8/9 and HAP2 co-translocate from internal
+              vesicles to the sperm PM. This is the binding step Stage
+              14 maps.
+       The AF3 complexes submitted from this pipeline are
+       HAP2 + DMP (no EC1), corresponding to stage (iii) only. EC1 is
+       neither modelled nor required for the binding measurement -
+       Wang 2022 captured DMP-HAP2 binding in MbY2H and pull-down in
+       the absence of EC1 too. Document this scope limit in your
+       manuscript Discussion: the in silico map characterises
+       DMP-HAP2 *interaction interface*, not the *trigger* that
+       launches it.
 
   [M1] Decide HAP2 source sequence.
        The paper uses AtHAP2 (At4g11720, 705 aa). For an eggplant-native
@@ -207,7 +214,7 @@ fi
 # ── Gene-group iteration ────────────────────────────────────────────────────
 mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null)
 if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
-    echo "ERROR: pipeline.gene_groups is empty in 14_HAP2_Domain_MappingCONFIG.toml" >&2
+    echo "ERROR: pipeline.gene_groups is empty in 14_Interaction_Domain_MappingCONFIG.toml" >&2
     exit 1
 fi
 
@@ -218,7 +225,7 @@ wait_for_slot() {
 
 op_enabled() {
     local op="$1"
-    # --op filter overrides TOML when present
+    # [run].only_ops in the TOML overrides [domain_mapping].operations when set
     if (( ${#ONLY_OPS[@]} > 0 )); then
         for o in "${ONLY_OPS[@]}"; do [[ "$o" == "$op" ]] && return 0; done
         return 1
@@ -231,6 +238,13 @@ variant_enabled() {
     local v="$1"
     (( ${#ONLY_VARIANTS[@]} == 0 )) && return 0
     for x in "${ONLY_VARIANTS[@]}"; do [[ "$x" == "$v" ]] && return 0; done
+    return 1
+}
+
+dmp_variant_enabled() {
+    local v="$1"
+    (( ${#ONLY_DMP_VARIANTS[@]} == 0 )) && return 0
+    for x in "${ONLY_DMP_VARIANTS[@]}"; do [[ "$x" == "$v" ]] && return 0; done
     return 1
 }
 
@@ -257,12 +271,15 @@ trap 'cleanup_tmp_configs; safe_teardown_logging; true' EXIT
 # ============================================================================
 for GENE_GROUP in "${GENE_GROUPS[@]}"; do
 
-# Config resolution: shared root + optional per-group override (cat-merged)
+# Config resolution: shared root + optional per-group override (deep-merged
+# via merge_toml.py - same pattern as Stages 01/05/06/07). The earlier `cat`
+# concat broke as soon as the override redeclared a section already present
+# in the shared file because tomllib refuses duplicate tables.
 CONFIG_DIR="$PIPELINE_DIR/config/${GENE_GROUP}"
-PER_GROUP_CFG="$CONFIG_DIR/14_HAP2_Domain_Mapping_${GENE_GROUP}.toml"
+PER_GROUP_CFG="$CONFIG_DIR/14_Interaction_Domain_Mapping_${GENE_GROUP}.toml"
 if [[ -f "$PER_GROUP_CFG" ]]; then
     CONFIG_FILE=$(mktemp "${TMPDIR:-/tmp}/${GENE_GROUP}_domain_mapping_cfg_XXXXXX.toml")
-    cat "$SHARED_CONFIG" "$PER_GROUP_CFG" > "$CONFIG_FILE"
+    python3 "$MODULES/utils/merge_toml.py" "$SHARED_CONFIG" "$PER_GROUP_CFG" > "$CONFIG_FILE"
     TMP_CONFIG_FILES+=("$CONFIG_FILE")
 else
     CONFIG_FILE="$SHARED_CONFIG"
@@ -281,13 +298,15 @@ OVERWRITE=$(get_toml pipeline overwrite 2>/dev/null || echo "false")
 BASE_DIR="$PIPELINE_DIR/$(get_toml general base_dir 2>/dev/null || echo "III_RESULT/${GENE_GROUP}")"
 OUT_DIR="$BASE_DIR/14_Domain_Mapping"
 VARIANTS_DIR="$OUT_DIR/01_Variants"
+HAP2_VARIANTS_DIR="$VARIANTS_DIR/HAP2"
+DMP_VARIANTS_DIR="$VARIANTS_DIR/DMP"
 COMPLEX_DIR="$OUT_DIR/02_Complexes"
 IFACE_DIR="$OUT_DIR/03_Interfaces"
 MD_DIR="$OUT_DIR/04_MD"
 DG_DIR="$OUT_DIR/05_BindingEnergy"
 ASCAN_DIR="$OUT_DIR/06_AlanineScan"
 REPORT_DIR="$OUT_DIR/07_Summary"
-mkdir -p "$VARIANTS_DIR" "$COMPLEX_DIR" "$IFACE_DIR" "$MD_DIR" "$DG_DIR" "$ASCAN_DIR" "$REPORT_DIR"
+mkdir -p "$HAP2_VARIANTS_DIR" "$DMP_VARIANTS_DIR" "$COMPLEX_DIR" "$IFACE_DIR" "$MD_DIR" "$DG_DIR" "$ASCAN_DIR" "$REPORT_DIR"
 
 setup_logging
 
@@ -310,12 +329,12 @@ HAP2_REF_PDB=$(get_toml inputs hap2_reference_pdb 2>/dev/null || echo "")
 [[ "$DMP_FASTA"  != /* && -n "$DMP_FASTA"  ]] && DMP_FASTA="$PIPELINE_DIR/$DMP_FASTA"
 if [[ ! -f "$HAP2_FASTA" || ! -f "$DMP_FASTA" ]]; then
     log_error "Required input FASTA missing. HAP2='$HAP2_FASTA' DMP='$DMP_FASTA'"
-    log_error "See --show-manual-steps [M1] for guidance on selecting source sequences."
+    log_error "Set [run].show_manual = true in $SHARED_CONFIG and re-run to print step [M1] (source-sequence selection)."
     teardown_logging
     continue
 fi
 
-# Variant table (parallel arrays so parse_toml.py can read them)
+# HAP2 variant table (parallel arrays so parse_toml.py can read them)
 mapfile -t VARIANT_NAMES        < <(get_toml variants names 2>/dev/null)
 mapfile -t VARIANT_DESCRIPTIONS < <(get_toml variants descriptions 2>/dev/null)
 mapfile -t VARIANT_DELETIONS    < <(get_toml variants deletions 2>/dev/null)
@@ -324,6 +343,82 @@ if [[ ${#VARIANT_NAMES[@]} -eq 0 ]]; then
     teardown_logging
     continue
 fi
+
+# DMP variant table (orthogonal counterpart to [variants]; optional - if
+# omitted, a single WT DMP partner is inferred from [inputs].dmp_fasta so the
+# legacy HAP2-only setup still works)
+mapfile -t DMP_VARIANT_NAMES        < <(get_toml dmp_variants names 2>/dev/null)
+mapfile -t DMP_VARIANT_DESCRIPTIONS < <(get_toml dmp_variants descriptions 2>/dev/null)
+mapfile -t DMP_VARIANT_DELETIONS    < <(get_toml dmp_variants deletions 2>/dev/null)
+if [[ ${#DMP_VARIANT_NAMES[@]} -eq 0 ]]; then
+    log_info "[dmp_variants] not declared - using single WT DMP partner from [inputs].dmp_fasta"
+    DMP_VARIANT_NAMES=("WT")
+    DMP_VARIANT_DESCRIPTIONS=("Full-length DMP (inferred default; [dmp_variants] not declared)")
+    DMP_VARIANT_DELETIONS=("")
+fi
+
+# Build pairs from HAP2 ladder x DMP ladder per [pairing].mode
+# Parallel arrays:
+#   PAIR_HAP2[k]  = HAP2 variant name at pair index k
+#   PAIR_DMP[k]   = DMP variant name at pair index k
+#   PAIR_LABEL[k] = "{hap2}__{dmp}" composite label used in all output paths
+PAIRING_MODE=$(get_toml pairing mode 2>/dev/null || echo "orthogonal")
+PAIR_HAP2=()
+PAIR_DMP=()
+PAIR_LABEL=()
+build_pairs() {
+    local mode="$1"
+    local i j h d
+    case "$mode" in
+        orthogonal)
+            # HAP2 ladder x WT DMP (DMP index 0 must be the WT row)
+            for i in "${!VARIANT_NAMES[@]}"; do
+                PAIR_HAP2+=("${VARIANT_NAMES[$i]}")
+                PAIR_DMP+=("${DMP_VARIANT_NAMES[0]}")
+                PAIR_LABEL+=("${VARIANT_NAMES[$i]}__${DMP_VARIANT_NAMES[0]}")
+            done
+            # WT HAP2 x DMP ladder (skip j=0 to avoid duplicating WT__WT)
+            for j in "${!DMP_VARIANT_NAMES[@]}"; do
+                (( j == 0 )) && continue
+                PAIR_HAP2+=("${VARIANT_NAMES[0]}")
+                PAIR_DMP+=("${DMP_VARIANT_NAMES[$j]}")
+                PAIR_LABEL+=("${VARIANT_NAMES[0]}__${DMP_VARIANT_NAMES[$j]}")
+            done
+            ;;
+        matrix)
+            for i in "${!VARIANT_NAMES[@]}"; do
+                for j in "${!DMP_VARIANT_NAMES[@]}"; do
+                    PAIR_HAP2+=("${VARIANT_NAMES[$i]}")
+                    PAIR_DMP+=("${DMP_VARIANT_NAMES[$j]}")
+                    PAIR_LABEL+=("${VARIANT_NAMES[$i]}__${DMP_VARIANT_NAMES[$j]}")
+                done
+            done
+            ;;
+        pairwise)
+            local nh=${#VARIANT_NAMES[@]} nd=${#DMP_VARIANT_NAMES[@]} n
+            (( nh > nd )) && n=$nh || n=$nd
+            for ((i=0; i<n; i++)); do
+                (( i < nh )) && h="${VARIANT_NAMES[$i]}"      || h="${VARIANT_NAMES[0]}"
+                (( i < nd )) && d="${DMP_VARIANT_NAMES[$i]}" || d="${DMP_VARIANT_NAMES[0]}"
+                PAIR_HAP2+=("$h")
+                PAIR_DMP+=("$d")
+                PAIR_LABEL+=("${h}__${d}")
+            done
+            ;;
+        *)
+            log_error "Unknown [pairing].mode = '$mode'. Valid: orthogonal | matrix | pairwise"
+            return 1
+            ;;
+    esac
+}
+build_pairs "$PAIRING_MODE" || { teardown_logging; continue; }
+
+# A pair passes the user filter iff its HAP2 side passes only_variants AND
+# its DMP side passes only_dmp_variants.
+pair_enabled() {
+    local hap2="$1" dmp="$2"
+    variant_enabled "$hap2" && dmp_variant_enabled "$dmp"
+}
 
 # Stoichiometry (HAP2 copy counts to predict)
 mapfile -t STOICH_LABELS < <(get_toml stoichiometry labels 2>/dev/null \
@@ -341,34 +436,58 @@ PRODIGY_ENV=$(get_toml tools prodigy_conda_env 2>/dev/null || echo "egg")
 
 log_step "Stage 14 (Domain Mapping): $GENE_GROUP"
 log_info "Operations:    ${OPERATIONS[*]}"
-log_info "Variants:      ${VARIANT_NAMES[*]}"
+log_info "HAP2 variants: ${VARIANT_NAMES[*]}"
+log_info "DMP variants:  ${DMP_VARIANT_NAMES[*]}"
+log_info "Pairing mode:  $PAIRING_MODE  (=> ${#PAIR_LABEL[@]} pairs per stoichiometry)"
 log_info "Stoichiometry: ${STOICH_LABELS[*]} (${STOICH_COUNTS[*]} HAP2 copies)"
 log_info "Predict backend: $PREDICT_BACKEND   MD backend: $MD_BACKEND"
 log_info "Compute: host=${HOST_CPU}c  CPU=$CPU  MAX_PARALLEL=$MAX_PARALLEL"
 log_info "Output:        $OUT_DIR"
 
 # ============================================================================
-# Operation 1: Build truncated HAP2 FASTAs
+# Operation 1: Build truncated HAP2 and DMP FASTAs
 # ============================================================================
 if op_enabled "prepare_variants"; then
-    log_step "Op 1/7: prepare_variants"
+    log_step "Op 1/7: prepare_variants  (HAP2 + DMP ladders)"
     GEN_SCRIPT="$MODULES/14_special_pipeline/generate_variants.py"
+
+    log_info "  HAP2 ladder -> $HAP2_VARIANTS_DIR"
     for i in "${!VARIANT_NAMES[@]}"; do
         VNAME="${VARIANT_NAMES[$i]}"
         variant_enabled "$VNAME" || continue
         VDESC="${VARIANT_DESCRIPTIONS[$i]:-no description}"
         VDEL="${VARIANT_DELETIONS[$i]:-}"   # empty = WT
-        OUT_FA="$VARIANTS_DIR/${VNAME}.fasta"
+        OUT_FA="$HAP2_VARIANTS_DIR/${VNAME}.fasta"
         if [[ -f "$OUT_FA" && "$OVERWRITE" != "true" ]]; then
-            log_info "  [$VNAME] exists, skip (OVERWRITE=false)"
+            log_info "    [$VNAME] exists, skip (OVERWRITE=false)"
             continue
         fi
-        log_info "  [$VNAME] $VDESC  (delete='$VDEL')"
+        log_info "    [$VNAME] $VDESC  (delete='$VDEL')"
         run_or_echo python3 "$GEN_SCRIPT" \
             --input "$HAP2_FASTA" \
             --name "$VNAME" \
             --description "$VDESC" \
             --deletions "$VDEL" \
+            --output "$OUT_FA"
+    done
+
+    log_info "  DMP ladder  -> $DMP_VARIANTS_DIR"
+    for j in "${!DMP_VARIANT_NAMES[@]}"; do
+        DNAME="${DMP_VARIANT_NAMES[$j]}"
+        dmp_variant_enabled "$DNAME" || continue
+        DDESC="${DMP_VARIANT_DESCRIPTIONS[$j]:-no description}"
+        DDEL="${DMP_VARIANT_DELETIONS[$j]:-}"
+        OUT_FA="$DMP_VARIANTS_DIR/${DNAME}.fasta"
+        if [[ -f "$OUT_FA" && "$OVERWRITE" != "true" ]]; then
+            log_info "    [$DNAME] exists, skip (OVERWRITE=false)"
+            continue
+        fi
+        log_info "    [$DNAME] $DDESC  (delete='$DDEL')"
+        run_or_echo python3 "$GEN_SCRIPT" \
+            --input "$DMP_FASTA" \
+            --name "$DNAME" \
+            --description "$DDESC" \
+            --deletions "$DDEL" \
             --output "$OUT_FA"
     done
 fi
@@ -379,40 +498,70 @@ fi
 # `backend = "manual"` is the realistic default - AF3 has no free programmatic
 # inference API as of 2026-05. The orchestrator stages the work, prints the
 # submission checklist, and confirms each download exists before moving on.
+#
+# Iterates over the HAP2 x DMP pair matrix built earlier (PAIR_HAP2/PAIR_DMP/
+# PAIR_LABEL). Each (pair, stoich) cell becomes one AF3 job and one output
+# directory tagged with the composite "{hap2}__{dmp}" pair label.
 if op_enabled "predict_complexes"; then
-    log_step "Op 2/7: predict_complexes  (backend=$PREDICT_BACKEND)"
+    log_step "Op 2/7: predict_complexes  (backend=$PREDICT_BACKEND, ${#PAIR_LABEL[@]} pairs)"
     MANIFEST="$COMPLEX_DIR/_submission_manifest.tsv"
+    DROP_README="$COMPLEX_DIR/_HOW_TO_DROP_AF3_DOWNLOADS.txt"
     : > "$MANIFEST"
-    printf 'variant\tstoich\tn_hap2\tn_dmp\tvariant_fasta\tdmp_fasta\texpected_output\n' >> "$MANIFEST"
+    printf 'pair\thap2_variant\tdmp_variant\tstoich\tn_hap2\tn_dmp\thap2_fasta\tdmp_fasta\texpected_output\n' >> "$MANIFEST"
 
     MISSING=0
-    for i in "${!VARIANT_NAMES[@]}"; do
-        VNAME="${VARIANT_NAMES[$i]}"
-        variant_enabled "$VNAME" || continue
-        V_FASTA="$VARIANTS_DIR/${VNAME}.fasta"
+    for k in "${!PAIR_LABEL[@]}"; do
+        H="${PAIR_HAP2[$k]}"
+        D="${PAIR_DMP[$k]}"
+        PLAB="${PAIR_LABEL[$k]}"
+        pair_enabled "$H" "$D" || continue
+        H_FASTA="$HAP2_VARIANTS_DIR/${H}.fasta"
+        D_FASTA="$DMP_VARIANTS_DIR/${D}.fasta"
         for j in "${!STOICH_LABELS[@]}"; do
             SLAB="${STOICH_LABELS[$j]}"
             NHAP="${STOICH_COUNTS[$j]}"
-            JOB_DIR="$COMPLEX_DIR/$SLAB/$VNAME"
+            JOB_DIR="$COMPLEX_DIR/$SLAB/$PLAB"
             mkdir -p "$JOB_DIR"
-            EXPECT_CIF="$JOB_DIR/fold_${VNAME}_${SLAB}_model_0.cif"
-            printf '%s\t%s\t%s\t1\t%s\t%s\t%s\n' \
-                "$VNAME" "$SLAB" "$NHAP" "$V_FASTA" "$DMP_FASTA" "$EXPECT_CIF" >> "$MANIFEST"
+            EXPECT_CIF="$JOB_DIR/fold_${PLAB}_${SLAB}_model_0.cif"
+            printf '%s\t%s\t%s\t%s\t%s\t1\t%s\t%s\t%s\n' \
+                "$PLAB" "$H" "$D" "$SLAB" "$NHAP" "$H_FASTA" "$D_FASTA" "$EXPECT_CIF" >> "$MANIFEST"
+
+            # Per-slot drop-zone sentinel. Always rewritten (cheap); edits to
+            # the variant table propagate on the next predict_complexes run.
+            cat > "$JOB_DIR/_SUBMIT.txt" <<EOF
+AlphaFold3 submission slot
+  pair          : $PLAB
+  stoichiometry : $SLAB
+
+Submit at: https://alphafoldserver.com/
+  HAP2 sequence : $H_FASTA   (paste $NHAP copies)
+  DMP sequence  : $D_FASTA   (paste 1 copy)
+
+After the job finishes:
+  1. Download the AF3 result ZIP.
+  2. Unzip into this directory, preserving the AF3 filenames
+     (fold_*_model_0.cif, ranking_scores.json, summary_confidences_*.json).
+  3. The orchestrator expects the model-0 file at:
+       $EXPECT_CIF
+     If AF3 names it differently, rename or symlink to that exact path.
+
+Re-run "bash 14_Interaction_Domain_Mapping.sh" once the drop is in place.
+EOF
 
             if [[ "$PREDICT_BACKEND" == "manual" ]]; then
                 if [[ ! -s "$EXPECT_CIF" ]]; then
-                    log_warn "  [MISSING] $VNAME / $SLAB ($NHAP HAP2 + 1 DMP) - upload to https://alphafoldserver.com/ and save to $JOB_DIR/"
+                    log_warn "  [MISSING] $PLAB / $SLAB ($NHAP HAP2[$H] + 1 DMP[$D]) - upload to https://alphafoldserver.com/ and save to $JOB_DIR/"
                     MISSING=$((MISSING+1))
                 else
-                    log_info "  [OK]      $VNAME / $SLAB"
+                    log_info "  [OK]      $PLAB / $SLAB"
                 fi
             else
                 # Local AF3 wrapper (commercial licence required)
                 PRED_WRAP="$MODULES/14_special_pipeline/predict_af3_local.sh"
                 run_or_echo bash "$PRED_WRAP" \
-                    --hap2-fasta "$V_FASTA" \
+                    --hap2-fasta "$H_FASTA" \
                     --hap2-copies "$NHAP" \
-                    --dmp-fasta "$DMP_FASTA" \
+                    --dmp-fasta "$D_FASTA" \
                     --dmp-copies 1 \
                     --out-dir "$JOB_DIR" \
                     --threads "$CPU"
@@ -420,9 +569,40 @@ if op_enabled "predict_complexes"; then
         done
     done
 
+    # Top-level drop-zone README explaining the whole tree
+    cat > "$DROP_README" <<EOF
+AlphaFold3 drop-zone for Stage 14 ($GENE_GROUP)
+================================================
+
+Layout:
+  $COMPLEX_DIR/
+    {stoichiometry}/                  # monomeric, dimeric, trimeric
+      {pair_label}/                   # e.g. WT__WT, delC_596_705__WT,
+                                      #      WT__delN_1_64
+        _SUBMIT.txt                   # this slot's submission instructions
+        fold_<pair>_<stoich>_model_0.cif  # drop the AF3 download here
+
+Manifest (machine-readable queue): $MANIFEST
+
+Pair label = "{hap2_variant}__{dmp_variant}". Everything before the double
+underscore is the HAP2 truncation; everything after is the DMP truncation.
+"WT" on either side means full-length wild-type.
+
+Portal: https://alphafoldserver.com/  (free non-commercial tier; ~20
+jobs/day; multimer supported). For each pair-and-stoichiometry slot:
+  1. Open a new AF3 job.
+  2. Paste the HAP2 sequence (copies per the slot's _SUBMIT.txt) and the
+     DMP sequence (1 copy).
+  3. Submit, wait, download the ZIP.
+  4. Extract into the matching slot directory; the orchestrator picks it
+     up on the next run.
+EOF
+
     if [[ "$PREDICT_BACKEND" == "manual" && "$MISSING" -gt 0 ]]; then
         log_warn "$MISSING AF3 prediction(s) still need to be uploaded by hand."
-        log_warn "Manifest written to $MANIFEST"
+        log_warn "Manifest:      $MANIFEST"
+        log_warn "Drop-zone doc: $DROP_README"
+        log_warn "Per-slot doc:  $COMPLEX_DIR/{stoich}/{pair}/_SUBMIT.txt"
         log_warn "Re-run this stage after the AF3 downloads are in place."
         if [[ "$DRY_RUN" != "true" ]]; then
             log_warn "Skipping downstream operations for $GENE_GROUP until predictions exist."
@@ -436,18 +616,21 @@ fi
 # Operation 3: Interface analysis
 # ============================================================================
 if op_enabled "interface_analysis"; then
-    log_step "Op 3/7: interface_analysis"
+    log_step "Op 3/7: interface_analysis (${#PAIR_LABEL[@]} pairs)"
     ANALYZER="$MODULES/14_special_pipeline/analyze_interface.py"
     IFACE_CUTOFF=$(get_toml interface contact_cutoff_angstrom 2>/dev/null || echo "5.0")
     SASA_PROBE=$(get_toml interface sasa_probe_radius 2>/dev/null || echo "1.4")
 
-    for i in "${!VARIANT_NAMES[@]}"; do
-        VNAME="${VARIANT_NAMES[$i]}"
-        variant_enabled "$VNAME" || continue
+    IFACE_PIDS=()
+    for k in "${!PAIR_LABEL[@]}"; do
+        H="${PAIR_HAP2[$k]}"
+        D="${PAIR_DMP[$k]}"
+        PLAB="${PAIR_LABEL[$k]}"
+        pair_enabled "$H" "$D" || continue
         for j in "${!STOICH_LABELS[@]}"; do
             SLAB="${STOICH_LABELS[$j]}"
-            CIF="$COMPLEX_DIR/$SLAB/$VNAME/fold_${VNAME}_${SLAB}_model_0.cif"
-            OUT_SUB="$IFACE_DIR/$SLAB/$VNAME"
+            CIF="$COMPLEX_DIR/$SLAB/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
+            OUT_SUB="$IFACE_DIR/$SLAB/$PLAB"
             mkdir -p "$OUT_SUB"
             if [[ ! -s "$CIF" ]]; then
                 log_warn "  [skip] missing $CIF"
@@ -463,31 +646,38 @@ if op_enabled "interface_analysis"; then
                     --sasa-probe "$SASA_PROBE" \
                     --output "$OUT_SUB"
             ) &
+            IFACE_PIDS+=($!)
         done
     done
-    wait
+    # Wait only on explicit job PIDs - bare `wait` deadlocks against the
+    # tee process-substitutions set up by setup_logging (those tees only
+    # exit when the script's stdout closes, which never happens while
+    # `wait` is blocking on them).
+    (( ${#IFACE_PIDS[@]} > 0 )) && wait "${IFACE_PIDS[@]}"
 fi
 
 # ============================================================================
 # Operation 4: Short GROMACS MD equilibration (reuses PPI stage-10 modules)
 # ============================================================================
 if op_enabled "md_equilibration"; then
-    log_step "Op 4/7: md_equilibration  (backend=$MD_BACKEND)"
+    log_step "Op 4/7: md_equilibration  (backend=$MD_BACKEND, ${#PAIR_LABEL[@]} pairs)"
     PPI_GROMACS="$PIPELINE_DIR/10_run_gromacs_pipeline.sh"
     MD_WRAP="$MODULES/14_special_pipeline/run_short_md.sh"
     NS=$(get_toml md_equilibration production_ns 2>/dev/null || echo "50")
     USE_MEMBRANE=$(get_toml md_equilibration membrane 2>/dev/null || echo "false")
 
-    for i in "${!VARIANT_NAMES[@]}"; do
-        VNAME="${VARIANT_NAMES[$i]}"
-        variant_enabled "$VNAME" || continue
+    for k in "${!PAIR_LABEL[@]}"; do
+        H="${PAIR_HAP2[$k]}"
+        D="${PAIR_DMP[$k]}"
+        PLAB="${PAIR_LABEL[$k]}"
+        pair_enabled "$H" "$D" || continue
         for j in "${!STOICH_LABELS[@]}"; do
             SLAB="${STOICH_LABELS[$j]}"
-            CIF="$COMPLEX_DIR/$SLAB/$VNAME/fold_${VNAME}_${SLAB}_model_0.cif"
-            MD_SUB="$MD_DIR/$SLAB/$VNAME"
+            CIF="$COMPLEX_DIR/$SLAB/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
+            MD_SUB="$MD_DIR/$SLAB/$PLAB"
             mkdir -p "$MD_SUB"
             [[ ! -s "$CIF" ]] && { log_warn "  [skip] $CIF missing"; continue; }
-            log_info "  [$VNAME/$SLAB] MD = ${NS} ns, membrane=$USE_MEMBRANE"
+            log_info "  [$PLAB/$SLAB] MD = ${NS} ns, membrane=$USE_MEMBRANE"
             run_or_echo bash "$MD_WRAP" \
                 --complex "$CIF" \
                 --output "$MD_SUB" \
@@ -505,19 +695,21 @@ fi
 # Operation 5: Binding free energy
 # ============================================================================
 if op_enabled "binding_energy"; then
-    log_step "Op 5/7: binding_energy  (backends=$DG_BACKENDS)"
+    log_step "Op 5/7: binding_energy  (backends=$DG_BACKENDS, ${#PAIR_LABEL[@]} pairs)"
     MMPBSA_WRAP="$MODULES/14_special_pipeline/compute_mmpbsa.sh"
     FOLDX_WRAP="$MODULES/14_special_pipeline/compute_foldx_dg.sh"
     PRODIGY_WRAP="$MODULES/14_special_pipeline/compute_prodigy_dg.sh"
 
-    for i in "${!VARIANT_NAMES[@]}"; do
-        VNAME="${VARIANT_NAMES[$i]}"
-        variant_enabled "$VNAME" || continue
+    for k in "${!PAIR_LABEL[@]}"; do
+        H="${PAIR_HAP2[$k]}"
+        D="${PAIR_DMP[$k]}"
+        PLAB="${PAIR_LABEL[$k]}"
+        pair_enabled "$H" "$D" || continue
         for j in "${!STOICH_LABELS[@]}"; do
             SLAB="${STOICH_LABELS[$j]}"
-            CIF="$COMPLEX_DIR/$SLAB/$VNAME/fold_${VNAME}_${SLAB}_model_0.cif"
-            MD_SUB="$MD_DIR/$SLAB/$VNAME"
-            DG_SUB="$DG_DIR/$SLAB/$VNAME"
+            CIF="$COMPLEX_DIR/$SLAB/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
+            MD_SUB="$MD_DIR/$SLAB/$PLAB"
+            DG_SUB="$DG_DIR/$SLAB/$PLAB"
             mkdir -p "$DG_SUB"
             [[ ! -s "$CIF" ]] && { log_warn "  [skip] $CIF missing"; continue; }
 
@@ -527,7 +719,7 @@ if op_enabled "binding_energy"; then
             fi
             if [[ "$DG_BACKENDS" == *foldx* ]]; then
                 if [[ -z "$FOLDX_BIN" || ! -x "$FOLDX_BIN" ]]; then
-                    log_warn "  FoldX binary not set or not executable (see --show-manual-steps [M4]); skipping FoldX backend."
+                    log_warn "  FoldX binary not set or not executable (set [run].show_manual = true in the TOML to print step [M4]); skipping FoldX backend."
                 else
                     run_or_echo bash "$FOLDX_WRAP" \
                         --complex "$CIF" --foldx "$FOLDX_BIN" --out "$DG_SUB/foldx"
@@ -545,21 +737,23 @@ fi
 # Operation 6: Computational alanine scan (WT only - this is the hot-spot map)
 # ============================================================================
 if op_enabled "alanine_scan"; then
-    log_step "Op 6/7: alanine_scan  (WT only)"
+    log_step "Op 6/7: alanine_scan  (WT HAP2 / WT DMP pair only)"
     SCAN_WRAP="$MODULES/14_special_pipeline/alanine_scan.sh"
-    WT_NAME=$(get_toml alanine_scan reference_variant 2>/dev/null || echo "WT")
+    WT_HAP2=$(get_toml alanine_scan reference_variant 2>/dev/null || echo "WT")
+    WT_DMP=$(get_toml alanine_scan reference_dmp_variant 2>/dev/null || echo "WT")
     WT_STOICH=$(get_toml alanine_scan reference_stoichiometry 2>/dev/null || echo "monomeric")
-    WT_CIF="$COMPLEX_DIR/$WT_STOICH/$WT_NAME/fold_${WT_NAME}_${WT_STOICH}_model_0.cif"
+    WT_PLAB="${WT_HAP2}__${WT_DMP}"
+    WT_CIF="$COMPLEX_DIR/$WT_STOICH/$WT_PLAB/fold_${WT_PLAB}_${WT_STOICH}_model_0.cif"
     if [[ ! -s "$WT_CIF" ]]; then
         log_warn "  Reference complex $WT_CIF missing; skip alanine scan."
     else
         if [[ -z "$FOLDX_BIN" || ! -x "$FOLDX_BIN" ]]; then
-            log_warn "  FoldX binary missing (see --show-manual-steps [M4]); skip alanine scan."
+            log_warn "  FoldX binary missing (set [run].show_manual = true in the TOML to print step [M4]); skip alanine scan."
         else
             run_or_echo bash "$SCAN_WRAP" \
                 --complex "$WT_CIF" \
                 --foldx "$FOLDX_BIN" \
-                --interface-tsv "$IFACE_DIR/$WT_STOICH/$WT_NAME/interface_residues.tsv" \
+                --interface-tsv "$IFACE_DIR/$WT_STOICH/$WT_PLAB/interface_residues.tsv" \
                 --threads "$CPU" \
                 --output "$ASCAN_DIR"
         fi
@@ -569,12 +763,23 @@ fi
 # ============================================================================
 # Operation 7: Comparative report
 # ============================================================================
+# Reports the headline ranking against [stoichiometry].primary_stoichiometry
+# (default "monomeric") - the 1:1 case is the biologically meaningful
+# DMP-HAP2 binding measurement; the 2:1 and 3:1 stoichiometries are reported
+# alongside but never override the primary case. See NOTES.md Section 7.
 if op_enabled "comparative_report"; then
     log_step "Op 7/7: comparative_report"
     REPORT_WRAP="$MODULES/14_special_pipeline/compare_variants.py"
+    PRIMARY_STOICH=$(get_toml stoichiometry primary_stoichiometry 2>/dev/null || echo "monomeric")
     run_or_echo conda run -n "$PRODIGY_ENV" python3 "$REPORT_WRAP" \
-        --variants "${VARIANT_NAMES[*]}" \
+        --hap2-variants "${VARIANT_NAMES[*]}" \
+        --dmp-variants "${DMP_VARIANT_NAMES[*]}" \
+        --pair-labels "${PAIR_LABEL[*]}" \
+        --pair-hap2 "${PAIR_HAP2[*]}" \
+        --pair-dmp "${PAIR_DMP[*]}" \
+        --pairing-mode "$PAIRING_MODE" \
         --stoich "${STOICH_LABELS[*]}" \
+        --primary-stoich "$PRIMARY_STOICH" \
         --iface-dir "$IFACE_DIR" \
         --dg-dir "$DG_DIR" \
         --ascan-dir "$ASCAN_DIR" \

@@ -1,25 +1,44 @@
 # ============================================================================
-# Stage 14: In silico domain mapping of the HAP2-DMP interaction
-# Config consumed by 14_HAP2_Domain_Mapping.sh
-# ============================================================================
-# This file encodes the wet-lab deletion-binding experiment from
-# Wang et al. 2022 (PMC9659367, Fig. 3A and SI Appendix Fig. S7-S8) as a
-# structural/energetic pipeline. The [variants] table below IS the in silico
-# analogue of the truncated HAP2 constructs the paper expressed in yeast.
-# The orchestrator's `prepare_variants` op rewrites the HAP2 FASTA with each
-# deletion applied; those trimmed FASTAs are then submitted to AlphaFold3 as
-# the HAP2 chain of the complex (see [M3] in --show-manual-steps).
-#
-# IMPORTANT: the residue ranges below are from the paper (AtHAP2/At4g11720,
-# 705 aa). If you use SmelHAP2 instead of AtHAP2, you MUST remap these cut
-# points via a pairwise alignment before the deletions are biologically
-# equivalent. See [M2] in --show-manual-steps.
+# Stage 14: In silico HAP2 x DMP interaction-domain mapping
+# Config consumed by 14_Interaction_Domain_Mapping.sh
+# ----------------------------------------------------------------------------
+# Encodes Wang et al. 2022 (PMC9659367, Fig. 3A + SI Fig. S7-S8) as a
+# structural pipeline. [variants] is the HAP2 deletion ladder; [dmp_variants]
+# is the orthogonal in-silico-only DMP ladder; [pairing] combines them.
+# Biology, paper provenance, and the conformational-state rationale live in
+#     14_Interaction_Domain_Mapping_NOTES.md  (Sections 4 - 10)
 # ============================================================================
 
+# ── Run-mode toggles (no CLI flags - edit here, not the script) ────────────
+# dry_run            true = print every action + create the output tree;
+#                           false = execute the pipeline for real
+# show_manual        true = print the manual-steps panel ([M1]-[M7]) and exit
+# only_ops           []   = run every op from [domain_mapping].operations;
+#                           list = restrict (e.g. ["interface_analysis"])
+# only_variants      []   = run every HAP2 variant; list restricts by name
+# only_dmp_variants  []   = run every DMP variant; list restricts by name
+#                           Filters AND together at pair build time.
+[run]
+dry_run           = true
+show_manual       = false
+only_ops          = []
+only_variants     = []
+only_dmp_variants = []
+
+# ── Dual-run design (Arabidopsis vs. Eggplant HAP2 partner) ─────────────────
+# Each gene_groups entry is a Stage 14 RUN LABEL (not a gene family) and
+# pulls config/{label}/14_Interaction_Domain_Mapping_{label}.toml as an
+# override. Outputs land in III_RESULT/{label}/14_Domain_Mapping/. Comment
+# one out to run a single side. Cross-run diff: [comparison] at file end.
+#   DMP_x_AtHAP2    AtHAP2/At4g11720 + AtDMP8/AT1G09157   (paper-mirroring)
+#   DMP_x_SmelHAP2  SmelHAP2 ortholog + SmelDMPv5_10.610  (eggplant-native)
 [pipeline]
-gene_groups = ["DMP"]
-machine     = "Local"
-overwrite   = false
+gene_groups = [
+    "DMP_x_AtHAP2",
+    #"DMP_x_SmelHAP2",
+]
+machine     = "HPC"
+overwrite   = true
 
 [pipeline.compute.Local]
 threads      = 12
@@ -30,165 +49,383 @@ threads      = 48
 max_parallel = 8
 
 [general]
-base_dir = "III_RESULT/DMP"
+# Standalone-test default; per-run overrides replace this so each run lands
+# in its own III_RESULT/{run}/ tree.
+base_dir = "III_RESULT/DMP_x_AtHAP2"
 
 # ── Master switch and operation gating ──────────────────────────────────────
 [domain_mapping]
 enabled = true
+# GROMACS-dependent ops temporarily disabled (md_equilibration). Re-enable
+# once the MD pipeline is wired in; [md_equilibration] block below is kept
+# intact and ready. See also [binding_energy].backends (mmpbsa is gated off).
 operations = [
-    "prepare_variants",
-    "predict_complexes",
-    "interface_analysis",
-    "md_equilibration",
-    "binding_energy",
-    "alanine_scan",
-    "comparative_report",
+    "prepare_variants",        # Build HAP2 + DMP truncation FASTAs from [variants] / [dmp_variants]
+    "predict_complexes",       # Submit/run AF3 jobs per pair x stoichiometry; collect rank-1 model + ipTM/pTM
+    "interface_analysis",      # freesasa BSA, heavy-atom contacts, per-chain SASA on the rank-1 complex
+    ##"md_equilibration",       # POSTPONED - GROMACS short MD (EM -> NVT -> NPT -> production) for stability
+    #"binding_energy",          # FoldX + PRODIGY DG on the rank-1 snapshot (mmpbsa gated off with GROMACS)
+    #"alanine_scan",            # MutaTeX + FoldX residue-level DDG scan on WT__WT to map hot spots
+    #"comparative_report",      # Per-run heatmaps, ranked_pairs.tsv, paper-overlay figures (see [comparative_report])
 ]
 
 # ── Source sequences ────────────────────────────────────────────────────────
-# Paths may be relative (resolved against PIPELINE_DIR) or absolute.
-# Default points at AtHAP2 + SmelDMPv5_10.610 so the in silico run reproduces
-# the paper's species pair; swap hap2_fasta to your SmelHAP2 FASTA for the
-# eggplant-native run (and remap the ranges in [variants] - see [M2]).
+# Relative paths resolve against PIPELINE_DIR. Per-run overrides swap
+# hap2_fasta (and, for the SmelHAP2 run, the deletion coordinates in
+# [variants] / [dmp_variants]).
+#
+# hap2_reference_pdb = sanity comparator (RMSD) for the 1:1 AF3 model.
+# Biologically meaningful reference for the 1:1 model is the PREFUSION
+# monomer (PDB 7S0K, Feng et al. 2022, Cyani HAP2 ectodomain). Postfusion
+# trimer crystals (5OW3 Chlamy, 6E18 / 6DBS AtHAP2) are the wrong reference
+# here - see NOTES.md Section 4. Fetch with:
+#   mkdir -p II_INPUTS/HAP2/reference_pdbs
+#   curl -L https://files.rcsb.org/download/7S0K.pdb \
+#        -o II_INPUTS/HAP2/reference_pdbs/7S0K.pdb
 [inputs]
 hap2_fasta          = "II_INPUTS/HAP2/AtHAP2_At4g11720.fasta"
 dmp_fasta           = "II_INPUTS/DMP/SmelDMPv5_10.610.fasta"
-# Optional: experimental HAP2 ectodomain crystal (PDB 5OW3, Fedry et al. 2017)
-# used as a sanity reference, never as input to AF3.
-hap2_reference_pdb  = ""
+hap2_reference_pdb  = "II_INPUTS/HAP2/reference_pdbs/7S0K.pdb"
 
-# ── Variant table (parallel arrays; index i across all three is one variant)
-# ────────────────────────────────────────────────────────────────────────────
-# `deletions` format: comma-separated "start-end" ranges, 1-indexed, inclusive.
-# Empty string = WT (no deletion). Multiple ranges in one variant = applied
-# simultaneously, in order, with the sequence reindexed after each cut.
+# ── HAP2 variant table ──────────────────────────────────────────────────────
+# Parallel arrays (names / descriptions / deletions, same length, index i =
+# one variant). `deletions` = comma-separated "start-end" ranges, 1-indexed,
+# inclusive; empty string = WT; multiple ranges = applied in order with
+# reindexing between cuts.
 #
-# Provenance of each row (Wang et al. 2022 Fig. 3A + SI Fig. S7-S8):
+# Active panel = 7 of 15 candidate rows. Inactive rows commented out IN
+# PLACE in all three arrays (parallel-array invariant: equal lengths after
+# comment removal).
 #
-#   WT             : positive control, full-length HAP2 (1-705)
-#   delC_596_705   : "lacked the C terminus (596-705)"; 13 aa adjacent to TMD
-#                    are kept because TMD ends near residue 595
-#   delEcto_25_530 : "HAP2 variant without the ectodomain (25-530)"; only the
-#                    signal peptide (1-24), TMD, and cytoplasmic tail remain;
-#                    this is the variant that still gave a weak DMP9 signal
-#   delEcto_D1     : N-terminal beta-sandwich of the ectodomain
-#   delEcto_D2     : middle subdomain housing the fusion loop
-#   delEcto_D3     : C-terminal subdomain of the ectodomain
-#   delEcto_FL     : fusion-loop-only deletion (subset of D2)
+# Row provenance (full Wang 2022 quotes + paper-implied subdomain rationale
+# in NOTES.md Sections 1 + 7.1; AtHAP2 numbering, 705 aa):
+#   PAPER-DIRECT (Wang 2022 explicit constructs)
+#     WT                  full-length positive control
+#     delC_596_705        "lacked the C terminus (596-705)" - paper Fig. 3A
+#     delEcto_25_530      "HAP2 variant without the ectodomain (25-530)";
+#                         the variant that still binds weakly in MbY2H
+#   PAPER-IMPLIED (paper says "defined regions of the ectodomain were
+#   deleted according the HAP2 crystal structure (43)" without ranges;
+#   mapped onto PDB 5OW3 Fedry 2017 - VERIFY before AF3)
+#     delEcto_D1          N-terminal beta-sandwich
+#     delEcto_D2          middle subdomain (houses the fusion loop)
+#     delEcto_D3          C-terminal subdomain
+#     delEcto_FL          fusion loop only (loose; subset of D2)
+#   EXTENDED (not in the paper - in silico is cheap)
+#     delSP_1_24          signal peptide; expected null (AF3 self-check)
+#     delFL_precise       Class II cd-loop footprint (~17 aa); tests
+#                         overlap with Feng 2022 FL1/2/3 trimerisation
+#                         determinants (NOTES.md Section 4.1 / 5.3 Model B)
+#     delStem_531_560     ectodomain-TMD hinge; tests orientation
+#     delTMD_561_582      TMD only; pure membrane anchor contribution
+#     delJuxtaMem_583_595 13 aa segment paper PRESERVED in delC_596_705
+#     delHisRich_596_650  histidine-rich cytoplasmic patch (subset of delC)
+#     delCdistal_651_705  distal cytoplasmic tail (subset of delC)
+#     delEctoAndCterm_min combined Δ25-530 + Δ596-705 = minimal membrane core
 #
-# VERIFY: the D1/D2/D3/FL boundaries below are reasonable estimates based on
-# the Fedry et al. 2017 crystal (PDB 5OW3). Confirm against Fig. 3A / SI
-# Fig. S7 of the paper and edit before submitting AF3 jobs.
+# VERIFY: D1/D2/D3/FL/Stem/TMD/JuxtaMem/HisRich boundaries are estimates;
+# confirm against Fig. 3A / SI Fig. S7 and UniProt Q9C5J5 before AF3. For
+# the SmelHAP2 run, remap all ranges via pairwise alignment first - see
+# [M2] in --show-manual-steps.
 [variants]
 names = [
     "WT",
     "delC_596_705",
     "delEcto_25_530",
-    "delEcto_D1",
     "delEcto_D2",
-    "delEcto_D3",
-    "delEcto_FL",
+    "delFL_precise",
+    "delTMD_561_582",
+#    "delJuxtaMem_583_595",
+    "delEctoAndCterm_min",
 ]
 descriptions = [
     "Full-length HAP2 (positive control)",
     "C-terminal deletion 596-705 (paper Fig. 3A)",
     "Ectodomain deletion 25-530 (paper Fig. 3A)",
-    "Ectodomain D1 beta-sandwich deletion (estimate; VERIFY against Fig. 3A)",
-    "Ectodomain D2 middle subdomain deletion (estimate; VERIFY against Fig. 3A)",
-    "Ectodomain D3 C-terminal subdomain deletion (estimate; VERIFY)",
-    "Fusion-loop-only deletion (estimate; VERIFY)",
+    "Ectodomain D2 middle subdomain (estimate; VERIFY against Fig. 3A)",
+    "Conservative ~17 aa fusion loop deletion (Class II cd-loop; tests overlap with Feng 2022 FL trimerisation determinants; VERIFY)",
+    "Transmembrane domain only (pure membrane anchor; VERIFY)",
+#    "13 aa cytoplasmic juxtamembrane segment preserved by paper's delC_596_705",
+    "Combined ectodomain + C-terminal deletion (minimal membrane-core construct)",
 ]
 deletions = [
     "",
     "596-705",
     "25-530",
-    "51-188",
     "189-330",
-    "331-530",
-    "220-260",
+    "234-250",
+    "561-582",
+#    "583-595",
+    "25-530,596-705",
 ]
 
-# ── Stoichiometry table (parallel arrays) ──────────────────────────────────
-# Mirrors the three AF3 models you already have on hand: monomeric, dimeric,
-# trimeric HAP2 each paired with one SmelDMP copy. The orchestrator submits
-# one AF3 job per (variant, stoichiometry) cell of this matrix.
+# ── DMP variant table ───────────────────────────────────────────────────────
+# Orthogonal to [variants]; same parallel-array shape and `deletions` syntax.
+# In silico only - the paper did not run DMP truncations in MbY2H. The
+# strongest paper-anchored target is the N-terminal cytoplasmic tail
+# (residues 1-64); Wang et al. 2022 Fig. 5 showed a DMP3 backbone bearing
+# the DMP9 N-terminus (1-64) rescues *dmp8 dmp9* while native DMP3 does
+# not, so the binding specificity lives there.
+#
+# Coordinates: AtDMP8 numbering (UniProt O80493, 213 aa). The SmelDMP run
+# (SmelDMPv5_10.610, 221 aa) needs the same pairwise-alignment remap that
+# the HAP2 ladder does - see [M2] and the per-run override file.
+#
+# 4-TMD topology (Kasaras & Kunze 2010 [10.1111/j.1438-8677.2010.00381.x];
+# refined by Cyprys 2019 [10.1038/s41477-019-0382-3]; Wang 2022 [PMC9659367]):
+#   1-64       cytoplasmic N-terminus (paper-direct specificity region)
+#   ~65-85     TM1
+#   ~86-95     extracellular loop 1
+#   ~96-116    TM2
+#   ~117-145   cytoplasmic loop 2 (DUF679 core)
+#   ~146-166   TM3
+#   ~167-180   extracellular loop 3
+#   ~181-200   TM4
+#   201-213    cytoplasmic C-terminus
+# Ranges with "~" are TMHMM/DeepTMHMM predictions; verify against UniProt
+# before publishing residue-level claims. 1-64 is paper-direct.
+#
+# Index j = 0 MUST be WT (pairing logic uses dmp_variants[0] as the WT-DMP
+# partner under [pairing].mode = "orthogonal").
+[dmp_variants]
+names = [
+    "WT",
+    "delN_1_64",
+    "delC_201_213",
+    "delTMDcore_65_200",
+]
+descriptions = [
+    "Full-length DMP (positive control)",
+    "N-terminal cytoplasmic deletion 1-64 (paper-direct specificity region; Wang 2022 chimera)",
+    "C-terminal cytoplasmic tail deletion 201-213",
+    "Four-TMD bundle deletion 65-200 (expected null / folding-destroying control)",
+]
+deletions = [
+    "",
+    "1-64",
+    "201-213",
+    "65-200",
+]
+
+# Extended ~10-row DMP panel (uncomment in all three arrays simultaneously
+# to probe each topological element; per-TMD ranges follow the AtDMP8 TMHMM
+# prediction above and MUST be verified before use):
+#   "delN_1_32"      N-terminus first half
+#   "delN_33_64"     N-terminus second half
+#   "delTM1_65_85"
+#   "delTM2_96_116"
+#   "delTM3_146_166"
+#   "delTM4_181_200"
+
+# ── HAP2 x DMP pairing mode ─────────────────────────────────────────────────
+# Combines [variants] x [dmp_variants] into AF3 jobs. Pair label written to
+# every output path = "{hap2}__{dmp}" (e.g. WT__WT, delC_596_705__WT,
+# WT__delN_1_64), so the deletion side is readable from any directory.
+#
+#   orthogonal  HAP2 ladder x WT DMP + WT HAP2 x DMP ladder.
+#               Pairs = NH + ND - 1 (WT/WT shared). Two independent maps.
+#               Default. For 7 HAP2 + 4 DMP active = 10 pairs / stoich.
+#   matrix      Full outer product NH x ND. Tests epistasis but consumes
+#               the AF3 server quota fast (~20 jobs/day cap).
+#   pairwise    Zipped (HAP2[i], DMP[i]); shorter side filled with WT.
+#               Bespoke combinations only.
+#
+# DMP ladder is most physically meaningful against the MONOMERIC HAP2
+# partner (Wang 2022 assays used the isolated 25-530 ectodomain which is
+# biochemically monomeric; multi-TMD interface is occluded in the postfusion
+# trimer - NOTES.md Section 7.2). Keep [stoichiometry].labels = ["monomeric"]
+# for the primary run unless you specifically want a trimerisation test.
+[pairing]
+mode = "orthogonal"
+
+# ── Stoichiometry table (parallel arrays; HAP2 copies per AF3 job) ─────────
+# Three possible AF3 models, each paired with 1 DMP copy. Active labels =
+# uncommented entries in `labels`. `primary_stoichiometry` is the headline
+# ranking in the comparative report; others are reported alongside but
+# never override. Must match one entry in (uncommented) `labels`.
+#
+# Biological interpretation (NOTES.md Section 7):
+#   monomeric (1:1)        PRIMARY. HAP2 is monomeric in solution and on
+#                          vesicles (Feng 2022 crystal + SEC-MALS); the
+#                          entire DMP-HAP2 colocalisation window sits in
+#                          this regime (Wang 2022).
+#   dimeric (2:1)          On-pathway intermediate; tests whether DMP
+#                          tracks HAP2 along the trimerisation cascade
+#                          (Model B in NOTES.md Section 5.3).
+#   postfusion_like (3:1)  Activated trimer. CAVEAT: Feng 2022 Fig. 9
+#                          showed AlphaFold-Multimer returns a postfusion
+#                          hairpin trimer regardless of input, so this is
+#                          the postfusion conformation, NOT an on-pathway
+#                          intermediate. Use only to test whether DMP can
+#                          still engage the activated trimer at all.
 [stoichiometry]
-labels       = ["monomeric", "dimeric", "trimeric"]
+labels       = [
+    "monomeric",
+    #"dimeric",
+    #"postfusion_like",
+]
 chain_counts = [1, 2, 3]
 dmp_copies   = 1
+primary_stoichiometry = "monomeric"
 
 # ── Complex prediction backend ─────────────────────────────────────────────
-# "manual" (default): the orchestrator writes a submission manifest TSV and
-#   stages output directories; you submit each job at https://alphafoldserver.com/
-#   and drop the downloads in place. See [M3] in --show-manual-steps.
-# "local": run AF3 locally via a commercial-licence binary at [tools].af3_binary.
+#   "manual" (default): orchestrator writes _submission_manifest.tsv and
+#       per-slot _SUBMIT.txt sentinels; you submit at
+#       https://alphafoldserver.com/ and drop the AF3 downloads into the
+#       staged slot directories. See [M3] in --show-manual-steps.
+#   "local": run AF3 locally via the commercial-licence binary at
+#       [tools].af3_binary.
 [predict_complexes]
 backend     = "manual"
-af3_seeds   = 5     # ignored in manual mode (server picks its own)
+af3_seeds   = 5     # ignored in manual mode (server picks)
 
 # ── Interface analysis (freesasa + Biopython + PRODIGY) ────────────────────
 [interface]
 contact_cutoff_angstrom = 5.0    # heavy-atom distance for interface contacts
-sasa_probe_radius       = 1.4    # water probe in Angstrom
+sasa_probe_radius       = 1.4    # water probe, Angstrom
 include_water_in_sasa   = false
 report_per_chain_bsa    = true
 
-# ── MD equilibration (delegates to PPI stage-10 GROMACS modules) ───────────
-# membrane = true requires a CHARMM-GUI-prepared POPC/POPE box (see [M6]).
-# Production length is short by design - this stage tests interface stability
-# rather than sampling slow conformational change.
-[md_equilibration]
-backend            = "gromacs"
-forcefield         = "amber99sb-ildn"
-water_model        = "tip3p"
-box_padding_nm     = 1.2
-ion_concentration  = 0.15
-em_steps           = 50000
-nvt_ps             = 100
-npt_ps             = 100
-production_ns      = 50
-temperature_k      = 310
-membrane           = false       # set true after preparing CHARMM-GUI input
-gpu_offload        = true        # CUDA GROMACS required; see [M5]
+# ── AlphaFold3 confidence thresholds (primary interaction signal) ──────────
+# Read from the rank-1 AF3 model only (lower ranks are reported for
+# reproducibility, not for scoring). ipTM scores the inter-chain interface;
+# pTM scores the global fold and is used only as a sanity check.
+#   ipTM >= iptm_strong       high-confidence interaction
+#   iptm_borderline <= ipTM
+#                  <  iptm_strong   plausible; requires orthogonal support
+#                                   (BSA, contacts, PRODIGY DG, FoldX DG)
+#   ipTM <  iptm_borderline   low confidence (likely false positive)
+#   pTM  >= ptm_sanity_min    monomer fold is well-predicted; ipTM is
+#                             interpretable
+# AF3 composite ranking score = iptm_weight*ipTM + ptm_weight*pTM
+# (matches DeepMind AF-Multimer default 0.8 / 0.2).
+[af3_confidence]
+iptm_strong       = 0.80
+iptm_borderline   = 0.60
+ptm_sanity_min    = 0.70
+iptm_weight       = 0.80
+ptm_weight        = 0.20
 
-# ── Binding free energy decomposition ──────────────────────────────────────
-# Three independent backends - run all three and report the spread.
-#   mmpbsa : gmx_MMPBSA over the production trajectory (slowest, most physical)
-#   foldx  : FoldX AnalyseComplex on a single relaxed snapshot (fast, static)
-#   prodigy: PRODIGY regression on the predicted complex (instant, coarse)
+# ── MD equilibration (delegates to PPI stage-10 GROMACS modules) ───────────
+# membrane = true requires a CHARMM-GUI-prepared POPC/POPE box ([M6]).
+# Production length is intentionally short - this stage tests interface
+# stability, not slow conformational change.
+# HMR + virtual H-sites (dt = 4 fs) per Hopkins et al. 2015
+# (10.1021/ct5010406). NOTE: the dt_fs / virtual_sites / constraints /
+# nstxout_compressed_steps keys are documentation of intended physics
+# until modules/14_special_pipeline/run_short_md.sh is implemented.
+[md_equilibration]
+backend                  = "gromacs"
+forcefield               = "amber99sb-ildn"
+water_model              = "tip3p"
+box_padding_nm           = 1.2
+ion_concentration        = 0.15
+em_steps                 = 50000
+nvt_ps                   = 50      # v-rescale settles in 20-50 ps
+npt_ps                   = 100     # pressure equilibration is slowest mode
+production_ns            = 20
+temperature_k            = 310
+membrane                 = false   # true after CHARMM-GUI prep
+gpu_offload              = true    # CUDA GROMACS required ([M5])
+dt_fs                    = 4
+virtual_sites            = "hydrogens"   # pdb2gmx -vsite hydrogens
+constraints              = "h-bonds"     # required when dt > 2 fs
+nstxout_compressed_steps = 5000          # 10 ps (4 fs x 5000 / 2)
+
+# ── Binding free energy decomposition (run all three; report spread) ───────
+#   mmpbsa  gmx_MMPBSA over the trajectory (slowest, most physical)
+#   foldx   FoldX AnalyseComplex on a single relaxed snapshot (fast, static)
+#   prodigy PRODIGY regression on the predicted complex (instant, coarse)
+# mmpbsa is POSTPONED with GROMACS - reinstate "mmpbsa foldx prodigy" once
+# md_equilibration is re-enabled. mmpbsa_* keys below are kept ready.
 [binding_energy]
-backends                  = "mmpbsa foldx prodigy"
-mmpbsa_start_frame        = 100    # skip first 100 frames (equilibration)
-mmpbsa_stride             = 5
+backends                   = "foldx prodigy"        # mmpbsa postponed (GROMACS)
+#backends                  = "mmpbsa foldx prodigy" # full panel (re-enable with GROMACS)
+mmpbsa_start_frame         = 100   # skip equilibration frames
+mmpbsa_stride              = 5
 mmpbsa_internal_dielectric = 4.0
-foldx_n_runs              = 5      # FoldX RepairPDB + AnalyseComplex repeats
-prodigy_temperature_c     = 25
+foldx_n_runs               = 5     # FoldX RepairPDB + AnalyseComplex repeats
+prodigy_temperature_c      = 25
 
 # ── Computational alanine scan (MutaTeX + FoldX) ───────────────────────────
-# Scans interface residues of the WT complex only - the deletion variants
-# give the domain-level map; this gives the residue-level map.
+# WT/WT pair only (HAP2=WT x DMP=WT). The deletion ladders give the domain
+# map; this gives the residue map. reference_* names must match the WT row
+# (index 0) of [variants].names / [dmp_variants].names since pair label
+# "{reference_variant}__{reference_dmp_variant}" is what the orchestrator
+# looks up in the predicted-complex tree.
 [alanine_scan]
 reference_variant        = "WT"
+reference_dmp_variant    = "WT"
 reference_stoichiometry  = "monomeric"
-ddg_threshold_hotspot    = 2.0     # kcal/mol; residues above this = hot spot
+ddg_threshold_hotspot    = 2.0     # kcal/mol; above this = hot spot
 include_dmp_side         = true    # scan both HAP2 and DMP interface residues
 
 # ── Comparative report ─────────────────────────────────────────────────────
+# ranking_metric options (thresholds for the ipTM/pTM options live in
+# [af3_confidence]; thresholds for the DG options live in [binding_energy]):
+#   iptm        AF3 rank-1 ipTM (PRIMARY while GROMACS is postponed)
+#   af3_score   composite iptm_weight*ipTM + ptm_weight*pTM
+#   foldx_dg    FoldX AnalyseComplex DG (single relaxed snapshot)
+#   prodigy_dg  PRODIGY regression DG (instant, coarse)
+#   mmpbsa_dg   gmx_MMPBSA trajectory DG (re-enable with GROMACS)
+#   composite   weighted blend of all available DGs
+#
+# Each entry in `heatmaps` renders one HAP2-variant x DMP-variant matrix
+# (rows = HAP2 ladder, columns = DMP ladder, cell = metric value for that
+# pair's rank-1 model / primary stoichiometry). ipTM/pTM cells use the
+# strong/borderline thresholds from [af3_confidence] for the colour breaks.
+# annotate_cells = overlay numeric value in each cell.
+# mark_paper_constructs = star the Wang 2022 paper-direct pairs
+# (WT__WT, delC_596_705__WT, delEcto_25_530__WT).
 [comparative_report]
 figure_format            = "pdf"   # pdf | svg | png
-include_paper_overlay    = true    # mark which variants disagree with Wang 2022
-ranking_metric           = "mmpbsa_dg"   # mmpbsa_dg | foldx_dg | prodigy_dg | composite
+include_paper_overlay    = true    # mark variants that disagree with Wang 2022
+ranking_metric           = "iptm"           # AF3-first while MMPBSA is postponed
+#ranking_metric          = "mmpbsa_dg"      # restore with GROMACS
+secondary_metrics        = ["ptm", "foldx_dg", "prodigy_dg"]
+heatmaps                 = [
+    "iptm",         # primary interaction signal (uses [af3_confidence] cuts)
+    "ptm",          # global fold sanity (uses [af3_confidence].ptm_sanity_min)
+    "af3_score",    # composite iptm_weight*ipTM + ptm_weight*pTM
+    "foldx_dg",
+    "prodigy_dg",
+#    "mmpbsa_dg",   # re-enable with GROMACS
+]
+annotate_cells           = true
+mark_paper_constructs    = true
+# Optional iptm-vs-DG scatter (one point per pair) - sanity-check whether
+# the AF3 ipTM call agrees with the static-energy backends. Off by default
+# until both axes have data (FoldX is enabled now, so this can be turned on).
+scatter_iptm_vs_dg       = true
+scatter_dg_axis          = "foldx_dg"
 
 # ── Tool paths ─────────────────────────────────────────────────────────────
 [tools]
-gromacs_binary      = "gmx"        # use "gmx_mpi" on HPC
+gromacs_binary      = "gmx"        # "gmx_mpi" on HPC
 foldx_binary        = ""           # set after [M4]; e.g. "tools/foldx/foldx_20251231"
-af3_binary          = ""           # only if predict_complexes.backend = "local"
+af3_binary          = ""           # only when predict_complexes.backend = "local"
 prodigy_conda_env   = "egg"
-gmx_mmpbsa_env      = "gmxmmpbsa"  # create via mamba install gmx_MMPBSA
+gmx_mmpbsa_env      = "gmxmmpbsa"  # mamba install gmx_MMPBSA
+
+# ── Cross-run comparison (Arabidopsis vs. Eggplant pair, post-hoc) ─────────
+# Per-run Op 7 (comparative_report) already produces the WITHIN-run heatmap.
+# This block governs the planned BETWEEN-run reducer that diffs per-pair
+# DG, ipTM, and hotspot residues across the two species pairs once both
+# runs have ranked_pairs.tsv.
+# <!-- COMPLETE: implement modules/14_special_pipeline/cross_run_compare.py
+#      reading III_RESULT/{run}/14_Domain_Mapping/07_Summary/ for each
+#      label, emitting a unified TSV + heatmap diffing the two pairs. -->
+[comparison]
+enabled        = false
+run_labels     = ["DMP_x_AtHAP2", "DMP_x_SmelHAP2"]
+metric         = "iptm"                    # match [comparative_report].ranking_metric
+#metric        = "mmpbsa_dg"               # restore with GROMACS
+output_subdir  = "Cross_Run_Comparison"    # under III_RESULT/_Cross_Run/
 
 # ============================================================================
-# References (also printed inside 14_HAP2_Domain_Mapping.sh header)
+# References
+#
+# Tooling DOIs (software the pipeline invokes):
 #   AlphaFold3       Abramson et al. 2024     10.1038/s41586-024-07487-w
 #   GROMACS          Abraham et al. 2015      10.1016/j.softx.2015.06.001
 #   gmx_MMPBSA       Valdes-Tresanco 2021     10.1021/acs.jctc.1c00645
@@ -196,6 +433,10 @@ gmx_mmpbsa_env      = "gmxmmpbsa"  # create via mamba install gmx_MMPBSA
 #   MutaTeX          Tiberti et al. 2022      10.5281/zenodo.6346203
 #   freesasa         Mitternacht 2016         10.12688/f1000research.7931.1
 #   PRODIGY          Xue et al. 2016          10.1093/bioinformatics/btw514
-#   HAP2 crystal     Fedry et al. 2017        10.1016/j.cell.2017.10.024 (PDB 5OW3)
-#   Paper basis      Wang et al. 2022         PMC9659367
+#
+# All biological background (DMP-HAP2 mechanism, EC1 trigger, HAP2
+# prefusion-postfusion pathway, AF-Multimer postfusion bias caveat,
+# DMP haploid-induction lineage) lives in the citation-checked reference
+# table at 14_Interaction_Domain_Mapping_NOTES.md Section 10.
+# That file is the single source of truth for biological citations.
 # ============================================================================

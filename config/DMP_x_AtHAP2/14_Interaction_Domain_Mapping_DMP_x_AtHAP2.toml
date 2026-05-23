@@ -1,0 +1,23 @@
+# ============================================================================
+# Stage 14 per-run override: DMP_x_AtHAP2 (Arabidopsis-paired run)
+# ----------------------------------------------------------------------------
+# Mirrors the species pair from Wang et al. 2022 (PMC9659367) as closely as
+# possible: AtHAP2 (At4g11720, UniProt F4JP36) paired with AtDMP8
+# (AT1G09157, UniProt O80493). Both partners are Arabidopsis-native so the
+# paper's residue numbering carries over without remapping.
+#
+# This run uses the deletion coordinates from the paper verbatim (596-705,
+# 25-530, etc.) because those are AtHAP2-numbered. The eggplant-native
+# counterpart lives at config/DMP_x_SmelHAP2/ and must remap those ranges.
+#
+# Merged on top of 14_Interaction_Domain_MappingCONFIG.toml via merge_toml.py
+# (deep merge; only the keys below override the shared defaults).
+# ============================================================================
+
+[general]
+base_dir = "III_RESULT/DMP_x_AtHAP2"
+
+[inputs]
+hap2_fasta = "II_INPUTS/HAP2/AtHAP2_At4g11720.fasta"
+dmp_fasta  = "II_INPUTS/DMP/AtDMP8_At1g09157.fasta"
+# Reference PDB inherits from shared config.

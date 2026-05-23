@@ -1,0 +1,56 @@
+# ============================================================================
+# Stage 14 per-run override: DMP_x_SmelHAP2 (eggplant-native run)
+# ----------------------------------------------------------------------------
+# Eggplant-native partner pair: SmelHAP2 ortholog (from Chapter IV) + the
+# primary DMP candidate SmelDMPv5_10.610. This run produces the eggplant-side
+# of the cross-species comparison (the Arabidopsis-paired side lives at
+# config/DMP_x_AtHAP2/).
+#
+# IMPORTANT: deletion coordinates in the shared config are AtHAP2-numbered
+# (705 aa). Before running this side, remap them onto SmelHAP2 via a
+# pairwise alignment (see --show-manual-steps step [M2]). The placeholder
+# values below intentionally keep the AtHAP2 numbers so the orchestrator
+# will refuse to truncate past the SmelHAP2 length if the operator forgets
+# to remap - that error is the prompt to come back and fix this file.
+#
+# Merged on top of 14_Interaction_Domain_MappingCONFIG.toml via merge_toml.py.
+# ============================================================================
+
+[general]
+base_dir = "III_RESULT/DMP_x_SmelHAP2"
+
+[inputs]
+hap2_fasta = "II_INPUTS/HAP2/SmelHAP2.fasta"
+# DMP and reference PDB inherit from shared config.
+
+# <!-- VERIFY: remap AtHAP2 deletion coordinates onto SmelHAP2 numbering
+#      before running this side. The arrays below currently inherit AtHAP2
+#      ranges from the shared config - replace them once the pairwise
+#      alignment of AtHAP2 vs. SmelHAP2 is in hand. Example shape:
+#
+#   [variants]
+#   deletions = [
+#       "",                  # WT
+#       "<smel_C_start>-<smel_C_end>",
+#       "<smel_ecto_start>-<smel_ecto_end>",
+#       "<smel_D1_start>-<smel_D1_end>",
+#       "<smel_D2_start>-<smel_D2_end>",
+#       "<smel_D3_start>-<smel_D3_end>",
+#       "<smel_FL_start>-<smel_FL_end>",
+#   ]
+# -->
+
+# <!-- VERIFY: remap AtDMP8 deletion coordinates onto SmelDMPv5_10.610
+#      numbering before running this side. The shared config's [dmp_variants]
+#      uses AtDMP8 (UniProt O80493, 213 aa) numbering. SmelDMPv5_10.610 is
+#      221 aa - run pairwise Needleman-Wunsch against AtDMP8 and transcribe
+#      the AtDMP8 1-64 / 65-200 / 201-213 boundaries onto SmelDMP. Example:
+#
+#   [dmp_variants]
+#   deletions = [
+#       "",                  # WT
+#       "1-<smel_N_end>",          # SmelDMP N-terminal cytoplasmic
+#       "<smel_C_start>-221",      # SmelDMP C-terminal cytoplasmic
+#       "<smel_TMcore_start>-<smel_TMcore_end>",
+#   ]
+# -->

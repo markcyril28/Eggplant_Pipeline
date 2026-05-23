@@ -18,7 +18,7 @@ Analysis                             = Phylogeny Reconstruction
 Statistical Method                   = Maximum Likelihood                  
 Phylogeny Test                       = ====================                
 Test of Phylogeny                    = Standard Bootstrap (slow)           
-Bootstrap Replicates                 = 1000                                
+Bootstrap Replicates                 = 2000                                
 Substitution Model                   = ====================                
 Substitutions Type                   = Nucleotide                          
 Model/Method                         = Kimura 2-parameter model            

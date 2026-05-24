@@ -5,7 +5,7 @@
 # Automatically detects GPU vendor (NVIDIA or AMD) and builds GROMACS
 # with the appropriate backend (CUDA or HIP). Also installs the
 # environments and binaries needed by Stage 14
-# (14_Interaction_Domain_Mapping.sh): the GROMACS env (md_equilibration,
+# (14_interaction_Domain_Mapping.sh): the GROMACS env (md_equilibration,
 # currently postponed), the MutaTeX env (alanine scan + FoldX wrapper),
 # the gmxmmpbsa env (binding-energy mmpbsa backend), Stage 14 Python
 # deps in the egg env (PRODIGY, freesasa, gemmi, Biopython), and a
@@ -54,10 +54,10 @@
 #   ./setup_gromacs_and_mutatex.sh --stage14-only       # Same minus GROMACS build
 #                                                       # (use when MD is postponed)
 #
-# Stage 14 software map (14_Interaction_Domain_Mapping.sh + its TOML):
+# Stage 14 software map (14_interaction_Domain_Mapping.sh + its TOML):
 #   GROMACS                  -> built here as gromacs_CUDA / gromacs_HIP env
 #                               (md_equilibration; currently POSTPONED in
-#                               14_Interaction_Domain_MappingCONFIG.toml)
+#                               14_interaction_Domain_MappingCONFIG.toml)
 #   gmx_MMPBSA               -> gmxmmpbsa env (binding_energy mmpbsa backend;
 #                               POSTPONED with GROMACS but kept ready)
 #   MutaTeX                  -> PPI env (alanine_scan)
@@ -127,13 +127,13 @@ MUTATEX_PYTHON_VERSION="3.11"       # Python version for MutateX env
 SETUP_MUTATEX=false                  # Whether to set up MutateX
 
 # gmx_MMPBSA settings (Stage 14 binding-energy mmpbsa backend)
-# Name MUST match [tools].gmx_mmpbsa_env in 14_Interaction_Domain_MappingCONFIG.toml
+# Name MUST match [tools].gmx_mmpbsa_env in 14_interaction_Domain_MappingCONFIG.toml
 GMXMMPBSA_ENV_NAME="gmxmmpbsa"
 GMXMMPBSA_PYTHON_VERSION="3.10"     # gmx_MMPBSA pins ParmEd, easier on 3.10
 SETUP_GMXMMPBSA=true                # Whether to set up gmx_MMPBSA env
 
-# Stage 14 (14_Interaction_Domain_Mapping.sh) Python deps in the egg env.
-# Name MUST match [tools].prodigy_conda_env in 14_Interaction_Domain_MappingCONFIG.toml
+# Stage 14 (14_interaction_Domain_Mapping.sh) Python deps in the egg env.
+# Name MUST match [tools].prodigy_conda_env in 14_interaction_Domain_MappingCONFIG.toml
 STAGE14_PRODIGY_ENV="egg"
 SETUP_STAGE14=false                  # Full Stage 14 install (implies mutatex + gmxmmpbsa)
 SETUP_STAGE14_ONLY=true             # Stage 14 install minus GROMACS build
@@ -1498,7 +1498,7 @@ verify_gmxmmpbsa() {
     echo "  conda activate $GMXMMPBSA_ENV_NAME"
     echo "  gmx_MMPBSA -O -i mmpbsa.in -cs complex.tpr -ci index.ndx ..."
     echo ""
-    echo "Pipeline integration: 14_Interaction_Domain_MappingCONFIG.toml"
+    echo "Pipeline integration: 14_interaction_Domain_MappingCONFIG.toml"
     echo "  [tools].gmx_mmpbsa_env  = \"$GMXMMPBSA_ENV_NAME\""
     echo "  [binding_energy].backends includes \"mmpbsa\"  (currently gated"
     echo "                                                  off while GROMACS"
@@ -1601,7 +1601,7 @@ scaffold_foldx_dir() {
 FoldX binary drop-zone (Stage 14)
 ==================================
 
-Stage 14 (14_Interaction_Domain_Mapping.sh) uses FoldX for:
+Stage 14 (14_interaction_Domain_Mapping.sh) uses FoldX for:
   - binding_energy.foldx backend (compute_foldx_dg.sh)
   - alanine_scan operation (alanine_scan.sh)
 
@@ -1615,7 +1615,7 @@ Steps:
   5. Update the TOML:
         [tools]
         foldx_binary = "tools/foldx/foldx_20251231"
-     in 14_Interaction_Domain_MappingCONFIG.toml
+     in 14_interaction_Domain_MappingCONFIG.toml
 
 Also drop rotabase.txt here if your FoldX version needs it
 (older versions did; newer 5.x packages embed it).
@@ -1638,7 +1638,7 @@ print_stage14_status() {
 
     echo ""
     echo "============================================================"
-    echo " Stage 14 Setup Status (14_Interaction_Domain_Mapping.sh)"
+    echo " Stage 14 Setup Status (14_interaction_Domain_Mapping.sh)"
     echo "============================================================"
     printf "  GROMACS env (%s)    : %s\n" "$ENV_NAME" \
         "$(conda env list | grep -q "^${ENV_NAME} " && echo "OK" || echo "NOT INSTALLED")"
@@ -1664,7 +1664,7 @@ print_stage14_status() {
     echo "  [M5] Confirm \`gmx --version\` reports 'GPU support: CUDA' (when MD is re-enabled)"
     echo "  [M6] (optional) CHARMM-GUI membrane prep if [md_equilibration].membrane = true"
     echo ""
-    echo "Note: 14_Interaction_Domain_MappingCONFIG.toml currently has md_equilibration"
+    echo "Note: 14_interaction_Domain_MappingCONFIG.toml currently has md_equilibration"
     echo "      commented out and the mmpbsa backend disabled. The GROMACS + gmxmmpbsa"
     echo "      envs are installed ahead of time so re-enabling MD is a TOML flip."
     echo ""
@@ -1699,7 +1699,7 @@ main() {
                 # Full Stage 14 surface: implies GROMACS + MutaTeX + gmxmmpbsa
                 # + egg-env Python deps + FoldX scaffold. Re-enables MD-side
                 # envs ahead of time even though md_equilibration is currently
-                # commented out in 14_Interaction_Domain_MappingCONFIG.toml.
+                # commented out in 14_interaction_Domain_MappingCONFIG.toml.
                 SETUP_STAGE14=true
                 SETUP_MUTATEX=true
                 SETUP_GMXMMPBSA=true

@@ -17,7 +17,7 @@ LOGS_DIR="$SCRIPT_DIR/logs"
 KEEP_DIR="z_logs_prompt"
 
 # --- User-configurable defaults (edit here to change behavior without flags) ---
-MODE="all"       # "all" = clear everything except z_logs_prompt/
+MODE="errors"       # "all" = clear everything except z_logs_prompt/
                  # "errors" = remove only error-run files (same as --errors-only)
 DRY_RUN=false    # true = print what would be deleted, no changes (same as -n)
 ASSUME_YES=false # true = skip confirmation prompt (same as -y)

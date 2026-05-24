@@ -2320,4 +2320,6 @@ run_pipeline() {
 
 run_pipeline
 
-wait
+# Do NOT 'wait' here: background log-monitor PIDs from setup_logging() would
+# block exit indefinitely. Each step internally waits for its own backgrounded
+# work. The EXIT trap (safe_teardown_logging) reaps logging children.

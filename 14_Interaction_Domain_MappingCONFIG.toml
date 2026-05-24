@@ -1,6 +1,6 @@
 # ====================================================================================================================
 # Stage 14: In silico HAP2 x DMP interaction-domain mapping
-# Consumed by 14_Interaction_Domain_Mapping.sh
+# Consumed by 14_interaction_Domain_Mapping.sh
 # Biology, citations, conformational-state rationale: 14_Interaction_Domain_Mapping_NOTES.md
 # --------------------------------------------------------------------------------------------------------------------
 # Two experiments under III_RESULT/{label}/14_Domain_Mapping/:
@@ -65,7 +65,7 @@ only_dmp_variants = []
 [pipeline]
 gene_groups = [
     "DMP_x_AtHAP2", 
-    #"DMP_x_SmelHAP2"
+    "DMP_x_SmelHAP2"
 ]
 machine     = "Local"
 overwrite   = true
@@ -114,7 +114,7 @@ stoichiometry_comparison = [
     "interface_analysis",        # freesasa BSA, heavy-atom contacts, per-chain SASA
     ##"md_equilibration",         # POSTPONED - GROMACS short MD
     #"binding_energy",            # FoldX + PRODIGY DG (mmpbsa gated off with GROMACS)
-    #"comparative_report",        # ranked_stoichiometry.tsv + stoichiometry_comparison.{pdf,png}
+    "comparative_report",        # ranked_stoichiometry.tsv + stoichiometry_comparison.{pdf,png}
 ]
 
 deletion_ladder = [
@@ -124,7 +124,7 @@ deletion_ladder = [
     ##"md_equilibration",         # POSTPONED - GROMACS short MD
     #"binding_energy",            # FoldX + PRODIGY DG (mmpbsa gated off with GROMACS)
     #"alanine_scan",              # MutaTeX + FoldX residue DDG on WT__WT
-    #"comparative_report",        # Heatmaps, ranked_pairs.tsv, paper-overlay figures
+    "comparative_report",        # Heatmaps, ranked_pairs.tsv, paper-overlay figures
 ]
 
 

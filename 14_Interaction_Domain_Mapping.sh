@@ -81,7 +81,7 @@
 # Active experiments are gated by `active_comparison = [...]` in the TOML.
 #
 # References:
-#   Tooling DOIs are listed at the bottom of 14_Interaction_Domain_MappingCONFIG.toml.
+#   Tooling DOIs are listed at the bottom of 14_interaction_Domain_MappingCONFIG.toml.
 #   All biological background and paper-anchored design decisions (Wang 2022
 #   deletion-binding paper; Feng 2022 HAP2 prefusion-monomer structure;
 #   Cyprys 2019 DMP8/9 discovery; Shiba 2023 GCS1/HAP2 review; EC1 trigger
@@ -105,10 +105,10 @@ source "$MODULES/logging/logging_utils.sh"
 TOML_PARSER="$MODULES/utils/parse_toml.py"
 get_toml() { python3 "$TOML_PARSER" "$CONFIG_FILE" "$@"; }
 
-SHARED_CONFIG="$PIPELINE_DIR/14_Interaction_Domain_MappingCONFIG.toml"
+SHARED_CONFIG="$PIPELINE_DIR/14_interaction_Domain_MappingCONFIG.toml"
 get_toml_shared() { python3 "$TOML_PARSER" "$SHARED_CONFIG" "$@"; }
 
-# ── Run-mode toggles (all sourced from [run] in 14_Interaction_Domain_MappingCONFIG.toml) ──
+# ── Run-mode toggles (all sourced from [run] in 14_interaction_Domain_MappingCONFIG.toml) ──
 # Edit the TOML, not this script. No CLI flags are accepted.
 DRY_RUN=$(get_toml_shared run dry_run 2>/dev/null || echo "false")
 SHOW_MANUAL=$(get_toml_shared run show_manual 2>/dev/null || echo "false")
@@ -225,7 +225,7 @@ fi
 # ── Gene-group iteration ────────────────────────────────────────────────────
 mapfile -t GENE_GROUPS < <(python3 "$TOML_PARSER" "$SHARED_CONFIG" pipeline gene_groups 2>/dev/null)
 if [[ ${#GENE_GROUPS[@]} -eq 0 ]]; then
-    echo "ERROR: pipeline.gene_groups is empty in 14_Interaction_Domain_MappingCONFIG.toml" >&2
+    echo "ERROR: pipeline.gene_groups is empty in 14_interaction_Domain_MappingCONFIG.toml" >&2
     exit 1
 fi
 
@@ -400,7 +400,7 @@ fi
 # list under [domain_mapping.operations].$EXPERIMENT.
 mapfile -t ACTIVE_COMPARISON < <(get_toml_shared active_comparison 2>/dev/null)
 if [[ ${#ACTIVE_COMPARISON[@]} -eq 0 ]]; then
-    log_warn "active_comparison is empty in 14_Interaction_Domain_MappingCONFIG.toml; defaulting to both experiments."
+    log_warn "active_comparison is empty in 14_interaction_Domain_MappingCONFIG.toml; defaulting to both experiments."
     ACTIVE_COMPARISON=(stoichiometry_comparison deletion_ladder)
 fi
 
@@ -592,7 +592,7 @@ PRODIGY_ENV=$(get_toml tools prodigy_conda_env 2>/dev/null || echo "egg")
 # applied as `conda run -n <env>` around the matching invocation below.
 # Empty values fall through to running in the orchestrator's inherited
 # env (correct for static-binary tools like FoldX). See [conda_envs] in
-# 14_Interaction_Domain_MappingCONFIG.toml for the per-op mapping.
+# 14_interaction_Domain_MappingCONFIG.toml for the per-op mapping.
 ENV_PREPARE=$(env_for prepare_variants)
 ENV_PREPARE_COMPLEXES=$(env_for prepare_complexes)
 ENV_IFACE=$(env_for interface_analysis)
@@ -799,6 +799,56 @@ if op_enabled "prepare_complexes"; then
     : > "$MANIFEST"
     printf 'pair\thap2_variant\tdmp_variant\tstoich\tn_hap2\tn_dmp\thap2_fasta\tdmp_fasta\texpected_output\n' >> "$MANIFEST"
 
+    # ── Scatter flat AF3 zips from 02_Complexes/ top-level into per-pair slots ──
+    # Downloads dropped directly into the 02_Complexes/ root (not into the
+    # nested {stoich}/{pair}/ subdirectory) are matched against the current
+    # pair list and copied into the correct slot so the per-slot extraction
+    # loop below can handle them. Original flat zips are kept in place.
+    # Matching: strip the "fold_" prefix, lowercase, then check whether the
+    # result either equals the normalized pair label ("__" -> "_", lowercase)
+    # OR starts with that label followed by an underscore (free-form trailing
+    # suffix such as _at / _smel / _arabidopsis / _eggplant / _<runlabel>).
+    # Pair labels are tested longest-first so e.g. "wt_deltmdcore" wins over
+    # "wt_del" if both ever co-exist.
+    _FLAT_ZIPS=()
+    while IFS= read -r _z; do _FLAT_ZIPS+=("$_z"); done \
+        < <(find "$COMPLEX_DIR" -maxdepth 1 -name '*.zip' 2>/dev/null | sort)
+    if (( ${#_FLAT_ZIPS[@]} > 0 )); then
+        mapfile -t _PAIRS_BY_LEN < <(
+            for _p in "${PAIR_LABEL[@]}"; do
+                _pn="${_p,,}"; _pn="${_pn//__/_}"
+                printf '%s\t%s\n' "${#_pn}" "$_p"
+            done | sort -rn | cut -f2-
+        )
+        log_info "  [SCATTER] ${#_FLAT_ZIPS[@]} flat zip(s) in $(basename "$COMPLEX_DIR")/ -> routing to pair slots"
+        for _fzip in "${_FLAT_ZIPS[@]}"; do
+            _zbase="$(basename "$_fzip" .zip)"
+            _znorm="${_zbase#fold_}"
+            _znorm="${_znorm,,}"
+            _MATCHED_PAIR=""
+            for _plab in "${_PAIRS_BY_LEN[@]}"; do
+                _pnorm="${_plab,,}"
+                _pnorm="${_pnorm//__/_}"
+                if [[ "$_znorm" == "$_pnorm" || "$_znorm" == "${_pnorm}_"* ]]; then
+                    _MATCHED_PAIR="$_plab"
+                    break
+                fi
+            done
+            if [[ -z "$_MATCHED_PAIR" ]]; then
+                log_warn "  [SCATTER] $(basename "$_fzip"): no matching pair (norm='$_znorm'); skipped."
+                continue
+            fi
+            for _slab in "${STOICH_LABELS[@]}"; do
+                _tgt="$COMPLEX_DIR/$_slab/$_MATCHED_PAIR/$(basename "$_fzip")"
+                mkdir -p "$(dirname "$_tgt")"
+                if [[ ! -f "$_tgt" || "$OVERWRITE" == "true" ]]; then
+                    cp "$_fzip" "$_tgt"
+                    log_info "  [SCATTER] -> $_slab/$_MATCHED_PAIR/$(basename "$_fzip")"
+                fi
+            done
+        done
+    fi
+
     MISSING=0
     for k in "${!PAIR_LABEL[@]}"; do
         H="${PAIR_HAP2[$k]}"
@@ -835,7 +885,7 @@ After the job finishes:
        $EXPECT_CIF
      If AF3 names it differently, rename or symlink to that exact path.
 
-Re-run "bash 14_Interaction_Domain_Mapping.sh" once the drop is in place.
+Re-run "bash 14_interaction_Domain_Mapping.sh" once the drop is in place.
 EOF
 
             # deletion_ladder WT__WT: lift the CIF from stoichiometry_comparison so we

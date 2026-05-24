@@ -10,7 +10,7 @@
 # 25-530, etc.) because those are AtHAP2-numbered. The eggplant-native
 # counterpart lives at config/DMP_x_SmelHAP2/ and must remap those ranges.
 #
-# Merged on top of 14_Interaction_Domain_MappingCONFIG.toml via merge_toml.py
+# Merged on top of 14_interaction_Domain_MappingCONFIG.toml via merge_toml.py
 # (deep merge; only the keys below override the shared defaults).
 # ============================================================================
 

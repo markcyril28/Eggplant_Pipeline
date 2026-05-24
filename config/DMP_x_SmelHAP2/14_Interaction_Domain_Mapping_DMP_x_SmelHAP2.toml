@@ -13,7 +13,7 @@
 # will refuse to truncate past the SmelHAP2 length if the operator forgets
 # to remap - that error is the prompt to come back and fix this file.
 #
-# Merged on top of 14_Interaction_Domain_MappingCONFIG.toml via merge_toml.py.
+# Merged on top of 14_interaction_Domain_MappingCONFIG.toml via merge_toml.py.
 # ============================================================================
 
 [general]

@@ -3,7 +3,7 @@
 generate_variants.py -- build a single truncation-variant FASTA from a
 source sequence by applying one or more deletion ranges.
 
-Called by 14_Interaction_Domain_Mapping.sh for each row in [variants] and
+Called by 14_interaction_Domain_Mapping.sh for each row in [variants] and
 [dmp_variants].  All deletion coordinates refer to the ORIGINAL sequence
 (1-indexed, inclusive).  When multiple ranges are given they are applied
 simultaneously (positions to remove are unioned before slicing), so the

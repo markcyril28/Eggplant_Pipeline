@@ -311,6 +311,41 @@ conda_run_in() {
     fi
 }
 
+# Same DRY_RUN / env-wrap behaviour as conda_run_in, but also routes the
+# invocation through run_with_space_time_log so the 6-component logging
+# system's components 2/3/4 (time_metrics.csv / space_metrics.csv /
+# combined_metrics.csv) actually get rows. Use for sequential heavy ops
+# (MD, MM-PBSA, FoldX dG, PRODIGY dG, FoldX alanine scan); the per-pair
+# interface_analysis loop must stay on conda_run_in because it backgrounds
+# jobs with `&` and concurrent run_with_space_time_log invocations would
+# race on the CSV append.
+#
+# Trade-off: GNU time -v captures the wrapped command's stderr into
+# TIME_TEMP so it can extract elapsed/RSS/CPU. On success that stderr is
+# discarded; on failure the whole TIME_TEMP is appended to LOG_FILE. Tool
+# stdout still streams through to LOG_FILE live. Heavy ops here (GROMACS,
+# gmx_MMPBSA, FoldX) all write their own per-run logfile to their output
+# directory, so losing stderr from the orchestrator log on success is an
+# acceptable trade for getting populated metrics CSVs.
+conda_run_logged() {
+    local env="$1"; shift
+    if [[ "$DRY_RUN" == "true" ]]; then
+        if [[ -z "$env" ]]; then
+            log_info "[DRY-RUN] (timed) $*"
+        else
+            log_info "[DRY-RUN] (timed) conda run -n $env --no-capture-output $*"
+        fi
+        return 0
+    fi
+    if [[ -z "$env" ]]; then
+        log_info "Running (no conda wrap, timed): $*"
+        run_with_space_time_log "$@"
+    else
+        log_info "Running (env=$env, timed): $*"
+        run_with_space_time_log conda run -n "$env" --no-capture-output "$@"
+    fi
+}
+
 # Trim leading/trailing whitespace from a string. Uses bash parameter
 # expansion so it's quick and dependency-free.
 trim_ws() {
@@ -1641,7 +1676,7 @@ elif op_enabled "md_equilibration"; then
             mkdir -p "$MD_SUB"
             [[ ! -s "$CIF" ]] && { log_warn "  [skip] $CIF missing"; continue; }
             log_info "  [$PLAB/$SLAB] MD = ${NS} ns, membrane=$USE_MEMBRANE"
-            conda_run_in "$ENV_MD" bash "$MD_WRAP" \
+            conda_run_logged "$ENV_MD" bash "$MD_WRAP" \
                 --complex "$CIF" \
                 --output "$MD_SUB" \
                 --gmx "$GMX_BIN" \

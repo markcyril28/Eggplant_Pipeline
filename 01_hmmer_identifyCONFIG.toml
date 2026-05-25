@@ -12,14 +12,17 @@
 # ============================================================================
 
 [pipeline]
-# Gene groups to process. Available: "DMP", "HAP2", "GRF_GIF", "EC1", "GEX1", "PLA"
+# Gene groups to process. Available: "DMP", "AtDMP", "HAP2", "GRF_GIF", "EC1", "GEX1", "PLA"
+# AtDMP = Arabidopsis-only DMP run (same Pfam PF05078 profile as DMP); pair with
+# genome_sets = ["arabidopsis"] under [identification.targets] below.
 gene_groups   = [
     #"DMP",
+    "AtDMP",
     #"HAP2",
     #"GRF_GIF",
     #"EC1",
     #"GEX1",
-    "PLA",
+    #"PLA",
 ]
 
 machine       = "Local"  # "Local" or "HPC" — selects compute profile below
@@ -126,16 +129,32 @@ min_length    = 30              # -l   minimum nucleotide sequence length
 strand        = 0               # -r   0 = +/- strands, 1 = + strand only
 
 # ============================================================================
-# Target genomes — comment in/out matching triplets (label, protein, transcript)
+# Target genomes — organized into named genome sets (eggplant, arabidopsis).
+# The orchestrator concatenates per-set labels/proteins/transcripts/cds/
+# annotations/genomes arrays for every set listed in `genome_sets` below.
+#
 # SOURCES
 #   Eggplant Genome V4.1:              https://solgenomics.net/ftp/genomes/Solanum_melongena_V4.1/
 #   GPE001970 genome (Unito Genomics): https://solgenomics.net/ftp/unito_genomics/
+#   Arabidopsis Araport11:             https://www.arabidopsis.org/download/list?dir=Genes/Araport11_genome_release
 # ============================================================================
 [identification.targets]
-# true  = search all GPE accessions listed below (full Unito Genomics panel)
-# false = search GPE001970 only (Smel v4.1 and V3 are always included)
+# Genome sets to search. Comment in/out to enable. Multiple may be active;
+# the orchestrator concatenates the per-set arrays in the order listed.
+genome_sets = [
+    #"eggplant",
+    "arabidopsis",
+]
+
+# Eggplant-set toggle (no effect on other sets):
+#   true  = search all GPE accessions listed under [identification.targets.eggplant]
+#   false = search GPE001970 only (Smel v4.1 and V3 are always included)
 unito_full_panel = false
 
+# ----------------------------------------------------------------------------
+# Eggplant genome set — Solanaceae (Solanum melongena, multiple assemblies).
+# ----------------------------------------------------------------------------
+[identification.targets.eggplant]
 labels = [
     "Solanum_melongena_v4.1",
     #"Solanum_melongena_V3",
@@ -419,6 +438,48 @@ genomes = [
     "I_RefSeqs/a_Smel_RefSeqs/unito_genomics/genomes/GPE059520.fa",
 ]
 
+# ----------------------------------------------------------------------------
+# Arabidopsis genome set — Brassicaceae (Arabidopsis thaliana, Araport11).
+# ----------------------------------------------------------------------------
+# Only CDS / cDNA are staged. The protein FASTA `Araport11_pep_20240409.fa`
+# is generated on-demand by 01_hmmer_identify.sh (BUILD_PROFILES phase) by
+# translating the matching CDS via modules/01_hmmer_gene_identification/
+# translate_cds_to_protein.py. Source CDS file is taken from `cds[i]` of
+# the matching index; the resulting `_pep` path is what `proteins[i]` points
+# to below.
+# ----------------------------------------------------------------------------
+[identification.targets.arabidopsis]
+labels = [
+    "Arabidopsis_thaliana_Araport11",
+    #"Arabidopsis_thaliana_Araport11_repmodel",   # representative gene model only
+]
+
+proteins = [
+    # Auto-derived from cds[i] via translate_cds_to_protein.py if missing.
+    "I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_pep_20240409.fasta",
+    #"I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_pep_20240409_representative_gene_model.fasta",
+]
+
+transcripts = [
+    "I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_cdna_20240409.fasta",
+    #"I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_cdna_20240409_representative_gene_model.fasta",
+]
+
+cds = [
+    "I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_cds_20240409.fasta",
+    #"I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_cds_20240409_representative_gene_model.fasta",
+]
+
+annotations = [
+    "",   # Araport11 GFF not staged in this collection
+    #"",
+]
+
+genomes = [
+    "",   # TAIR10 genome FASTA not staged in this collection
+    #"",
+]
+
 # ============================================================================
 # Per-gene-group HMM profile mapping
 # ----------------------------------------------------------------------------
@@ -433,6 +494,14 @@ genomes = [
 
 [identification.gene_groups.DMP.genes]
 DMP = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05078_DMP.hmm"]
+
+# Arabidopsis-only DMP run — same Pfam PF05078_DMP profile as DMP, but
+# scoped to the arabidopsis genome set (pair with genome_sets = ["arabidopsis"]
+# in [identification.targets] above). Per-group output isolation keeps the
+# Arabidopsis hits out of III_RESULT/DMP/ so they can be inspected separately
+# under III_RESULT/AtDMP/.
+[identification.gene_groups.AtDMP.genes]
+AtDMP = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05078_DMP.hmm"]
 
 [identification.gene_groups.HAP2.genes]
 HAP2 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF10699_HAP2.hmm"]

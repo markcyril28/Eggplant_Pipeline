@@ -115,24 +115,85 @@ unset _SEEN_PROFILE _GENE _GENE_HMMS _BASES _HMM
 log_info "Gene group $GENE_GROUP: ${#GENE_NAMES[@]} gene(s) [${GENE_NAMES[*]}], ${#PROFILES[@]} unique profile(s)"
 
 ALIGNMENTS=()  # seed alignments deprecated; HMM profiles are pre-built (Pfam)
-mapfile -t TARGET_LABELS < <(get_toml identification targets labels)
-mapfile -t TARGET_PROTEINS < <(get_toml identification targets proteins)
-mapfile -t TARGET_TRANSCRIPTS < <(get_toml identification targets transcripts)
-mapfile -t TARGET_CDS < <(get_toml identification targets cds 2>/dev/null || true)
-mapfile -t TARGET_ANNOTATIONS < <(get_toml identification targets annotations 2>/dev/null || true)
-mapfile -t TARGET_GENOMES < <(get_toml identification targets genomes 2>/dev/null || true)
 
-# Apply unito_full_panel switch: false = keep only first 3 entries (v4.1, V3, GPE001970)
-UNITO_FULL=$(get_toml identification targets unito_full_panel 2>/dev/null || echo "true")
-if [[ "$UNITO_FULL" != "true" ]]; then
-    TARGET_LABELS=("${TARGET_LABELS[@]:0:3}")
-    TARGET_PROTEINS=("${TARGET_PROTEINS[@]:0:3}")
-    TARGET_TRANSCRIPTS=("${TARGET_TRANSCRIPTS[@]:0:3}")
-    TARGET_CDS=("${TARGET_CDS[@]:0:3}")
-    TARGET_ANNOTATIONS=("${TARGET_ANNOTATIONS[@]:0:3}")
-    TARGET_GENOMES=("${TARGET_GENOMES[@]:0:3}")
-    log_info "unito_full_panel=false: targeting ${#TARGET_LABELS[@]} genomes (v4.1, V3, GPE001970)"
+# ---------------------------------------------------------------------------
+# Load target genomes from one or more named genome sets (eggplant, arabidopsis).
+# `[identification.targets].genome_sets` is a list of set names; for each set,
+# the orchestrator appends `[identification.targets.<set>].{labels,proteins,
+# transcripts,cds,annotations,genomes}` to the global TARGET_* arrays.
+# Set-specific filters (e.g. `unito_full_panel` for the eggplant set) are
+# applied to that set's slice before concatenation.
+# ---------------------------------------------------------------------------
+TARGET_LABELS=(); TARGET_PROTEINS=(); TARGET_TRANSCRIPTS=()
+TARGET_CDS=(); TARGET_ANNOTATIONS=(); TARGET_GENOMES=()
+
+mapfile -t GENOME_SETS < <(get_toml identification targets genome_sets 2>/dev/null || true)
+if [[ ${#GENOME_SETS[@]} -eq 0 ]]; then
+    log_error "No genome sets enabled. Add at least one entry to [identification.targets].genome_sets (e.g. \"eggplant\" or \"arabidopsis\")."
+    exit 1
 fi
+
+UNITO_FULL=$(get_toml identification targets unito_full_panel 2>/dev/null || echo "true")
+
+for GSET in "${GENOME_SETS[@]}"; do
+    mapfile -t _SET_LABELS      < <(get_toml identification targets "$GSET" labels      2>/dev/null || true)
+    mapfile -t _SET_PROTEINS    < <(get_toml identification targets "$GSET" proteins    2>/dev/null || true)
+    mapfile -t _SET_TRANSCRIPTS < <(get_toml identification targets "$GSET" transcripts 2>/dev/null || true)
+    mapfile -t _SET_CDS         < <(get_toml identification targets "$GSET" cds         2>/dev/null || true)
+    mapfile -t _SET_ANNOTATIONS < <(get_toml identification targets "$GSET" annotations 2>/dev/null || true)
+    mapfile -t _SET_GENOMES     < <(get_toml identification targets "$GSET" genomes     2>/dev/null || true)
+
+    if (( ${#_SET_LABELS[@]} == 0 )); then
+        log_warn "Genome set '$GSET' has no labels — skipping (check [identification.targets.$GSET])"
+        continue
+    fi
+
+    # Eggplant-only filter: when unito_full_panel = false keep only the first
+    # three entries (Smel v4.1, V3, GPE001970). Other sets pass through.
+    if [[ "$GSET" == "eggplant" && "$UNITO_FULL" != "true" ]]; then
+        _SET_LABELS=("${_SET_LABELS[@]:0:3}")
+        _SET_PROTEINS=("${_SET_PROTEINS[@]:0:3}")
+        _SET_TRANSCRIPTS=("${_SET_TRANSCRIPTS[@]:0:3}")
+        _SET_CDS=("${_SET_CDS[@]:0:3}")
+        _SET_ANNOTATIONS=("${_SET_ANNOTATIONS[@]:0:3}")
+        _SET_GENOMES=("${_SET_GENOMES[@]:0:3}")
+        log_info "[$GSET] unito_full_panel=false -> ${#_SET_LABELS[@]} genomes (v4.1, V3, GPE001970)"
+    else
+        log_info "[$GSET] ${#_SET_LABELS[@]} genome(s)"
+    fi
+
+    TARGET_LABELS+=("${_SET_LABELS[@]}")
+    TARGET_PROTEINS+=("${_SET_PROTEINS[@]}")
+    TARGET_TRANSCRIPTS+=("${_SET_TRANSCRIPTS[@]}")
+    TARGET_CDS+=("${_SET_CDS[@]}")
+    TARGET_ANNOTATIONS+=("${_SET_ANNOTATIONS[@]}")
+    TARGET_GENOMES+=("${_SET_GENOMES[@]}")
+done
+unset GSET _SET_LABELS _SET_PROTEINS _SET_TRANSCRIPTS _SET_CDS _SET_ANNOTATIONS _SET_GENOMES
+
+log_info "Total targets across [${GENOME_SETS[*]}]: ${#TARGET_LABELS[@]}"
+
+# ---------------------------------------------------------------------------
+# Auto-translate CDS -> protein for any target whose protein file is missing.
+# Required for Arabidopsis (Araport11 release ships CDS/cDNA but no peptides
+# in our reference tree). Idempotent: skips when the protein file is newer
+# than its source CDS.
+# ---------------------------------------------------------------------------
+TRANSLATE_HELPER="$MODULES/01_hmmer_gene_identification/translate_cds_to_protein.py"
+for t in "${!TARGET_PROTEINS[@]}"; do
+    _PEP_REL="${TARGET_PROTEINS[$t]:-}"
+    _CDS_REL="${TARGET_CDS[$t]:-}"
+    [[ -z "$_PEP_REL" ]] && continue
+    _PEP_ABS="$PIPELINE_DIR/$_PEP_REL"
+    if [[ -f "$_PEP_ABS" ]]; then continue; fi
+    if [[ -z "$_CDS_REL" || ! -f "$PIPELINE_DIR/$_CDS_REL" ]]; then
+        log_warn "Protein missing and no CDS source for ${TARGET_LABELS[$t]}: $_PEP_REL"
+        continue
+    fi
+    log_info "Translating CDS -> protein for ${TARGET_LABELS[$t]}"
+    python3 "$TRANSLATE_HELPER" "$PIPELINE_DIR/$_CDS_REL" "$_PEP_ABS"
+done
+unset t _PEP_REL _CDS_REL _PEP_ABS
 
 # Gene-structure / GenBank settings (shared by EXTRACT_GENE_STRUCTURES + GENERATE_GENBANK)
 GS_FLANK_BP=$(get_toml identification gene_structures flank_bp 2>/dev/null || echo 1000)

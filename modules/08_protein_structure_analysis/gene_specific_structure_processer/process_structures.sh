@@ -33,7 +33,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Ops 6-9 default false; orchestrator exports them when the TOML operation list enables them.
 DO_EXTRACT=${DO_EXTRACT:-true}              # 1. Extract AlphaFold3 zip files
 DO_COPY_MODEL0=${DO_COPY_MODEL0:-true}     # 2. Copy model 0 to AlphaFold3_Results/
-DO_CIF_TO_PDB=${DO_CIF_TO_PDB:-true}      # 3. Convert .cif → .pdb (gemmi)
+DO_CIF_TO_PDB=${DO_CIF_TO_PDB:-true}      # 3. Convert .cif → .pdb (gemmi, AlphaFold3_Results/ only)
+DO_CIF_TO_PDB_ALL=${DO_CIF_TO_PDB_ALL:-false}  # 3b. Convert ALL .cif → .pdb recursively under run dir
 DO_UPDATE_HEADER=${DO_UPDATE_HEADER:-true} # 4. Update PDB HEADER with gene name
 DO_RENDER=${DO_RENDER:-true}               # 5. Generate publication-quality images
 DO_EXTRACT_METRICS=${DO_EXTRACT_METRICS:-false}  # 6. Extract quality metrics (AF3 vs SWISS)
@@ -191,6 +192,18 @@ if [[ "${DO_CIF_TO_PDB:-}" == "true" ]]; then
     else
         echo "  $(basename "$STRUCT_DIR")/ not found — run copy-model-0 first"
     fi
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+# Op 3b: CIF → PDB conversion (recursive, entire run directory)
+# Converts every .cif under RUN_DIR (including raw AlphaFold3 outputs and
+# templates/ subfolders). Skips reference.cif. Useful when you need PDBs of
+# template hits or extra models, not just the curated model_0 copies.
+# ════════════════════════════════════════════════════════════════════════════
+if [[ "${DO_CIF_TO_PDB_ALL:-}" == "true" ]]; then
+    echo ""
+    echo "=== Op 3b: CIF → PDB conversion (recursive, run-wide) ==="
+    python3 "$SCRIPT_DIR/cif_to_pdb.py" --input-dir "$RUN_DIR" --workers "$THREADS"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════

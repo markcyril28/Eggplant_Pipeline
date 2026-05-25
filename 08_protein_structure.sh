@@ -120,10 +120,12 @@ if (( ${#RUN_DIRS[@]} > 0 )); then
     # Ops 1-5: default all-true when list is absent (backward compat); honour tag when list present.
     if [[ -z "$_ops15" ]]; then
         export DO_EXTRACT=true DO_COPY_MODEL0=true DO_CIF_TO_PDB=true DO_UPDATE_HEADER=true DO_RENDER=true
+        export DO_CIF_TO_PDB_ALL=false
     else
         export DO_EXTRACT=$(op_on "DO_EXTRACT" "$_ops15")
         export DO_COPY_MODEL0=$(op_on "DO_COPY_MODEL0" "$_ops15")
         export DO_CIF_TO_PDB=$(op_on "DO_CIF_TO_PDB" "$_ops15")
+        export DO_CIF_TO_PDB_ALL=$(op_on "DO_CIF_TO_PDB_ALL" "$_ops15")
         export DO_UPDATE_HEADER=$(op_on "DO_UPDATE_HEADER" "$_ops15")
         export DO_RENDER=$(op_on "DO_RENDER" "$_ops15")
     fi

@@ -62,6 +62,7 @@ operation_1_5 = [
     #"1. Extract AlphaFold3 zip files         (DO_EXTRACT)",
     #"2. Copy model 0 to AlphaFold3_Results   (DO_COPY_MODEL0)",
     #"3. Convert .cif to .pdb via gemmi        (DO_CIF_TO_PDB)",
+    #"3b. Convert ALL .cif to .pdb (recursive) (DO_CIF_TO_PDB_ALL)",
     #"4. Update PDB HEADER with gene name      (DO_UPDATE_HEADER)",
     "5. Generate publication images (PyMOL)   (DO_RENDER)",
 ]

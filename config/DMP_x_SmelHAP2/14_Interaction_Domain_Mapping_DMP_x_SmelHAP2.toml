@@ -47,3 +47,37 @@ coords_column = "sm"
 # The DMP side ([dmp_variants]) needs no override: [inputs].dmp_fasta is
 # always SmelDMPv5_10.610 and the shared [dmp_variants.coords] already
 # carries SmelDMP10.610 numbering anchored to the Stage 06 MEME motifs.
+#
+# DMP ladder now includes 14 gRNA-anchored variants (refreshed 2026-05-25),
+# anchored exclusively to SmelDMPv5_10.610 (Stage 09 CRISPR-Local v1 output).
+# Source: guide_comparison_table_moderate.tsv (off-targets <= 2, cut in CDS)
+# in III_RESULT/DMP/09_CRISPR_Off-Target_Analysis/GPE001970_SMEL5/
+#   06_Summary_Report/tables/ , plus the operator-selected Guide4 from the
+# raw CRISPR-P TSV (01_Raw_Scoring_Results_from_CRISPR-P_V2_0/...) -- a
+# very-early-CDS cut with 0 off-targets.
+#
+# Each guide produces a matched pair of variants:
+#   delGuide*  = post-cut protein truncation (keep aa 1..last_full_codon)
+#   fsGuide*   = +1 NHEJ insertion at the DSB, re-translated until first
+#                new stop codon (predominant Cas9/NHEJ repair outcome)
+#
+# Guide table (cut aa = codon containing the DSB on the CDS):
+#   Guide  | Score  | Tier     | Strand | OT | cut aa | del keeps  | fs len
+#   -------+--------+----------+--------+----+--------+------------+-------
+#   Guide4 | 0.1172 | Low      |   +    | 0  |   7    |    1-6     |  10
+#   Guide17| 0.8725 | High     |   +    | 1  |  118   |    1-118   | 141
+#   Guide16| 0.4235 | Low      |   +    | 1  |  118   |    1-117   | 141
+#   Guide20| 0.4861 | Low      |   +    | 1  |  129   |    1-128   | 141
+#   Guide37| 0.5374 | Moderate |   +    | 2  |  216   |    1-215   | 240
+#   Guide46| 0.4683 | Low      |   -    | 2  |   27   |    1-27    |  42
+#   Guide50| 0.4767 | Low      |   -    | 2  |   80   |    1-80    |  83
+#
+# Frameshift sequences are derived at runtime from the transcript
+# ([inputs].dmp_transcript_fasta in the shared config) by
+# generate_variants.py --mode frameshift; the variant table re-derives
+# automatically if the guide list ever changes. These pairs (WT_HAP2 x
+# {del,fs}Guide*) bridge Stage 09 (guide design) and Stage 14
+# (interaction-domain mapping): the AF3+PRODIGY+MMPBSA verdict on each
+# variant is the in-silico prediction for the wet-lab CRISPR KO phenotype
+# of that guide. The Arabidopsis-paired run (DMP_x_AtHAP2) does NOT
+# include these variants - they are eggplant-specific.

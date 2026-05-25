@@ -1,0 +1,12 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: AtDMP — 01_Identification (HMMER)
+# ============================================================================
+# Gene-group overrides only. Shared defaults (method, db_type, targets,
+# hmmer_params, nhmmer_params, cdhit_params, cdhit_est_params) live in
+# 01_hmmer_identifyCONFIG.toml (project root) and are deep-merged.
+#
+# The AtDMP gene-to-profile map is defined in the root config under
+# [identification.gene_groups.AtDMP] (it reuses the PF05078_DMP.hmm profile).
+# Override keys here only when the Arabidopsis run needs different parameters
+# from the shared defaults.
+# ============================================================================

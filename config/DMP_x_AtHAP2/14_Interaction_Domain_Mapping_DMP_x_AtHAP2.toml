@@ -26,5 +26,15 @@ dmp_fasta  = "II_INPUTS/DMP/AtDMP8_At1g09157.fasta"
 # override above. The shared default is "sm" (SmelDMP) to match the
 # shared dmp_fasta. [hap2_variants].coords_column stays at its shared
 # default "at" since this run also uses AtHAP2.
+#
+# Note (refreshed 2026-05-25): the shared config also includes 14 gRNA-anchored
+# DMP variants (delGuide4/17/16/20/37/46/50 + fsGuide4/17/16/20/37/46/50)
+# that are intentionally absent from [dmp_variants.coords.at] /
+# [dmp_variants.guides.at]. Those guides were designed against
+# SmelDMPv5_10.610 (eggplant) via CRISPR-Local in Stage 09; they have no
+# meaningful AtDMP8 counterpart. The orchestrator skips them at runtime
+# with a per-variant warning (see the DMP variant table parser in
+# 14_Interaction_Domain_Mapping.sh). This run therefore stays paper-
+# faithful to Wang 2022 by default - no only_dmp_variants override required.
 [dmp_variants]
 coords_column = "at"

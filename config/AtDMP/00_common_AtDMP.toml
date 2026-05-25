@@ -1,0 +1,62 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: AtDMP (Arabidopsis-only DMP) — Common / Shared
+# ============================================================================
+# Arabidopsis-scoped run of the DMP Pfam profile (PF05078). Output is isolated
+# under III_RESULT/AtDMP/ so the Arabidopsis hit set does not pollute the
+# eggplant-anchored III_RESULT/DMP/ tree.
+#
+# Pair this gene group with `genome_sets = ["arabidopsis"]` in
+# 01_hmmer_identifyCONFIG.toml [identification.targets] so the orchestrator
+# routes searches at the Araport11 reference (auto-translated protein FASTA
+# derived from Araport11_cds_20240409.fasta — see
+# modules/01_hmmer_gene_identification/translate_cds_to_protein.py).
+#
+# Output folder structure (canonical, same as other gene groups):
+#   III_RESULT/AtDMP/
+#   ├── 01_Identification/
+#   ├── 02_BLAST_Alignment/
+#   ├── 04_MSA/
+#   ├── 05_Phylogenetics/
+#   ├── 06_Motif_Analysis/
+#   ├── 06_Gene_Expression/
+#   ├── 07_PlantCARE/
+#   ├── 08_Protein_Structure/
+#   └── 09_CRISPR_Off-Target_Analysis/
+# ============================================================================
+
+[general]
+gene_group = "AtDMP"
+base_dir = "III_RESULT/AtDMP"
+
+[output_dirs]
+identification     = "01_Identification"
+blast_alignment    = "02_BLAST_Alignment"
+msa                = "04_MSA"
+phylogenetics      = "05_Phylogenetics"
+gene_sequence      = "06_Motif_Analysis"
+gene_expression    = "06_Gene_Expression"
+plantcare          = "07_PlantCARE_Analysis"
+protein_structure  = "08_Protein_Structure"
+crispr             = "09_CRISPR_Off-Target_Analysis"
+
+# ============================================================================
+# Reference Genomes and Databases — Arabidopsis (Araport11 release).
+# Protein FASTA path is the destination of the on-demand CDS translation; the
+# file is materialised by the orchestrator's BUILD_PROFILES phase if missing.
+# TAIR10 genome FASTA and Araport11 GFF are NOT staged in this collection.
+# ============================================================================
+[reference]
+arabidopsis_cds          = "I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_cds_20240409.fasta"
+arabidopsis_cdna         = "I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_cdna_20240409.fasta"
+arabidopsis_proteins     = "I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_pep_20240409.fasta"
+arabidopsis_repmodel_cds = "I_RefSeqs/b_Various_Crop_Species_Genomes/04_Brassicaceae/Arabidopsis_thaliana/Araport11_cds_20240409_representative_gene_model.fasta"
+atdmp_query_proteins     = "I_RefSeqs/d_DMP_Query_Fasta/Arabidopsis_thaliana/AtDMPs_merged_protein.fa"
+atdmp_query_nucleotides  = "I_RefSeqs/d_DMP_Query_Fasta/Arabidopsis_thaliana/AtDMPs_merged_fasta.fa"
+
+# ==========================================================================
+# Shared MSA Query FASTA Selection (used by 04_msa_alignment.sh merge-mode
+# sets to pick which BLAST query list from [ortholog_blast] is appended).
+# ==========================================================================
+[msa_query_selection]
+nucleotide_query_fastas_key = "query_fastas"
+amino_acid_query_fastas_key = "query_protein_fastas"

@@ -19,9 +19,9 @@ machine   = "Local"   # "Local" or "HPC" - selects compute profile below
 overwrite = true
 
 [pipeline.compute.Local]
-threads               = 12   # Total CPU threads available
-blast_optimal_threads = 4    # Threads per BLAST/Cas-OFFinder job (~4 is efficient)
-max_parallel          = 3    # Concurrent jobs (threads / blast_optimal_threads)
+threads               = 3   # Total CPU threads available
+blast_optimal_threads = 3    # Threads per BLAST/Cas-OFFinder job (~4 is efficient)
+max_parallel          = 1    # Concurrent jobs (threads / blast_optimal_threads)
 
 [pipeline.compute.HPC]
 threads               = 64   # Total CPU threads on HPC node
@@ -54,7 +54,7 @@ operations = [
 # On-target score filtering (Doench 2016 RS2 / Azimuth scale, 0-1).
 # Tiers: High >= 0.7 (top quartile, [Doench 2016]);
 #        Moderate >= 0.5 (plant CRISPR cutoff, [Liu 2020; Sun 2022]).
-score_thresholds = [0.5, 0.7]
+score_thresholds = [0.4, 0.7]
 
 
 # ============================================================================
@@ -135,7 +135,7 @@ max_mismatches = 3     # plant CRISPR safety standard [Wolter 2019]; SpCas9 clea
 # mm0..mmN counts (default 3, matching cas_offinder.max_mismatches).
 [crispr.annotate_genbank]
 high_threshold  = 0.7
-mod_threshold   = 0.5
+mod_threshold   = 0.4   # Should be 0.5
 max_mm          = 3
 gb_subpath      = "01_Identification/{genome}/e-value_1e-5/e_GENE_Structures/DMP/without_up_and_downstream"
 output_dir_name = "07_GenBank_with_gRNA_Annotations"
@@ -176,8 +176,6 @@ offtarget_moderate = 8   # near-miss tolerance at 3-mm [Wolter 2019; Bortesi 201
 # ============================================================================
 # References
 # ============================================================================
-# Verified via PubMed citation lookup (2026-05-23). Each entry: full author
-# list, title, journal, volume(issue):pages, DOI, PMID/PMC, and resolver URLs.
 #
 # Altschul SF, Gish W, Miller W, Myers EW, Lipman DJ. 1990.
 #     Basic local alignment search tool.

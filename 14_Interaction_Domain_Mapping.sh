@@ -50,6 +50,8 @@
 #                         verification (USER ACTION required for backend=manual;
 #                         set [run].show_manual = true in the TOML to print
 #                         the submission checklist)
+#   iptm_heatmap        - HAP2 x DMP ipTM heatmap from AF3 summary JSONs
+#                         (no downstream deps; runs straight from AF3 outputs)
 #   interface_analysis  - residue contacts, BSA, ipTM, PRODIGY DG_pred
 #   md_equilibration    - short GROMACS MD via the existing PPI stage-10 modules
 #   binding_energy      - gmx_MMPBSA on the trajectory + FoldX AnalyseComplex
@@ -57,23 +59,36 @@
 #   comparative_report  - cross-variant heatmap, ranking, summary TSV / PDF
 #
 # Output layout under III_RESULT/{GROUP}/14_Domain_Mapping/:
-#   stoichiometry_comparison/   (Experiment 1: WT x WT at 1:1, 2:1, 3:1)
-#     01_Variants/HAP2/                       (WT HAP2 FASTA)
-#     01_Variants/DMP/                        (WT DMP FASTA)
-#     02_Complexes/{stoich}/{pair}/           (AF3 .cif / ranking_debug.json)
-#     03_Interfaces/{stoich}/{pair}/          (interface .tsv, BSA, contacts)
-#     04_MD/{stoich}/{pair}/                  (GROMACS .gro/.xtc/.edr)
-#     05_BindingEnergy/{stoich}/{pair}/       (MM-PBSA, FoldX dG)
-#     07_Summary/                             (ranked_stoichiometry.tsv + figure)
-#   deletion_ladder/            (Experiment 2: HAP2 ladder x DMP ladder at basis stoich)
-#     01_Variants/HAP2/                       (truncated HAP2 FASTAs)
-#     01_Variants/DMP/                        (truncated DMP FASTAs)
-#     02_Complexes/{stoich}/{pair}/           (AF3 .cif / ranking_debug.json)
-#     03_Interfaces/{stoich}/{pair}/          (interface .tsv, BSA, contacts)
-#     04_MD/{stoich}/{pair}/                  (GROMACS .gro/.xtc/.edr)
-#     05_BindingEnergy/{stoich}/{pair}/       (MM-PBSA, FoldX dG)
-#     06_AlanineScan/                         (per-residue DDG; WT/WT pair only)
-#     07_Summary/                             (cross-pair ranking, figures)
+#   stoichiometry_comparison/                   (Experiment 1: WT x WT at 1:1, 2:1, 3:1)
+#     01_Variants/HAP2/                         (WT HAP2 FASTA; shared)
+#     01_Variants/DMP/                          (WT DMP FASTA; shared)
+#     01_Variants/DMP-HAP2/                     ({pair}.fasta + {pair}.json = HAP2 + DMP
+#                                                concat / AF3-server job; ready-to-submit)
+#     02_Complexes/{stoich}/{pair}/             (AF3 .cif / ranking_debug.json)
+#     03_Interfaces/{stoich}/{pair}/            (interface .tsv, BSA, contacts)
+#     04_MD/{stoich}/{pair}/                    (GROMACS .gro/.xtc/.edr)
+#     05_BindingEnergy/{stoich}/{pair}/         (MM-PBSA, FoldX dG)
+#     06_AlanineScan/{stoich}/                  (per-residue DDG; WT/WT pair only)
+#     07_Summary/{stoich}/                      (figures per stoich: iptm_heatmap_*, etc.)
+#   deletion_ladder/                            (Experiment 2: HAP2 ladder x DMP ladder at basis stoich)
+#     01_Variants/{pairing_mode}/HAP2/          (truncated HAP2 FASTAs; mode-scoped)
+#     01_Variants/{pairing_mode}/DMP/           (truncated DMP FASTAs; mode-scoped)
+#     01_Variants/{pairing_mode}/DMP-HAP2/      ({pair}.fasta and {pair}.json = HAP2 + DMP
+#                                                concat / AF3-server job; mode-scoped)
+#     02_Complexes/{stoich}/{pair}/             (AF3 .cif / ranking_debug.json)
+#     03_Interfaces/{stoich}/{pair}/            (interface .tsv, BSA, contacts)
+#     04_MD/{stoich}/{pair}/                    (GROMACS .gro/.xtc/.edr)
+#     05_BindingEnergy/{stoich}/{pair}/         (MM-PBSA, FoldX dG)
+#     06_AlanineScan/{stoich}/                  (per-residue DDG; WT/WT pair only)
+#     07_Summary/{stoich}/                      (figures per stoich: iptm_heatmap_*, etc.)
+# Numbered output category is ALWAYS the parent; the {stoich} subfolder (monomeric |
+# dimeric | postfusion_like) sits directly inside it. For deletion_ladder ONLY,
+# 01_Variants/ additionally splits by [pairing].mode (orthogonal | matrix | pairwise)
+# since the per-side and per-pair FASTA lists differ by mode. The numbered downstream
+# folders (02_Complexes through 07_Summary, plus _AF3_Backup) stay at the experiment
+# root because their {pair_label} keying already distinguishes mode-specific outputs
+# (matrix-mode just adds extra pair subfolders without colliding with orthogonal-mode
+# names). stoichiometry_comparison is not split by mode anywhere.
 #
 # {pair} = "{hap2_variant_name}__{dmp_variant_name}", e.g. "WT__WT",
 # "delC_596_705__WT", "WT__delN_1_64". Built from [hap2_variants] x [dmp_variants]
@@ -408,8 +423,14 @@ fi
 HAP2_FASTA=$(get_toml inputs hap2_fasta 2>/dev/null)
 DMP_FASTA=$(get_toml inputs dmp_fasta 2>/dev/null)
 HAP2_REF_PDB=$(get_toml inputs hap2_reference_pdb 2>/dev/null || echo "")
+# Transcript (DNA) used by the guide-anchored frameshift variants
+# ([dmp_variants.guides.<col>]); optional - only required when at least one
+# fsGuide* variant is present in the active DMP ladder.
+DMP_TRANSCRIPT_FASTA=$(get_toml inputs dmp_transcript_fasta 2>/dev/null || echo "")
+DMP_TRANSCRIPT_RECORD=$(get_toml inputs dmp_transcript_record 2>/dev/null || echo "")
 [[ "$HAP2_FASTA" != /* && -n "$HAP2_FASTA" ]] && HAP2_FASTA="$PIPELINE_DIR/$HAP2_FASTA"
 [[ "$DMP_FASTA"  != /* && -n "$DMP_FASTA"  ]] && DMP_FASTA="$PIPELINE_DIR/$DMP_FASTA"
+[[ -n "$DMP_TRANSCRIPT_FASTA" && "$DMP_TRANSCRIPT_FASTA" != /* ]] && DMP_TRANSCRIPT_FASTA="$PIPELINE_DIR/$DMP_TRANSCRIPT_FASTA"
 if [[ ! -f "$HAP2_FASTA" || ! -f "$DMP_FASTA" ]]; then
     log_error "Required input FASTA missing. HAP2='$HAP2_FASTA' DMP='$DMP_FASTA'"
     log_error "Set [run].show_manual = true in $SHARED_CONFIG and re-run to print step [M1] (source-sequence selection)."
@@ -486,34 +507,53 @@ mapfile -t _DMP_VARIANT_ROWS < <(get_toml dmp_variants rows 2>/dev/null)
 DMP_VARIANT_NAMES=()
 DMP_VARIANT_DESCRIPTIONS=()
 DMP_VARIANT_DELETIONS=()
+# Parallel array: per-variant Cas9 guide spec ("23mer|strand") for frameshift
+# variants; empty string for deletion variants and WT.
+DMP_VARIANT_GUIDES=()
 if [[ ${#_DMP_VARIANT_ROWS[@]} -eq 0 ]]; then
     log_info "[dmp_variants].rows not declared - using single WT DMP partner from [inputs].dmp_fasta"
     DMP_VARIANT_NAMES=("WT")
     DMP_VARIANT_DESCRIPTIONS=("Full-length DMP (inferred default; [dmp_variants].rows not declared)")
     DMP_VARIANT_DELETIONS=("")
+    DMP_VARIANT_GUIDES=("")
 else
     for _row in "${_DMP_VARIANT_ROWS[@]}"; do
         parse_variant_row "$_row"
         [[ -z "$_ROW_NAME" ]] && continue
-        if [[ "$_ROW_NAME" == "WT" ]]; then
-            _coord=""
-        else
-            _coord=$(get_toml dmp_variants coords "$DMP_COORDS_COL" "$_ROW_NAME" 2>/dev/null || echo "")
-            if [[ -z "$_coord" || "$_coord" == "TBD" ]]; then
-                log_warn "[dmp_variants] '$_ROW_NAME': no $DMP_COORDS_COL coords (value '$_coord'); skipping. Add a range under [dmp_variants.coords.$DMP_COORDS_COL].$_ROW_NAME to enable."
+        _coord=""
+        _guide=""
+        if [[ "$_ROW_NAME" != "WT" ]]; then
+            # Two parallel tables describe the variant: [dmp_variants.coords]
+            # for deletion variants, [dmp_variants.guides] for guide-anchored
+            # +1 NHEJ frameshift variants. A variant must appear in exactly
+            # one (coords XOR guides); presence of either is sufficient.
+            _coord=$(get_toml dmp_variants coords  "$DMP_COORDS_COL" "$_ROW_NAME" 2>/dev/null || echo "")
+            _guide=$(get_toml dmp_variants guides  "$DMP_COORDS_COL" "$_ROW_NAME" 2>/dev/null || echo "")
+            if [[ -z "$_coord" && -z "$_guide" ]]; then
+                log_warn "[dmp_variants] '$_ROW_NAME': no $DMP_COORDS_COL coords or guide found; skipping. Add a range under [dmp_variants.coords.$DMP_COORDS_COL].$_ROW_NAME (deletion) or a 'guide_23mer|strand' entry under [dmp_variants.guides.$DMP_COORDS_COL].$_ROW_NAME (frameshift) to enable."
                 continue
+            fi
+            if [[ "$_coord" == "TBD" || "$_guide" == "TBD" ]]; then
+                log_warn "[dmp_variants] '$_ROW_NAME': coord/guide is 'TBD' (not yet defined); skipping."
+                continue
+            fi
+            if [[ -n "$_coord" && -n "$_guide" ]]; then
+                log_warn "[dmp_variants] '$_ROW_NAME': declared in BOTH coords and guides tables; using guide (frameshift mode) and ignoring coord '$_coord'."
+                _coord=""
             fi
         fi
         DMP_VARIANT_NAMES+=("$_ROW_NAME")
         DMP_VARIANT_DESCRIPTIONS+=("$_ROW_DESC")
         DMP_VARIANT_DELETIONS+=("$_coord")
+        DMP_VARIANT_GUIDES+=("$_guide")
     done
-    unset _row _coord
+    unset _row _coord _guide
     if [[ ${#DMP_VARIANT_NAMES[@]} -eq 0 ]]; then
-        log_warn "[dmp_variants]: all rows skipped (no usable $DMP_COORDS_COL coords) - falling back to WT partner."
+        log_warn "[dmp_variants]: all rows skipped (no usable $DMP_COORDS_COL coords/guides) - falling back to WT partner."
         DMP_VARIANT_NAMES=("WT")
         DMP_VARIANT_DESCRIPTIONS=("Full-length DMP (fallback; all rows skipped)")
         DMP_VARIANT_DELETIONS=("")
+        DMP_VARIANT_GUIDES=("")
     fi
 fi
 
@@ -633,19 +673,58 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
             ;;
     esac
 
-    # Per-experiment output dirs (the two top-level folders the user expects)
+    # Per-experiment output dirs. Numbered output category is ALWAYS the
+    # parent; the {stoich} subfolder (monomeric | dimeric | postfusion_like)
+    # sits directly inside it. For deletion_ladder, ONLY 01_Variants/ is
+    # additionally split by [pairing].mode (orthogonal | matrix | pairwise)
+    # since the variant FASTA lists (the per-side ladders + the per-pair
+    # concat) differ by mode -- the numbered downstream folders
+    # (02_Complexes, 03_Interfaces, 04_MD, 05_BindingEnergy, 06_AlanineScan,
+    # 07_Summary) stay at the experiment root because the {pair_label} keying
+    # already makes them mode-distinguishable (e.g. matrix-mode adds extra
+    # pair subfolders without collidng with orthogonal-mode names).
+    # stoichiometry_comparison has a single fixed WT/WT pair and gets NO
+    # mode split anywhere.
+    #   $EXP_OUT_DIR/01_Variants/[{pairing_mode}/]{HAP2,DMP,DMP-HAP2}/
+    #     - HAP2/{variant}.fasta      single-chain HAP2 truncations
+    #     - DMP/{variant}.fasta       single-chain DMP truncations
+    #     - DMP-HAP2/{pair}.fasta     HAP2-variant + DMP-variant concat per pair
+    #     - DMP-HAP2/{pair}.json      AlphaFold Server job file (array of
+    #                                 jobs, one per active stoichiometry)
+    #   $EXP_OUT_DIR/02_Complexes/{stoich}/{pair}/
+    #   $EXP_OUT_DIR/03_Interfaces/{stoich}/{pair}/
+    #   $EXP_OUT_DIR/04_MD/{stoich}/{pair}/
+    #   $EXP_OUT_DIR/05_BindingEnergy/{stoich}/{pair}/
+    #   $EXP_OUT_DIR/06_AlanineScan/{stoich}/
+    #   $EXP_OUT_DIR/07_Summary/{stoich}/
     EXP_OUT_DIR="$OUT_DIR/$EXPERIMENT"
-    HAP2_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/HAP2"
-    DMP_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/DMP"
+    if [[ "$EXPERIMENT" == "deletion_ladder" ]]; then
+        VARIANTS_ROOT="$EXP_OUT_DIR/01_Variants/$PAIRING_MODE"
+    else
+        VARIANTS_ROOT="$EXP_OUT_DIR/01_Variants"
+    fi
+    HAP2_VARIANTS_DIR="$VARIANTS_ROOT/HAP2"
+    DMP_VARIANTS_DIR="$VARIANTS_ROOT/DMP"
+    PAIR_VARIANTS_DIR="$VARIANTS_ROOT/DMP-HAP2"
     COMPLEX_DIR="$EXP_OUT_DIR/02_Complexes"
     IFACE_DIR="$EXP_OUT_DIR/03_Interfaces"
     MD_DIR="$EXP_OUT_DIR/04_MD"
     DG_DIR="$EXP_OUT_DIR/05_BindingEnergy"
     ASCAN_DIR="$EXP_OUT_DIR/06_AlanineScan"
     REPORT_DIR="$EXP_OUT_DIR/07_Summary"
-    mkdir -p "$HAP2_VARIANTS_DIR" "$DMP_VARIANTS_DIR" \
+    mkdir -p "$HAP2_VARIANTS_DIR" "$DMP_VARIANTS_DIR" "$PAIR_VARIANTS_DIR" \
              "$COMPLEX_DIR" "$IFACE_DIR" "$MD_DIR" "$DG_DIR" \
              "$ASCAN_DIR" "$REPORT_DIR"
+
+    # Per-stoichiometry path helpers. Each helper returns the per-stoich
+    # subfolder INSIDE the corresponding numbered category. Per-pair leaf
+    # nodes are mkdir'd lazily inside each op block.
+    slab_complex_dir() { echo "$COMPLEX_DIR/$1"; }
+    slab_iface_dir()   { echo "$IFACE_DIR/$1"; }
+    slab_md_dir()      { echo "$MD_DIR/$1"; }
+    slab_dg_dir()      { echo "$DG_DIR/$1"; }
+    slab_ascan_dir()   { echo "$ASCAN_DIR/$1"; }
+    slab_report_dir()  { echo "$REPORT_DIR/$1"; }
 
     # Per-experiment operations list. The TOML structure is
     # [domain_mapping.operations].<experiment> = [ ... ], so we query that
@@ -667,6 +746,7 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
     EXP_DMP_NAMES=()
     EXP_DMP_DESCS=()
     EXP_DMP_DELETIONS=()
+    EXP_DMP_GUIDES=()
     PAIR_HAP2=()
     PAIR_DMP=()
     PAIR_LABEL=()
@@ -677,7 +757,7 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
         SC_HAP2=$(get_toml stoichiometry_comparison hap2_variant 2>/dev/null || echo "WT")
         SC_DMP=$(get_toml stoichiometry_comparison dmp_variant 2>/dev/null || echo "WT")
         # Resolve the named HAP2 + DMP variants against the full ladders so
-        # we inherit description + deletion range.
+        # we inherit description + deletion range + guide spec.
         for i in "${!VARIANT_NAMES[@]}"; do
             if [[ "${VARIANT_NAMES[$i]}" == "$SC_HAP2" ]]; then
                 EXP_HAP2_NAMES+=("${VARIANT_NAMES[$i]}")
@@ -691,6 +771,7 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
                 EXP_DMP_NAMES+=("${DMP_VARIANT_NAMES[$j]}")
                 EXP_DMP_DESCS+=("${DMP_VARIANT_DESCRIPTIONS[$j]}")
                 EXP_DMP_DELETIONS+=("${DMP_VARIANT_DELETIONS[$j]}")
+                EXP_DMP_GUIDES+=("${DMP_VARIANT_GUIDES[$j]:-}")
                 break
             fi
         done
@@ -717,14 +798,40 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
         EXP_DMP_NAMES=("${DMP_VARIANT_NAMES[@]}")
         EXP_DMP_DESCS=("${DMP_VARIANT_DESCRIPTIONS[@]}")
         EXP_DMP_DELETIONS=("${DMP_VARIANT_DELETIONS[@]}")
+        EXP_DMP_GUIDES=("${DMP_VARIANT_GUIDES[@]:-}")
         if ! build_pairs "$PAIRING_MODE"; then
             log_error "  [deletion_ladder] build_pairs failed for mode='$PAIRING_MODE'; skipping experiment."
             continue
         fi
-        BASIS=$(get_toml stoichiometry basis 2>/dev/null || echo "monomeric")
-        BASIS_COPIES=$(get_toml stoichiometry hap2_copies 2>/dev/null || echo "1")
-        STOICH_LABELS=("$BASIS")
-        STOICH_COUNTS=("$BASIS_COPIES")
+        # [stoichiometry].basis is an array; deletion_ladder iterates each
+        # selected basis. HAP2 copies are derived from the label name
+        # (monomeric=1, dimeric=2, postfusion_like=3) so the TOML cannot drift
+        # out of sync with the chain count.
+        mapfile -t _BASIS_LIST < <(get_toml stoichiometry basis 2>/dev/null)
+        if [[ ${#_BASIS_LIST[@]} -eq 0 ]]; then
+            log_warn "  [deletion_ladder] [stoichiometry].basis is empty; defaulting to monomeric."
+            _BASIS_LIST=("monomeric")
+        fi
+        STOICH_LABELS=()
+        STOICH_COUNTS=()
+        for _b in "${_BASIS_LIST[@]}"; do
+            case "$_b" in
+                monomeric)       _c=1 ;;
+                dimeric)         _c=2 ;;
+                postfusion_like) _c=3 ;;
+                *)
+                    log_warn "  [deletion_ladder] unknown basis label '$_b'; valid: monomeric | dimeric | postfusion_like. Skipping."
+                    continue
+                    ;;
+            esac
+            STOICH_LABELS+=("$_b")
+            STOICH_COUNTS+=("$_c")
+        done
+        unset _b _c _BASIS_LIST
+        if [[ ${#STOICH_LABELS[@]} -eq 0 ]]; then
+            log_error "  [deletion_ladder] no valid basis values resolved from [stoichiometry].basis; skipping experiment."
+            continue
+        fi
     fi
 
     log_step "  Experiment '$EXPERIMENT' -> $EXP_OUT_DIR"
@@ -738,7 +845,7 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
 # Operation 1: Build truncated HAP2 and DMP FASTAs
 # ============================================================================
 if op_enabled "prepare_variants"; then
-    log_step "  Op 1/7: prepare_variants  (HAP2 + DMP ladders)"
+    log_step "  Op 1/8: prepare_variants  (HAP2 + DMP ladders)"
     GEN_SCRIPT="$MODULES/14_special_pipeline/generate_variants.py"
 
     log_info "    HAP2 ladder -> $HAP2_VARIANTS_DIR"
@@ -767,19 +874,200 @@ if op_enabled "prepare_variants"; then
         dmp_variant_enabled "$DNAME" || continue
         DDESC="${EXP_DMP_DESCS[$j]:-no description}"
         DDEL="${EXP_DMP_DELETIONS[$j]:-}"
+        DGUIDE="${EXP_DMP_GUIDES[$j]:-}"
         OUT_FA="$DMP_VARIANTS_DIR/${DNAME}.fasta"
         if [[ -f "$OUT_FA" && "$OVERWRITE" != "true" ]]; then
             log_info "      [$DNAME] exists, skip (OVERWRITE=false)"
             continue
         fi
-        log_info "      [$DNAME] $DDESC  (delete='$DDEL')"
-        conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
-            --input "$DMP_FASTA" \
-            --name "$DNAME" \
-            --description "$DDESC" \
-            --deletions "$DDEL" \
-            --output "$OUT_FA"
+        if [[ -n "$DGUIDE" ]]; then
+            # Frameshift mode: guide spec format = "23mer|strand".
+            # Requires the DMP transcript FASTA (DNA) to locate the cut and
+            # re-translate from the original ATG; the transcript path is set
+            # by [inputs].dmp_transcript_fasta + [inputs].dmp_transcript_record.
+            if [[ -z "$DMP_TRANSCRIPT_FASTA" || ! -f "$DMP_TRANSCRIPT_FASTA" ]]; then
+                log_warn "      [$DNAME] guide variant declared but [inputs].dmp_transcript_fasta missing or unreadable ('$DMP_TRANSCRIPT_FASTA'); skipping."
+                continue
+            fi
+            _GUIDE_SEQ="${DGUIDE%%|*}"
+            _GUIDE_STRAND="${DGUIDE##*|}"
+            log_info "      [$DNAME] (frameshift) $DDESC  (guide='$_GUIDE_SEQ' strand='$_GUIDE_STRAND')"
+            conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
+                --mode frameshift \
+                --name "$DNAME" \
+                --description "$DDESC" \
+                --dna-input "$DMP_TRANSCRIPT_FASTA" \
+                --dna-record "$DMP_TRANSCRIPT_RECORD" \
+                --guide-23mer "$_GUIDE_SEQ" \
+                --guide-strand "$_GUIDE_STRAND" \
+                --output "$OUT_FA"
+            unset _GUIDE_SEQ _GUIDE_STRAND
+        else
+            # Deletion mode (protein-space truncation; existing behavior).
+            log_info "      [$DNAME] (deletion)   $DDESC  (delete='$DDEL')"
+            conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
+                --mode deletion \
+                --input "$DMP_FASTA" \
+                --name "$DNAME" \
+                --description "$DDESC" \
+                --deletions "$DDEL" \
+                --output "$OUT_FA"
+        fi
     done
+
+    # Pair FASTAs (DMP-HAP2/{pair}.fasta) -- one per (HAP2_variant, DMP_variant)
+    # entry in PAIR_LABEL. HAP2 + DMP concatenated with role-prefixed headers
+    # ("HAP2_" / "DMP_") so the file is ready to paste into the AF3 server UI
+    # without manual header editing. The user manually sets the HAP2 copy
+    # count per stoichiometry.
+    #
+    # Pair label format = "{hap2_variant}__{dmp_variant}", matching the rest
+    # of the stage-14 output paths.
+    log_info "    Pair FASTAs -> $PAIR_VARIANTS_DIR"
+    _JSON_PAIR_LABELS=()
+    _JSON_HAP2_FASTAS=()
+    _JSON_DMP_FASTAS=()
+    _JSON_HAP2_DELS=()   # pipe-separated parallel array for the helper's --hap2-deletions
+    for k in "${!PAIR_LABEL[@]}"; do
+        H="${PAIR_HAP2[$k]}"
+        D="${PAIR_DMP[$k]}"
+        PLAB="${PAIR_LABEL[$k]}"
+        pair_enabled "$H" "$D" || continue
+        H_FA="$HAP2_VARIANTS_DIR/${H}.fasta"
+        D_FA="$DMP_VARIANTS_DIR/${D}.fasta"
+        OUT_PAIR_FA="$PAIR_VARIANTS_DIR/${PLAB}.fasta"
+        if [[ ! -s "$H_FA" ]]; then
+            log_warn "      [$PLAB] missing HAP2 source $H_FA; skip"
+            continue
+        fi
+        if [[ ! -s "$D_FA" ]]; then
+            log_warn "      [$PLAB] missing DMP source $D_FA; skip"
+            continue
+        fi
+        # Look up the HAP2 variant's deletion string from EXP_HAP2_* (parallel
+        # to EXP_HAP2_NAMES); needed by the template alignment in the JSON
+        # helper. Empty / WT entries map to an empty token in the pipe-
+        # separated --hap2-deletions argument.
+        _H_DEL=""
+        for _hi in "${!EXP_HAP2_NAMES[@]}"; do
+            if [[ "${EXP_HAP2_NAMES[$_hi]}" == "$H" ]]; then
+                _H_DEL="${EXP_HAP2_DELETIONS[$_hi]:-}"
+                break
+            fi
+        done
+        # Collect the pair into the aggregate-JSON inputs even if the FASTA
+        # already exists (the JSON is rebuilt as one combined file below;
+        # skipping an existing FASTA must not drop the pair from the JSON).
+        _JSON_PAIR_LABELS+=("$PLAB")
+        _JSON_HAP2_FASTAS+=("$H_FA")
+        _JSON_DMP_FASTAS+=("$D_FA")
+        _JSON_HAP2_DELS+=("$_H_DEL")
+        unset _hi _H_DEL
+        if [[ -f "$OUT_PAIR_FA" && "$OVERWRITE" != "true" ]]; then
+            log_info "      [$PLAB] FASTA exists, skip (OVERWRITE=false)"
+            continue
+        fi
+        if [[ "$DRY_RUN" == "true" ]]; then
+            log_info "      [DRY-RUN] [$PLAB] HAP2[$H] + DMP[$D] -> $OUT_PAIR_FA"
+            continue
+        fi
+        {
+            sed '1s/^>/>HAP2_/' "$H_FA"
+            printf '\n'
+            sed '1s/^>/>DMP_/' "$D_FA"
+        } > "$OUT_PAIR_FA"
+        log_info "      [$PLAB] HAP2[$H] + DMP[$D] -> $(basename "$OUT_PAIR_FA")"
+    done
+
+    # Single aggregate AlphaFold Server JSON covering every (pair, stoich)
+    # combination for this experiment. The AF3 server accepts an array of
+    # jobs in one upload, so this file is the only thing the user needs to
+    # drop into the "Upload job" field. Job names embed both axes
+    # ("{pair}_{stoich}") so the downstream SCATTER step in prepare_complexes
+    # can route each result zip to the correct pair slot.
+    #
+    # Path: $PAIR_VARIANTS_DIR/_AF3_jobs.json -- sibling to the per-pair
+    # FASTAs and mode-scoped for deletion_ladder (under 01_Variants/{mode}/).
+    OUT_AGG_JSON="$PAIR_VARIANTS_DIR/_AF3_jobs.json"
+    JSON_WRAP="$MODULES/14_special_pipeline/build_af3_job_json.py"
+
+    # Optional HAP2 structural template (embedded into every HAP2 chain of
+    # the AF3 Server JSON). [template].hap2_mmcif points at e.g. the Stage-08
+    # SWISS-MODEL homology model; coverage_start/coverage_end describe the
+    # 1-indexed residue range of the ORIGINAL HAP2 covered by the template.
+    TEMPLATE_ENABLED=$(get_toml template enabled 2>/dev/null || echo "false")
+    TEMPLATE_MMCIF=""
+    TEMPLATE_COV_START=""
+    TEMPLATE_COV_END=""
+    if [[ "$TEMPLATE_ENABLED" == "true" ]]; then
+        TEMPLATE_MMCIF=$(get_toml template hap2_mmcif 2>/dev/null || echo "")
+        TEMPLATE_COV_START=$(get_toml template hap2_coverage_start 2>/dev/null || echo "")
+        TEMPLATE_COV_END=$(get_toml template hap2_coverage_end 2>/dev/null || echo "")
+        if [[ -n "$TEMPLATE_MMCIF" && "$TEMPLATE_MMCIF" != /* ]]; then
+            TEMPLATE_MMCIF="$PIPELINE_DIR/$TEMPLATE_MMCIF"
+        fi
+        if [[ -z "$TEMPLATE_MMCIF" || ! -f "$TEMPLATE_MMCIF" ]]; then
+            log_warn "    [template].enabled=true but hap2_mmcif missing/unreadable ('$TEMPLATE_MMCIF'); falling back to no template."
+            TEMPLATE_MMCIF=""
+        elif [[ -z "$TEMPLATE_COV_START" || -z "$TEMPLATE_COV_END" ]]; then
+            log_warn "    [template].enabled=true but coverage range is incomplete (start='$TEMPLATE_COV_START' end='$TEMPLATE_COV_END'); falling back to no template."
+            TEMPLATE_MMCIF=""
+        fi
+    fi
+
+    # Pipe-separated deletion strings parallel to _JSON_PAIR_LABELS
+    # (commas already used internally for multi-range deletions, so pipe is
+    # the only safe outer separator). Use IFS join so leading / consecutive
+    # empty entries (e.g. WT__WT at index 0, WT__del* at the tail) are
+    # preserved -- a per-iteration "is the accumulator empty?" check would
+    # silently drop the first empty token and produce off-by-one parallelism.
+    if (( ${#_JSON_HAP2_DELS[@]} > 0 )); then
+        _OLD_IFS="${IFS-}"
+        IFS='|'
+        _JSON_HAP2_DELS_JOINED="${_JSON_HAP2_DELS[*]}"
+        IFS="$_OLD_IFS"
+        unset _OLD_IFS
+    else
+        _JSON_HAP2_DELS_JOINED=""
+    fi
+
+    if (( ${#_JSON_PAIR_LABELS[@]} == 0 )); then
+        log_warn "    AF3 aggregate JSON: no enabled pairs after filtering; skipped."
+    elif [[ -f "$OUT_AGG_JSON" && "$OVERWRITE" != "true" ]]; then
+        log_info "    AF3 aggregate JSON exists, skip (OVERWRITE=false): $OUT_AGG_JSON"
+    elif [[ "$DRY_RUN" == "true" ]]; then
+        if [[ -n "$TEMPLATE_MMCIF" ]]; then
+            log_info "    [DRY-RUN] AF3 aggregate JSON (${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs) + HAP2 template ($(basename "$TEMPLATE_MMCIF"), ${TEMPLATE_COV_START}-${TEMPLATE_COV_END}) -> $OUT_AGG_JSON"
+        else
+            log_info "    [DRY-RUN] AF3 aggregate JSON (${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs) -> $OUT_AGG_JSON"
+        fi
+    else
+        _JSON_ARGS=(
+            --pair-labels   "${_JSON_PAIR_LABELS[*]}"
+            --hap2-fastas   "${_JSON_HAP2_FASTAS[*]}"
+            --dmp-fastas    "${_JSON_DMP_FASTAS[*]}"
+            --stoich-labels "${STOICH_LABELS[*]}"
+            --stoich-counts "${STOICH_COUNTS[*]}"
+            --dmp-copies 1
+            --output "$OUT_AGG_JSON"
+        )
+        if [[ -n "$TEMPLATE_MMCIF" ]]; then
+            _JSON_ARGS+=(
+                --hap2-template-mmcif   "$TEMPLATE_MMCIF"
+                --hap2-coverage-start   "$TEMPLATE_COV_START"
+                --hap2-coverage-end     "$TEMPLATE_COV_END"
+                --hap2-deletions        "$_JSON_HAP2_DELS_JOINED"
+            )
+        fi
+        conda_run_in "$ENV_PREPARE" python3 "$JSON_WRAP" "${_JSON_ARGS[@]}"
+        if [[ -n "$TEMPLATE_MMCIF" ]]; then
+            log_info "    AF3 aggregate JSON: ${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs + HAP2 template ($(basename "$TEMPLATE_MMCIF"), ${TEMPLATE_COV_START}-${TEMPLATE_COV_END}) -> $(basename "$OUT_AGG_JSON")"
+        else
+            log_info "    AF3 aggregate JSON: ${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs -> $(basename "$OUT_AGG_JSON")"
+        fi
+        unset _JSON_ARGS
+    fi
+    unset _JSON_PAIR_LABELS _JSON_HAP2_FASTAS _JSON_DMP_FASTAS _JSON_HAP2_DELS _JSON_HAP2_DELS_JOINED
 fi
 
 # ============================================================================
@@ -793,26 +1081,110 @@ fi
 # PAIR_LABEL). Each (pair, stoich) cell becomes one AF3 job and one output
 # directory tagged with the composite "{hap2}__{dmp}" pair label.
 if op_enabled "prepare_complexes"; then
-    log_step "  Op 2/7: prepare_complexes  (backend=$PREPARE_BACKEND, ${#PAIR_LABEL[@]} pairs)"
-    MANIFEST="$COMPLEX_DIR/_submission_manifest.tsv"
-    DROP_README="$COMPLEX_DIR/_HOW_TO_DROP_AF3_DOWNLOADS.txt"
+    log_step "  Op 2/8: prepare_complexes  (backend=$PREPARE_BACKEND, ${#PAIR_LABEL[@]} pairs)"
+    # Pre-create per-stoich complex roots (lazy mkdir; STOICH_LABELS is set above).
+    for _slab in "${STOICH_LABELS[@]}"; do mkdir -p "$(slab_complex_dir "$_slab")"; done
+    unset _slab
+    # Manifest + drop-zone README live at the experiment root so they cover
+    # all stoichs (numbered downstream folders are mode-agnostic; the only
+    # mode-specific tree is 01_Variants/).
+    MANIFEST="$EXP_OUT_DIR/_submission_manifest.tsv"
+    DROP_README="$EXP_OUT_DIR/_HOW_TO_DROP_AF3_DOWNLOADS.txt"
     : > "$MANIFEST"
     printf 'pair\thap2_variant\tdmp_variant\tstoich\tn_hap2\tn_dmp\thap2_fasta\tdmp_fasta\texpected_output\n' >> "$MANIFEST"
 
-    # ── Scatter flat AF3 zips from 02_Complexes/ top-level into per-pair slots ──
-    # Downloads dropped directly into the 02_Complexes/ root (not into the
-    # nested {stoich}/{pair}/ subdirectory) are matched against the current
-    # pair list and copied into the correct slot so the per-slot extraction
-    # loop below can handle them. Original flat zips are kept in place.
+    # ── Auto-backup AF3 zips BEFORE any destructive step ────────────────────
+    # Mirror every *.zip currently sitting inside a pair slot into
+    # _AF3_Backup/{stoich}/{pair}/ before stale-basis pruning, SCATTER, or
+    # extraction can touch them. `cp -n` so existing backup copies are never
+    # overwritten (backup grows additively, immutable per filename).
+    _BACKUP_DIR="$EXP_OUT_DIR/_AF3_Backup"
+    mkdir -p "$_BACKUP_DIR"
+    _BACKUP_N=0
+    for _cat_dir in "$COMPLEX_DIR"; do
+        while IFS= read -r _zip; do
+            [[ -z "$_zip" ]] && continue
+            _pair="$(basename "$(dirname "$_zip")")"
+            _stoich_of_zip="$(basename "$(dirname "$(dirname "$_zip")")")"
+            mkdir -p "$_BACKUP_DIR/$_stoich_of_zip/$_pair"
+            _bk="$_BACKUP_DIR/$_stoich_of_zip/$_pair/$(basename "$_zip")"
+            if [[ ! -e "$_bk" ]] && cp "$_zip" "$_bk"; then
+                _BACKUP_N=$((_BACKUP_N+1))
+            fi
+        done < <(find "$_cat_dir" -mindepth 3 -maxdepth 3 -name '*.zip' 2>/dev/null | sort)
+    done
+    if (( _BACKUP_N > 0 )); then
+        log_info "  [BACKUP] mirrored $_BACKUP_N AF3 zip(s) to $_BACKUP_DIR/{stoich}/{pair}/ (cp -n; existing backups preserved)"
+    fi
+    unset _cat_dir _zip _pair _stoich_of_zip _bk _BACKUP_N
+
+    # ── Prune stale basis subfolders ────────────────────────────────────────
+    # When [stoichiometry].basis is narrowed (e.g. postfusion_like commented
+    # out), older runs leave <category>/<basis>/ trees behind that no longer
+    # match the active configuration. iptm_heatmap and downstream ops would
+    # otherwise read those stale slots. Anything under a basis folder not
+    # in STOICH_LABELS is moved aside into
+    # $EXP_OUT_DIR/_stale_basis_<timestamp>/<category>/ instead of deleted,
+    # so the user's AF3 downloads (zips, CIFs) are never lost. The auto-
+    # backup step above is the authoritative redundant copy. Only the three
+    # known basis names are scrutinised; other names inside the categories
+    # are left alone.
+    _ACTIVE_BASES=()
+    for _b in "${STOICH_LABELS[@]}"; do _ACTIVE_BASES+=("$_b"); done
+    for _cat_dir in "$COMPLEX_DIR" "$IFACE_DIR" "$MD_DIR" "$DG_DIR" "$ASCAN_DIR" "$REPORT_DIR"; do
+        [[ -d "$_cat_dir" ]] || continue
+        _cat_name="$(basename "$_cat_dir")"
+        while IFS= read -r _existing_basis_dir; do
+            [[ -z "$_existing_basis_dir" ]] && continue
+            _bname="$(basename "$_existing_basis_dir")"
+            case "$_bname" in
+                monomeric|dimeric|postfusion_like) ;;
+                *) continue ;;
+            esac
+            _is_active=false
+            for _ab in "${_ACTIVE_BASES[@]}"; do
+                [[ "$_ab" == "$_bname" ]] && { _is_active=true; break; }
+            done
+            if [[ "$_is_active" == "false" ]]; then
+                _stale_root="$EXP_OUT_DIR/_stale_basis_$(printf '%(%Y%m%d_%H%M%S)T' -1)/$_cat_name"
+                mkdir -p "$_stale_root"
+                log_warn "  [STALE] $_cat_name/$_bname/ is no longer in [stoichiometry].basis; moving to $_stale_root/ (data preserved + already in _AF3_Backup/)"
+                mv "$_existing_basis_dir" "$_stale_root/" \
+                    || log_warn "  [STALE] mv failed for $_existing_basis_dir; leaving in place"
+            fi
+        done < <(find "$_cat_dir" -mindepth 1 -maxdepth 1 -type d ! -name '_*' 2>/dev/null | sort)
+    done
+    unset _b _bname _is_active _ab _existing_basis_dir _stale_root _ACTIVE_BASES _cat_dir _cat_name
+
+    # ── Scatter flat AF3 zips into per-pair slots ──────────────────────────
+    # Downloads dropped at any of these locations are matched against the
+    # current pair list and copied into the correct canonical slot
+    # ($COMPLEX_DIR/{stoich}/{pair}/), then the source flat zip is deleted
+    # so the drop zone stays clean. The auto-backup above already mirrored
+    # every existing pair-slot zip into _AF3_Backup/, so this scatter pass
+    # cannot lose data:
+    #   $EXP_OUT_DIR/<zip>                        un-scoped (copies to every active stoich)
+    #   $EXP_OUT_DIR/02_Complexes/<zip>           same (un-scoped, but already inside the right category)
+    #   $EXP_OUT_DIR/02_Complexes/<stoich>/<zip>  routed to that stoich only
     # Matching: strip the "fold_" prefix, lowercase, then check whether the
     # result either equals the normalized pair label ("__" -> "_", lowercase)
-    # OR starts with that label followed by an underscore (free-form trailing
-    # suffix such as _at / _smel / _arabidopsis / _eggplant / _<runlabel>).
-    # Pair labels are tested longest-first so e.g. "wt_deltmdcore" wins over
-    # "wt_del" if both ever co-exist.
+    # OR starts with that label followed by an underscore (free-form
+    # trailing suffix such as _at / _smel / _arabidopsis / _eggplant /
+    # _<runlabel>). Pair labels are tested longest-first so e.g.
+    # "wt_deltmdcore" wins over "wt_del" if both ever co-exist.
     _FLAT_ZIPS=()
+    # Experiment-root drops (un-scoped to any stoich; rare)
+    while IFS= read -r _z; do _FLAT_ZIPS+=("$_z"); done \
+        < <(find "$EXP_OUT_DIR" -maxdepth 1 -name '*.zip' 2>/dev/null | sort)
+    # 02_Complexes root drops (un-scoped, but already in the right category)
     while IFS= read -r _z; do _FLAT_ZIPS+=("$_z"); done \
         < <(find "$COMPLEX_DIR" -maxdepth 1 -name '*.zip' 2>/dev/null | sort)
+    # 02_Complexes/<stoich>/ drops (stoich-scoped)
+    for _slab in "${STOICH_LABELS[@]}"; do
+        while IFS= read -r _z; do _FLAT_ZIPS+=("$_z"); done \
+            < <(find "$(slab_complex_dir "$_slab")" -maxdepth 1 -name '*.zip' 2>/dev/null | sort)
+    done
+    unset _slab _z
     if (( ${#_FLAT_ZIPS[@]} > 0 )); then
         mapfile -t _PAIRS_BY_LEN < <(
             for _p in "${PAIR_LABEL[@]}"; do
@@ -820,7 +1192,7 @@ if op_enabled "prepare_complexes"; then
                 printf '%s\t%s\n' "${#_pn}" "$_p"
             done | sort -rn | cut -f2-
         )
-        log_info "  [SCATTER] ${#_FLAT_ZIPS[@]} flat zip(s) in $(basename "$COMPLEX_DIR")/ -> routing to pair slots"
+        log_info "  [SCATTER] ${#_FLAT_ZIPS[@]} flat zip(s) under $(basename "$EXP_OUT_DIR")/ -> routing to pair slots"
         for _fzip in "${_FLAT_ZIPS[@]}"; do
             _zbase="$(basename "$_fzip" .zip)"
             _znorm="${_zbase#fold_}"
@@ -835,17 +1207,89 @@ if op_enabled "prepare_complexes"; then
                 fi
             done
             if [[ -z "$_MATCHED_PAIR" ]]; then
+                # Fallback for AF3 default multimer job names (e.g.
+                # "fold_<stoich>_<gene1>_and_<gene2>_N.zip"): if the zip name
+                # contains "_and_" AND exactly one (stoich, pair) slot has no
+                # CIF and no zip yet across the whole experiment, route the
+                # orphan zip into that slot. Skip routing if zero or >=2 slots
+                # are empty - too ambiguous to be safe.
+                _safe_route=""
+                if [[ "$_znorm" == *_and_* ]]; then
+                    _empty_count=0
+                    _empty_target=""
+                    for _ck in "${!PAIR_LABEL[@]}"; do
+                        _cP="${PAIR_LABEL[$_ck]}"
+                        for _cs in "${STOICH_LABELS[@]}"; do
+                            _cd="$(slab_complex_dir "$_cs")/$_cP"
+                            if ! find "$_cd" -maxdepth 1 \( -name '*.cif' -o -name '*.zip' \) 2>/dev/null | grep -q .; then
+                                _empty_count=$((_empty_count+1))
+                                _empty_target="$_cs/$_cP"
+                                if (( _empty_count >= 2 )); then break 2; fi
+                            fi
+                        done
+                    done
+                    if (( _empty_count == 1 )); then
+                        _safe_route="$_empty_target"
+                    fi
+                fi
+                if [[ -n "$_safe_route" ]]; then
+                    # _safe_route is "<stoich>/<pair>"; resolve back to per-stoich complex dir
+                    _route_stoich="${_safe_route%%/*}"
+                    _route_pair="${_safe_route#*/}"
+                    _tgt="$(slab_complex_dir "$_route_stoich")/$_route_pair/$(basename "$_fzip")"
+                    mkdir -p "$(dirname "$_tgt")"
+                    if cp "$_fzip" "$_tgt" && [[ -s "$_tgt" ]]; then
+                        log_info "  [SCATTER] -> $_safe_route/$(basename "$_fzip")  (AF3 '_and_' name; routed to unique empty slot)"
+                        rm -f "$_fzip"
+                        log_info "  [SCATTER]    removed source $(basename "$_fzip") from drop zone"
+                    else
+                        log_warn "  [SCATTER] cp failed for $(basename "$_fzip"); source kept in place"
+                    fi
+                    unset _route_stoich _route_pair
+                    continue
+                fi
                 log_warn "  [SCATTER] $(basename "$_fzip"): no matching pair (norm='$_znorm'); skipped."
+                log_warn "  [SCATTER]   Hand-place: move zip into 02_Complexes/<stoich>/<pair>/ and re-run."
                 continue
             fi
+            # Infer stoich from the zip's parent directory. Three drop
+            # locations are supported in the canonical 02_Complexes/{stoich}/
+            # layout:
+            #   $EXP_OUT_DIR/<zip>                            -> all stoichs (ambiguous)
+            #   $EXP_OUT_DIR/02_Complexes/<zip>               -> all stoichs (ambiguous, but in the right category)
+            #   $EXP_OUT_DIR/02_Complexes/<stoich>/<zip>      -> only that stoich
+            _zip_parent="$(basename "$(dirname "$_fzip")")"
+            _ROUTE_STOICHS=()
             for _slab in "${STOICH_LABELS[@]}"; do
-                _tgt="$COMPLEX_DIR/$_slab/$_MATCHED_PAIR/$(basename "$_fzip")"
-                mkdir -p "$(dirname "$_tgt")"
-                if [[ ! -f "$_tgt" || "$OVERWRITE" == "true" ]]; then
-                    cp "$_fzip" "$_tgt"
-                    log_info "  [SCATTER] -> $_slab/$_MATCHED_PAIR/$(basename "$_fzip")"
+                if [[ "$_zip_parent" == "$_slab" ]]; then
+                    _ROUTE_STOICHS=("$_slab")
+                    break
                 fi
             done
+            (( ${#_ROUTE_STOICHS[@]} == 0 )) && _ROUTE_STOICHS=("${STOICH_LABELS[@]}")
+            _all_routed=true
+            for _slab in "${_ROUTE_STOICHS[@]}"; do
+                _tgt="$(slab_complex_dir "$_slab")/$_MATCHED_PAIR/$(basename "$_fzip")"
+                mkdir -p "$(dirname "$_tgt")"
+                if [[ ! -f "$_tgt" || "$OVERWRITE" == "true" ]]; then
+                    if cp "$_fzip" "$_tgt"; then
+                        log_info "  [SCATTER] -> $_slab/02_Complexes/$_MATCHED_PAIR/$(basename "$_fzip")"
+                    else
+                        _all_routed=false
+                    fi
+                fi
+                # Verify the slot holds a usable copy (whether we just wrote it
+                # or it was already there from a prior run).
+                [[ -s "$_tgt" ]] || _all_routed=false
+            done
+            # Remove the source flat zip once every target slot holds the file,
+            # so the experiment drop-zone stays clean. If any copy failed the
+            # source is preserved for the user to re-route by hand.
+            if [[ "$_all_routed" == "true" && -f "$_fzip" ]]; then
+                rm -f "$_fzip"
+                log_info "  [SCATTER]    removed source $(basename "$_fzip") from drop zone (routed to ${#_ROUTE_STOICHS[@]} slot(s))"
+            fi
+            unset _zip_parent _ROUTE_STOICHS _all_routed
         done
     fi
 
@@ -860,7 +1304,8 @@ if op_enabled "prepare_complexes"; then
         for j in "${!STOICH_LABELS[@]}"; do
             SLAB="${STOICH_LABELS[$j]}"
             NHAP="${STOICH_COUNTS[$j]}"
-            JOB_DIR="$COMPLEX_DIR/$SLAB/$PLAB"
+            SLAB_COMPLEX_DIR="$(slab_complex_dir "$SLAB")"
+            JOB_DIR="$SLAB_COMPLEX_DIR/$PLAB"
             mkdir -p "$JOB_DIR"
             EXPECT_CIF="$JOB_DIR/fold_${PLAB}_${SLAB}_model_0.cif"
             printf '%s\t%s\t%s\t%s\t%s\t1\t%s\t%s\t%s\n' \
@@ -891,39 +1336,78 @@ EOF
             # deletion_ladder WT__WT: lift the CIF from stoichiometry_comparison so we
             # don't need a separate AF3 submission for the anchor pair. The monomeric
             # WT__WT complex is identical across both experiments for the same run label.
+            # Prefer the canonical EXPECT_CIF in the sibling tree, but fall back to any
+            # *_model_0.cif under that subtree (e.g. an AF3 zip that was extracted into
+            # a job-named subdirectory and never renamed).
+            # The OVERWRITE flag is NOT honoured here: re-lifting the same
+            # sibling CIF over an existing one is wasted work and risks
+            # clobbering a hand-edited CIF. Delete the file by hand to
+            # force a re-lift.
             if [[ "$EXPERIMENT" == "deletion_ladder" && "$PLAB" == "WT__WT" \
-                    && ( ! -s "$EXPECT_CIF" || "$OVERWRITE" == "true" ) ]]; then
-                _SIBLING_CIF="$OUT_DIR/stoichiometry_comparison/02_Complexes/$SLAB/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
-                if [[ -s "$_SIBLING_CIF" ]]; then
-                    log_info "  [LIFT] WT__WT / $SLAB: copying CIF from stoichiometry_comparison (no new AF3 job needed)"
+                    && ! -s "$EXPECT_CIF" ]]; then
+                _SIBLING_ROOT="$OUT_DIR/stoichiometry_comparison/02_Complexes/$SLAB/$PLAB"
+                _SIBLING_CIF="$_SIBLING_ROOT/fold_${PLAB}_${SLAB}_model_0.cif"
+                if [[ ! -s "$_SIBLING_CIF" && -d "$_SIBLING_ROOT" ]]; then
+                    _SIBLING_CIF=$(find "$_SIBLING_ROOT" -maxdepth 3 -name '*_model_0.cif' \
+                        -not -path '*/templates/*' 2>/dev/null | sort | head -1)
+                fi
+                if [[ -n "$_SIBLING_CIF" && -s "$_SIBLING_CIF" ]]; then
+                    log_info "  [LIFT] WT__WT / $SLAB: copying CIF from stoichiometry_comparison ($(basename "$_SIBLING_CIF"))"
                     cp "$_SIBLING_CIF" "$EXPECT_CIF"
                 fi
+                unset _SIBLING_ROOT _SIBLING_CIF
+            fi
+
+            # Recover from a hand-extracted AF3 download: if the canonical
+            # EXPECT_CIF is missing but a rank-0 model CIF exists somewhere
+            # under JOB_DIR (e.g. unpacked into a job-named subdirectory),
+            # copy it into place. Runs BEFORE the zip extraction loop so the
+            # user can drop already-extracted AF3 trees in without first
+            # re-zipping them. Source file is preserved.
+            if [[ ! -s "$EXPECT_CIF" ]]; then
+                _PRE_CIF=$(find "$JOB_DIR" -maxdepth 3 -name '*_model_0.cif' \
+                    -not -path '*/templates/*' \
+                    ! -path "$EXPECT_CIF" 2>/dev/null | sort | head -1)
+                if [[ -n "$_PRE_CIF" ]]; then
+                    cp "$_PRE_CIF" "$EXPECT_CIF"
+                    log_info "  [NORM] $PLAB/$SLAB: adopted $(basename "$_PRE_CIF") -> $(basename "$EXPECT_CIF")  (source kept)"
+                fi
+                unset _PRE_CIF
             fi
 
             # Auto-extract any downloaded AF3 zip in this slot directory.
             # Zip files are always kept as backup - never deleted after extraction.
             # If the extracted CIF has a different name than expected, it is
-            # renamed to the canonical EXPECT_CIF path so downstream ops find it.
+            # copied to the canonical EXPECT_CIF path so downstream ops find it.
             _ZIPS=()
             while IFS= read -r _z; do _ZIPS+=("$_z"); done \
                 < <(find "$JOB_DIR" -maxdepth 1 -name '*.zip' 2>/dev/null | sort)
             if (( ${#_ZIPS[@]} > 0 )); then
                 _ZIP="${_ZIPS[-1]}"   # use the most recent zip if multiple exist
-                if [[ ! -s "$EXPECT_CIF" || "$OVERWRITE" == "true" ]]; then
+                # OVERWRITE is intentionally NOT consulted here: once the
+                # canonical CIF exists, re-extracting from the same zip is
+                # wasted work (the zip contents are immutable) and would
+                # blow away any hand-edits or downstream artefacts in the
+                # slot. Delete the CIF by hand to force a re-extract.
+                if [[ ! -s "$EXPECT_CIF" ]]; then
                     log_info "  [ZIP] Extracting $(basename "$_ZIP") -> $JOB_DIR  (zip kept as backup)"
                     unzip -o -q "$_ZIP" -d "$JOB_DIR" \
                         || log_warn "  [ZIP] unzip failed for $(basename "$_ZIP")"
                     # Normalise CIF path: AF3 server may name the file differently.
+                    # Prefer rank-0 (*_model_0.cif), exclude template hits, and
+                    # search up to depth 3 to catch zips that unpack into a
+                    # job-named subdirectory.
                     if [[ ! -s "$EXPECT_CIF" ]]; then
-                        _FOUND_CIF=$(find "$JOB_DIR" -maxdepth 2 -name '*.cif' \
-                            ! -path "$EXPECT_CIF" 2>/dev/null | head -1)
+                        _FOUND_CIF=$(find "$JOB_DIR" -maxdepth 3 -name '*_model_0.cif' \
+                            -not -path '*/templates/*' \
+                            ! -path "$EXPECT_CIF" 2>/dev/null | sort | head -1)
                         if [[ -n "$_FOUND_CIF" ]]; then
-                            mv "$_FOUND_CIF" "$EXPECT_CIF"
-                            log_info "  [ZIP] Renamed $(basename "$_FOUND_CIF") -> $(basename "$EXPECT_CIF")"
+                            cp "$_FOUND_CIF" "$EXPECT_CIF"
+                            log_info "  [ZIP] Normalised $(basename "$_FOUND_CIF") -> $(basename "$EXPECT_CIF")  (source kept)"
                         fi
                     fi
                 else
-                    log_info "  [ZIP] $(basename "$_ZIP") present; CIF already extracted (OVERWRITE=false, zip kept)"
+                    log_info "  [ZIP] $(basename "$_ZIP") present; CIF already in place, skipping re-extract (zip kept)"
                 fi
             fi
 
@@ -949,17 +1433,35 @@ EOF
     done
 
     # Top-level drop-zone README explaining the whole tree
+    if [[ "$EXPERIMENT" == "deletion_ladder" ]]; then
+        _MODE_NOTE="Pairing mode: $PAIRING_MODE  (orthogonal | matrix | pairwise; switch via [pairing].mode in 14_interaction_Domain_MappingCONFIG.toml). Only 01_Variants/ is mode-scoped (under 01_Variants/{mode}/); numbered downstream folders are shared because the {pair_label} keying already makes them mode-distinguishable."
+        _VARIANTS_LINE_FOR_README="01_Variants/$PAIRING_MODE/{HAP2,DMP,DMP-HAP2}/    # mode-scoped per-side variant FASTAs + per-pair"
+    else
+        _MODE_NOTE="No pairing-mode split for this experiment (single fixed WT/WT pair)."
+        _VARIANTS_LINE_FOR_README="01_Variants/{HAP2,DMP,DMP-HAP2}/    # per-side variant FASTAs + per-pair"
+    fi
     cat > "$DROP_README" <<EOF
-AlphaFold3 drop-zone for Stage 14 ($GENE_GROUP)
-================================================
+AlphaFold3 drop-zone for Stage 14 ($GENE_GROUP / $EXPERIMENT)
+==============================================================
 
-Layout:
-  $COMPLEX_DIR/
-    {stoichiometry}/                  # monomeric, dimeric, trimeric
-      {pair_label}/                   # e.g. WT__WT, delC_596_705__WT,
-                                      #      WT__delN_1_64
-        _SUBMIT.txt                   # this slot's submission instructions
+$_MODE_NOTE
+
+Layout (numbered output category is ALWAYS the parent; the {stoich}
+subfolder sits inside it):
+  $EXP_OUT_DIR/
+    $_VARIANTS_LINE_FOR_README
+                                        # concat (.fasta) and AF3-server JSON
+                                        # (.json); ready-to-submit AF3 input
+    02_Complexes/{stoichiometry}/       # monomeric | dimeric | postfusion_like
+      {pair_label}/                     # e.g. WT__WT, delC_596_705__WT, WT__delN_1_64
+        _SUBMIT.txt                     # this slot's submission instructions
         fold_<pair>_<stoich>_model_0.cif  # drop the AF3 download here
+    03_Interfaces/{stoichiometry}/{pair_label}/
+    04_MD/{stoichiometry}/{pair_label}/
+    05_BindingEnergy/{stoichiometry}/{pair_label}/
+    06_AlanineScan/{stoichiometry}/
+    07_Summary/{stoichiometry}/         # iptm_heatmap_<stoich>.{ext}, etc.
+    _AF3_Backup/{stoichiometry}/{pair_label}/  # auto-snapshotted zips (immutable)
 
 Manifest (machine-readable queue): $MANIFEST
 
@@ -968,34 +1470,114 @@ underscore is the HAP2 truncation; everything after is the DMP truncation.
 "WT" on either side means full-length wild-type.
 
 Portal: https://alphafoldserver.com/  (free non-commercial tier; ~20
-jobs/day; multimer supported). For each pair-and-stoichiometry slot:
-  1. Open a new AF3 job.
-  2. Paste the HAP2 sequence (copies per the slot's _SUBMIT.txt) and the
-     DMP sequence (1 copy).
-  3. Submit, wait, download the ZIP.
-  4. Extract into the matching slot directory; the orchestrator picks it
-     up on the next run.
-EOF
+jobs/day; multimer supported). Two submission paths:
 
+  EASY (recommended) -- ONE JSON upload covers the entire experiment
+    (every pair x every active stoichiometry):
+      1. In the AF3 UI choose "Upload job" / "Add job from file".
+      2. Pick 01_Variants[/{mode}]/DMP-HAP2/_AF3_jobs.json
+         (single array; one entry per (pair, stoich) cell).
+      3. Submit. The server queues every job; downloads land per-job.
+         Quota note: free tier is ~20 jobs/day, so a large pair x stoich
+         matrix may take several days to clear.
+  MANUAL -- copy/paste FASTA, set chain count by hand:
+      1. Open a new AF3 job.
+      2. Paste the HAP2 sequence (copies per the slot's _SUBMIT.txt) and
+         the DMP sequence (1 copy).
+      3. Submit.
+  Both paths produce the same downloadable result ZIPs.
+
+After the job finishes:
+  4. Drop the zip at any of these locations and the next SCATTER pass
+     will route it to the matching pair slot AND delete the source so
+     the drop zone stays clean:
+       $EXP_OUT_DIR/<zip>                          (un-scoped; copies to every active stoich)
+       $EXP_OUT_DIR/02_Complexes/<zip>             (un-scoped; already inside the right category)
+       $EXP_OUT_DIR/02_Complexes/{stoich}/<zip>    (routed to that stoich only)
+     Naming: the pair token in the zip filename ("delc_wt", "wt_deln",
+     etc.) is what SCATTER matches against. AF3-default "_and_" names
+     are routed only when exactly one slot is still empty.
+     If a copy fails, the source is kept in place for you to re-route.
+
+Backup: every zip currently inside a pair slot is auto-mirrored to
+$EXP_OUT_DIR/_AF3_Backup/{stoich}/{pair}/ at the start of each
+prepare_complexes invocation (cp -n; existing backup copies are never
+overwritten). The backup is your safety net before stale-basis pruning
+or extraction does anything.
+EOF
+    unset _MODE_NOTE _VARIANTS_LINE_FOR_README
+
+    # PREDICTIONS_INCOMPLETE gates the HEAVY downstream ops (interface_analysis,
+    # md_equilibration, binding_energy, alanine_scan, comparative_report) -
+    # those depend on every CIF being present to produce a coherent ranking.
+    # Lightweight ops (iptm_heatmap) still run because they tolerate missing
+    # cells (the Python module writes NaN for any pair without a summary
+    # JSON), so the user can inspect AF3 confidence as predictions trickle in.
+    PREDICTIONS_INCOMPLETE=false
     if [[ "$PREPARE_BACKEND" == "manual" && "$MISSING" -gt 0 ]]; then
         log_warn "$MISSING AF3 prediction(s) still need to be uploaded by hand."
         log_warn "Manifest:      $MANIFEST"
         log_warn "Drop-zone doc: $DROP_README"
         log_warn "Per-slot doc:  $COMPLEX_DIR/{stoich}/{pair}/_SUBMIT.txt"
         log_warn "Re-run this stage after the AF3 downloads are in place."
-        if [[ "$DRY_RUN" != "true" ]]; then
-            log_warn "Skipping downstream operations for $GENE_GROUP until predictions exist."
-            teardown_logging
-            continue
-        fi
+        log_warn "Heavy ops (interface_analysis, md_equilibration, binding_energy, alanine_scan, comparative_report) will be skipped this run."
+        log_warn "Lightweight ops (iptm_heatmap) still run on available pairs; missing cells appear as NaN."
+        PREDICTIONS_INCOMPLETE=true
     fi
+fi
+# Default to "complete" if prepare_complexes did not run this invocation
+# (e.g. user only enabled iptm_heatmap on an already-populated tree).
+: "${PREDICTIONS_INCOMPLETE:=false}"
+
+# ============================================================================
+# Operation 2b: AF3 ipTM heatmap (depends only on AF3 summary JSONs)
+# ============================================================================
+# Lightweight visualization that reads <pair>/*_summary_confidences_0.json
+# from the AF3 downloads and renders a HAP2-variant x DMP-variant heatmap
+# of ipTM (overall interface confidence). Runs entirely from AF3 outputs;
+# no interface_analysis / MD / binding_energy required.
+if op_enabled "iptm_heatmap"; then
+    log_step "  Op 2b/8: iptm_heatmap  (AF3 ipTM per pair, ${#STOICH_LABELS[@]} stoich)"
+    HEATMAP_WRAP="$MODULES/14_special_pipeline/iptm_heatmap.py"
+    ENV_IPTM_HEATMAP=$(env_for iptm_heatmap)
+    [[ -z "$ENV_IPTM_HEATMAP" ]] && ENV_IPTM_HEATMAP="$ENV_REPORT"
+    IPTM_FMT=$(get_toml iptm_heatmap figure_format 2>/dev/null || echo "pdf")
+    IPTM_CMAP=$(get_toml iptm_heatmap colormap 2>/dev/null || echo "RdYlGn")
+    IPTM_VMIN=$(get_toml iptm_heatmap vmin 2>/dev/null || echo "0.0")
+    IPTM_VMAX=$(get_toml iptm_heatmap vmax 2>/dev/null || echo "1.0")
+    IPTM_STRONG=$(get_toml af3_confidence iptm_strong 2>/dev/null || echo "0.80")
+    IPTM_BORDER=$(get_toml af3_confidence iptm_borderline 2>/dev/null || echo "0.60")
+    IPTM_MODEL_IDX=$(get_toml iptm_heatmap model_index 2>/dev/null || echo "0")
+
+    for j in "${!STOICH_LABELS[@]}"; do
+        SLAB="${STOICH_LABELS[$j]}"
+        SLAB_COMPLEX_DIR="$(slab_complex_dir "$SLAB")"
+        SLAB_REPORT_DIR="$(slab_report_dir "$SLAB")"   # = $REPORT_DIR/$SLAB
+        mkdir -p "$SLAB_REPORT_DIR"
+        conda_run_in "$ENV_IPTM_HEATMAP" python3 "$HEATMAP_WRAP" \
+            --complex-dir "$SLAB_COMPLEX_DIR" \
+            --stoich "$SLAB" \
+            --hap2-variants "${EXP_HAP2_NAMES[*]}" \
+            --dmp-variants "${EXP_DMP_NAMES[*]}" \
+            --pair-labels "${PAIR_LABEL[*]}" \
+            --output-dir "$SLAB_REPORT_DIR" \
+            --format "$IPTM_FMT" \
+            --cmap "$IPTM_CMAP" \
+            --vmin "$IPTM_VMIN" \
+            --vmax "$IPTM_VMAX" \
+            --iptm-strong "$IPTM_STRONG" \
+            --iptm-borderline "$IPTM_BORDER" \
+            --model-index "$IPTM_MODEL_IDX"
+    done
 fi
 
 # ============================================================================
 # Operation 3: Interface analysis
 # ============================================================================
-if op_enabled "interface_analysis"; then
-    log_step "Op 3/7: interface_analysis (${#PAIR_LABEL[@]} pairs)"
+if op_enabled "interface_analysis" && [[ "$PREDICTIONS_INCOMPLETE" == "true" ]]; then
+    log_warn "  [skip] interface_analysis: AF3 predictions incomplete; needs all CIFs. Re-run after AF3 downloads land."
+elif op_enabled "interface_analysis"; then
+    log_step "  Op 3/8: interface_analysis  (${#PAIR_LABEL[@]} pairs)"
     ANALYZER="$MODULES/14_special_pipeline/analyze_interface.py"
     IFACE_CUTOFF=$(get_toml interface contact_cutoff_angstrom 2>/dev/null || echo "5.0")
     SASA_PROBE=$(get_toml interface sasa_probe_radius 2>/dev/null || echo "1.4")
@@ -1008,8 +1590,8 @@ if op_enabled "interface_analysis"; then
         pair_enabled "$H" "$D" || continue
         for j in "${!STOICH_LABELS[@]}"; do
             SLAB="${STOICH_LABELS[$j]}"
-            CIF="$COMPLEX_DIR/$SLAB/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
-            OUT_SUB="$IFACE_DIR/$SLAB/$PLAB"
+            CIF="$(slab_complex_dir "$SLAB")/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
+            OUT_SUB="$(slab_iface_dir "$SLAB")/$PLAB"
             mkdir -p "$OUT_SUB"
             if [[ ! -s "$CIF" ]]; then
                 log_warn "  [skip] missing $CIF"
@@ -1038,8 +1620,10 @@ fi
 # ============================================================================
 # Operation 4: Short GROMACS MD equilibration (reuses PPI stage-10 modules)
 # ============================================================================
-if op_enabled "md_equilibration"; then
-    log_step "Op 4/7: md_equilibration  (backend=$MD_BACKEND, ${#PAIR_LABEL[@]} pairs)"
+if op_enabled "md_equilibration" && [[ "$PREDICTIONS_INCOMPLETE" == "true" ]]; then
+    log_warn "  [skip] md_equilibration: AF3 predictions incomplete; needs all CIFs. Re-run after AF3 downloads land."
+elif op_enabled "md_equilibration"; then
+    log_step "  Op 4/8: md_equilibration  (backend=$MD_BACKEND, ${#PAIR_LABEL[@]} pairs)"
     PPI_GROMACS="$PIPELINE_DIR/10_run_gromacs_pipeline.sh"
     MD_WRAP="$MODULES/14_special_pipeline/run_short_md.sh"
     NS=$(get_toml md_equilibration production_ns 2>/dev/null || echo "50")
@@ -1052,8 +1636,8 @@ if op_enabled "md_equilibration"; then
         pair_enabled "$H" "$D" || continue
         for j in "${!STOICH_LABELS[@]}"; do
             SLAB="${STOICH_LABELS[$j]}"
-            CIF="$COMPLEX_DIR/$SLAB/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
-            MD_SUB="$MD_DIR/$SLAB/$PLAB"
+            CIF="$(slab_complex_dir "$SLAB")/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
+            MD_SUB="$(slab_md_dir "$SLAB")/$PLAB"
             mkdir -p "$MD_SUB"
             [[ ! -s "$CIF" ]] && { log_warn "  [skip] $CIF missing"; continue; }
             log_info "  [$PLAB/$SLAB] MD = ${NS} ns, membrane=$USE_MEMBRANE"
@@ -1073,8 +1657,10 @@ fi
 # ============================================================================
 # Operation 5: Binding free energy
 # ============================================================================
-if op_enabled "binding_energy"; then
-    log_step "Op 5/7: binding_energy  (backends=$DG_BACKENDS, ${#PAIR_LABEL[@]} pairs)"
+if op_enabled "binding_energy" && [[ "$PREDICTIONS_INCOMPLETE" == "true" ]]; then
+    log_warn "  [skip] binding_energy: AF3 predictions incomplete; needs all CIFs. Re-run after AF3 downloads land."
+elif op_enabled "binding_energy"; then
+    log_step "  Op 5/8: binding_energy  (backends=$DG_BACKENDS, ${#PAIR_LABEL[@]} pairs)"
     MMPBSA_WRAP="$MODULES/14_special_pipeline/compute_mmpbsa.sh"
     FOLDX_WRAP="$MODULES/14_special_pipeline/compute_foldx_dg.sh"
     PRODIGY_WRAP="$MODULES/14_special_pipeline/compute_prodigy_dg.sh"
@@ -1086,9 +1672,9 @@ if op_enabled "binding_energy"; then
         pair_enabled "$H" "$D" || continue
         for j in "${!STOICH_LABELS[@]}"; do
             SLAB="${STOICH_LABELS[$j]}"
-            CIF="$COMPLEX_DIR/$SLAB/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
-            MD_SUB="$MD_DIR/$SLAB/$PLAB"
-            DG_SUB="$DG_DIR/$SLAB/$PLAB"
+            CIF="$(slab_complex_dir "$SLAB")/$PLAB/fold_${PLAB}_${SLAB}_model_0.cif"
+            MD_SUB="$(slab_md_dir "$SLAB")/$PLAB"
+            DG_SUB="$(slab_dg_dir "$SLAB")/$PLAB"
             mkdir -p "$DG_SUB"
             [[ ! -s "$CIF" ]] && { log_warn "  [skip] $CIF missing"; continue; }
 
@@ -1117,14 +1703,20 @@ fi
 # ============================================================================
 # Operation 6: Computational alanine scan (WT only - this is the hot-spot map)
 # ============================================================================
-if op_enabled "alanine_scan"; then
-    log_step "Op 6/7: alanine_scan  (WT HAP2 / WT DMP pair only)"
+if op_enabled "alanine_scan" && [[ "$PREDICTIONS_INCOMPLETE" == "true" ]]; then
+    log_warn "  [skip] alanine_scan: AF3 predictions incomplete; needs the WT__WT CIF. Re-run after AF3 downloads land."
+elif op_enabled "alanine_scan"; then
+    log_step "  Op 6/8: alanine_scan  (WT HAP2 / WT DMP pair only)"
     SCAN_WRAP="$MODULES/14_special_pipeline/alanine_scan.sh"
     WT_HAP2=$(get_toml alanine_scan reference_variant 2>/dev/null || echo "WT")
     WT_DMP=$(get_toml alanine_scan reference_dmp_variant 2>/dev/null || echo "WT")
     WT_STOICH=$(get_toml alanine_scan reference_stoichiometry 2>/dev/null || echo "monomeric")
     WT_PLAB="${WT_HAP2}__${WT_DMP}"
-    WT_CIF="$COMPLEX_DIR/$WT_STOICH/$WT_PLAB/fold_${WT_PLAB}_${WT_STOICH}_model_0.cif"
+    WT_COMPLEX_DIR="$(slab_complex_dir "$WT_STOICH")"
+    WT_IFACE_DIR="$(slab_iface_dir "$WT_STOICH")"
+    WT_ASCAN_DIR="$(slab_ascan_dir "$WT_STOICH")"
+    WT_CIF="$WT_COMPLEX_DIR/$WT_PLAB/fold_${WT_PLAB}_${WT_STOICH}_model_0.cif"
+    mkdir -p "$WT_ASCAN_DIR"
     if [[ ! -s "$WT_CIF" ]]; then
         log_warn "  Reference complex $WT_CIF missing; skip alanine scan."
     else
@@ -1134,9 +1726,9 @@ if op_enabled "alanine_scan"; then
             conda_run_in "$ENV_ASCAN" bash "$SCAN_WRAP" \
                 --complex "$WT_CIF" \
                 --foldx "$FOLDX_BIN" \
-                --interface-tsv "$IFACE_DIR/$WT_STOICH/$WT_PLAB/interface_residues.tsv" \
+                --interface-tsv "$WT_IFACE_DIR/$WT_PLAB/interface_residues.tsv" \
                 --threads "$CPU" \
-                --output "$ASCAN_DIR"
+                --output "$WT_ASCAN_DIR"
         fi
     fi
 fi
@@ -1148,10 +1740,20 @@ fi
 # (default "monomeric") - the 1:1 case is the biologically meaningful
 # DMP-HAP2 binding measurement; the 2:1 and 3:1 stoichiometries are reported
 # alongside but never override the primary case. See NOTES.md Section 7.
-if op_enabled "comparative_report"; then
-    log_step "  Op 7/7: comparative_report"
+if op_enabled "comparative_report" && [[ "$PREDICTIONS_INCOMPLETE" == "true" ]]; then
+    log_warn "  [skip] comparative_report: AF3 predictions incomplete; final ranking needs all CIFs. Re-run after AF3 downloads land."
+elif op_enabled "comparative_report"; then
+    log_step "  Op 7/8: comparative_report"
     REPORT_WRAP="$MODULES/14_special_pipeline/compare_variants.py"
-    PRIMARY_STOICH=$(get_toml stoichiometry basis 2>/dev/null || echo "monomeric")
+    # [stoichiometry].basis is an array; comparative_report anchors on the
+    # first selected basis (the head of the list is the headline figure).
+    mapfile -t _PRIMARY_BASIS_LIST < <(get_toml stoichiometry basis 2>/dev/null)
+    PRIMARY_STOICH="${_PRIMARY_BASIS_LIST[0]:-monomeric}"
+    unset _PRIMARY_BASIS_LIST
+    # Aggregates across stoichs into the shared 07_Summary root; per-stoich
+    # iptm heatmaps live in 07_Summary/<stoich>/ alongside. The Python wrapper
+    # resolves per-stoich data paths as
+    # $EXP_OUT_DIR/<stoich>/{03_Interfaces,05_BindingEnergy,06_AlanineScan}.
     conda_run_in "$ENV_REPORT" python3 "$REPORT_WRAP" \
         --hap2-variants "${EXP_HAP2_NAMES[*]}" \
         --dmp-variants "${EXP_DMP_NAMES[*]}" \
@@ -1161,14 +1763,12 @@ if op_enabled "comparative_report"; then
         --pairing-mode "$PAIRING_MODE" \
         --stoich "${STOICH_LABELS[*]}" \
         --primary-stoich "$PRIMARY_STOICH" \
-        --iface-dir "$IFACE_DIR" \
-        --dg-dir "$DG_DIR" \
-        --ascan-dir "$ASCAN_DIR" \
+        --exp-dir "$EXP_OUT_DIR" \
         --output "$REPORT_DIR" \
         --experiment "$EXPERIMENT"
 fi
 
-log_info "  Experiment '$EXPERIMENT' finished. Summary at $REPORT_DIR/"
+log_info "  Experiment '$EXPERIMENT' finished. Figures at $REPORT_DIR/{${STOICH_LABELS[*]}}/"
 
 done  # EXPERIMENT loop (active_comparison)
 

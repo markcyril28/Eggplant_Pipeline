@@ -62,6 +62,12 @@ COMPLEMENT = str.maketrans("ACGTacgtNn", "TGCAtgcaNn")
 # named features requested by the user are emitted.
 DMP_REFERENCE_GENE  = "SMEL5_01g026030.1"
 DMP_REFERENCE_AA_LEN = 178
+
+# mRNA-view companion is intentionally emitted ONLY for the SmelDMPv5_10.610
+# transcript (SMEL5_10g017610.1) per author decision (2026-05-25). Other
+# paralogs are not flanked with a spliced .gb. To add another gene, append its
+# transcript id here.
+MRNA_VIEW_TRANSCRIPTS = frozenset({"SMEL5_10g017610.1"})
 DMP_SS_REFERENCE: List[Tuple[str, int, int, str]] = [
     # (label,                              aa_start_0based, aa_end_0based_incl, color_hex)
     ("N-terminal Domain",                    0,    9, "#D9A621"),
@@ -568,6 +574,248 @@ def build_annotated_gb(
 
 
 # ---------------------------------------------------------------------------
+# mRNA-view companion writer
+# ---------------------------------------------------------------------------
+# For every annotated genomic GenBank we emit, also emit a sibling spliced
+# mRNA view: introns removed, sequence = concatenated exons, every feature
+# remapped from gene coords onto the mature transcript. Features that fall
+# fully inside an intron are dropped; spliced CDS / SS join() locations
+# collapse to a single contiguous interval in mRNA coords.
+
+_FEATURE_KEY_COL = " " * 5
+_QUAL_COL        = " " * 21
+
+
+def iter_features(features_block: str):
+    """Yield (key, location_str, qualifiers_text) for each feature.
+
+    qualifiers_text preserves the original 21-space-indented lines verbatim
+    (with trailing newline if present in source). Location-continuation lines
+    are merged into location_str (whitespace collapsed).
+    """
+    lines = features_block.splitlines()
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        if (line.startswith(_FEATURE_KEY_COL)
+                and len(line) > 5 and line[5] != " "):
+            m = re.match(r"^ {5}(\S+) +(.*)$", line)
+            if not m:
+                i += 1
+                continue
+            key = m.group(1)
+            loc_parts = [m.group(2)]
+            i += 1
+            # Location-continuation lines: 21 spaces, NOT starting with '/'
+            while (i < n and lines[i].startswith(_QUAL_COL)
+                   and not lines[i][21:22].startswith("/")):
+                loc_parts.append(lines[i].strip())
+                i += 1
+            location = "".join(loc_parts)
+            qual_lines: List[str] = []
+            # Qualifier lines: 21 spaces, starting with '/' (with continuations)
+            while (i < n and lines[i].startswith(_QUAL_COL)
+                   and lines[i][21:22].startswith("/")):
+                qual_lines.append(lines[i])
+                i += 1
+                while (i < n and lines[i].startswith(_QUAL_COL)
+                       and not lines[i][21:22].startswith("/")):
+                    qual_lines.append(lines[i])
+                    i += 1
+            quals_text = "\n".join(qual_lines)
+            if qual_lines:
+                quals_text += "\n"
+            yield key, location, quals_text
+        else:
+            i += 1
+
+
+def parse_location(loc_str: str) -> Tuple[List[Tuple[int, int]], bool]:
+    """Parse a GenBank location. Returns (intervals_1based_inclusive, complement).
+
+    Tolerated: 'a..b', 'complement(...)', 'join(...)', nesting of the two,
+    single positions ('123'), and fuzzy modifiers ('<', '>') which are stripped.
+    """
+    s = re.sub(r"\s+", "", loc_str)
+    is_complement = False
+    if s.startswith("complement(") and s.endswith(")"):
+        is_complement = True
+        s = s[len("complement("):-1]
+    if s.startswith("join(") and s.endswith(")"):
+        s = s[len("join("):-1]
+    if s.startswith("order(") and s.endswith(")"):
+        s = s[len("order("):-1]
+    intervals: List[Tuple[int, int]] = []
+    for piece in s.split(","):
+        piece = piece.replace("<", "").replace(">", "")
+        m = re.match(r"^(\d+)\.\.(\d+)$", piece)
+        if m:
+            intervals.append((int(m.group(1)), int(m.group(2))))
+            continue
+        m2 = re.match(r"^(\d+)$", piece)
+        if m2:
+            p = int(m2.group(1))
+            intervals.append((p, p))
+    return intervals, is_complement
+
+
+def format_location_with_complement(intervals: List[Tuple[int, int]],
+                                    complement: bool) -> str:
+    if not intervals:
+        return ""
+    if len(intervals) == 1:
+        s, e = intervals[0]
+        loc = f"{s}..{e}"
+    else:
+        loc = "join(" + ",".join(f"{s}..{e}" for s, e in intervals) + ")"
+    return f"complement({loc})" if complement else loc
+
+
+def gene_to_mrna_intervals(gene_intervals: List[Tuple[int, int]],
+                           exons: List[Tuple[int, int]]
+                           ) -> List[Tuple[int, int]]:
+    """Map gene-coord intervals onto mRNA coords (exons concatenated in order).
+
+    Pieces of an interval that fall in introns are silently dropped. The result
+    is post-merged so adjacent mRNA intervals (i.e. a feature that spans an
+    exon-exon junction in genomic coords) collapse to one contiguous range.
+    """
+    out: List[Tuple[int, int]] = []
+    for gs, ge in gene_intervals:
+        cursor = 0
+        for ex_s, ex_e in exons:
+            ex_len = ex_e - ex_s + 1
+            lo = max(gs, ex_s)
+            hi = min(ge, ex_e)
+            if lo <= hi:
+                mrna_lo = cursor + (lo - ex_s) + 1
+                mrna_hi = cursor + (hi - ex_s) + 1
+                out.append((mrna_lo, mrna_hi))
+            cursor += ex_len
+    if not out:
+        return []
+    out.sort()
+    merged = [out[0]]
+    for s, e in out[1:]:
+        ps, pe = merged[-1]
+        if s <= pe + 1:
+            merged[-1] = (ps, max(pe, e))
+        else:
+            merged.append((s, e))
+    return merged
+
+
+def format_origin_block(seq: str) -> str:
+    """Return a standard 60-bp / 10-bp-group ORIGIN block ending with '//'."""
+    seq = seq.lower()
+    out_lines = ["ORIGIN\n"]
+    for i in range(0, len(seq), 60):
+        chunk = seq[i:i + 60]
+        groups = [chunk[j:j + 10] for j in range(0, len(chunk), 10)]
+        out_lines.append(f"{i + 1:>9} " + " ".join(groups) + "\n")
+    out_lines.append("//\n")
+    return "".join(out_lines)
+
+
+def rewrite_locus_line(locus_line: str, new_length: int) -> str:
+    """Update the LOCUS line: replace length and DNA->mRNA, preserving layout."""
+    m = re.match(
+        r"^(LOCUS\s+\S+\s+)(\d+)(\s+bp\s+)(\S+)(\s+.*)$",
+        locus_line,
+    )
+    if m:
+        return m.group(1) + str(new_length) + m.group(3) + "mRNA" + m.group(5)
+    # Fallback: best-effort regex swap
+    out = re.sub(r"\s\d+\s+bp", f"  {new_length} bp", locus_line, count=1)
+    out = re.sub(r"\bDNA\b", "mRNA", out, count=1)
+    return out
+
+
+def _patch_source_qualifiers(quals_text: str, mrna_len: int) -> str:
+    """Patch mol_type to mRNA and rewrite the /note coord span if present."""
+    quals_text = re.sub(r'/mol_type="[^"]*"', '/mol_type="mRNA"', quals_text)
+    # Keep the source /note as-is (it documents the gene's genomic span,
+    # which is still useful provenance on the mRNA view).
+    return quals_text
+
+
+def build_mrna_view(annotated_gb_text: str) -> Optional[str]:
+    """Return a spliced mRNA-view GenBank text, or None if exons can't be
+    determined from the input."""
+    locus_line, header, features_block, origin_block = split_genbank(annotated_gb_text)
+    gene_seq = extract_origin_sequence(origin_block)
+
+    # Source of exon intervals: prefer the parent mRNA feature; fall back to
+    # the concatenation of exon features.
+    exons: List[Tuple[int, int]] = []
+    for key, loc, _ in iter_features(features_block):
+        if key == "mRNA":
+            ivs, _ = parse_location(loc)
+            exons = ivs
+            break
+    if not exons:
+        exon_list: List[Tuple[int, int]] = []
+        for key, loc, _ in iter_features(features_block):
+            if key == "exon":
+                ivs, _ = parse_location(loc)
+                exon_list.extend(ivs)
+        if exon_list:
+            exons = sorted(exon_list)
+    if not exons:
+        return None
+
+    # Drop zero-length / out-of-range exons defensively.
+    exons = [(s, e) for s, e in exons if 1 <= s <= e <= max(1, len(gene_seq))]
+    if not exons:
+        return None
+
+    mrna_seq = "".join(gene_seq[s - 1:e] for s, e in exons)
+    mrna_len = len(mrna_seq)
+    if mrna_len == 0:
+        return None
+
+    new_feature_blocks: List[str] = []
+    for key, loc, quals in iter_features(features_block):
+        if key == "intron":
+            continue
+        intervals, complement = parse_location(loc)
+
+        if key == "source":
+            new_loc = f"1..{mrna_len}"
+            new_quals = _patch_source_qualifiers(quals, mrna_len)
+            new_feature_blocks.append(
+                f"{_FEATURE_KEY_COL}{key:<16}{new_loc}\n{new_quals}"
+            )
+            continue
+        if key in ("gene", "mRNA"):
+            new_loc = f"1..{mrna_len}"
+            new_feature_blocks.append(
+                f"{_FEATURE_KEY_COL}{key:<16}{new_loc}\n{quals}"
+            )
+            continue
+
+        mrna_intervals = gene_to_mrna_intervals(intervals, exons)
+        if not mrna_intervals:
+            # Feature lives entirely in an intron (or off the mRNA).
+            continue
+        new_loc = format_location_with_complement(mrna_intervals, complement)
+        new_feature_blocks.append(
+            f"{_FEATURE_KEY_COL}{key:<16}{new_loc}\n{quals}"
+        )
+
+    # Header LOCUS line update.
+    header_lines = header.splitlines(keepends=True)
+    for i, ln in enumerate(header_lines):
+        if ln.startswith("LOCUS"):
+            header_lines[i] = rewrite_locus_line(ln.rstrip("\n"), mrna_len) + "\n"
+            break
+    new_header = "".join(header_lines)
+
+    return new_header + "".join(new_feature_blocks) + format_origin_block(mrna_seq)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -629,6 +877,16 @@ def main() -> int:
             out.write_text(annotated)
             print(f"[OK] {gene_id} >= {high_label}: {added} gRNA features + "
                   f"{n_ss} SS features (skipped {skipped}) -> {out}")
+            if gene_id in MRNA_VIEW_TRANSCRIPTS:
+                mrna_text = build_mrna_view(annotated)
+                if mrna_text is not None:
+                    mrna_out = out.with_name(out.stem + "_mRNA.gb")
+                    mrna_out.write_text(mrna_text)
+                    print(f"[OK]   mRNA view -> {mrna_out}")
+                else:
+                    print(f"[WARN] could not build mRNA view for {gene_id} "
+                          f"(no exon/mRNA feature); skipped mRNA companion",
+                          file=sys.stderr)
         else:
             print(f"[INFO] {gene_id}: no high-tier CSV (>= {high_label}); skipped")
 
@@ -645,6 +903,16 @@ def main() -> int:
             print(f"[OK] {gene_id} >= {mod_label} (HIGH tagged >= {high_label}): "
                   f"{added} gRNA features + {n_ss} SS features "
                   f"(skipped {skipped}) -> {out}")
+            if gene_id in MRNA_VIEW_TRANSCRIPTS:
+                mrna_text = build_mrna_view(annotated)
+                if mrna_text is not None:
+                    mrna_out = out.with_name(out.stem + "_mRNA.gb")
+                    mrna_out.write_text(mrna_text)
+                    print(f"[OK]   mRNA view -> {mrna_out}")
+                else:
+                    print(f"[WARN] could not build mRNA view for {gene_id} "
+                          f"(no exon/mRNA feature); skipped mRNA companion",
+                          file=sys.stderr)
         else:
             print(f"[INFO] {gene_id}: no moderate-tier CSV (>= {mod_label}); skipped")
 

@@ -49,7 +49,7 @@ CONDA_PACKAGES=(
 # pip-only packages (prodigy-prot is not on conda channels with reliable
 # version pinning; the upstream PyPI release is the canonical distribution).
 PIP_PACKAGES=(
-    "prodigy-prot==2.1.4"
+    "prodigy-prot==2.1.5"
 )
 
 UPDATE_MODE=false

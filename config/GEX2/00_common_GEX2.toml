@@ -1,0 +1,11 @@
+# ============================================================================
+# GEX2 Gene Family — Group-Specific Settings
+# ============================================================================
+# Only [general] is unique per gene group.
+# Shared defaults (output_dirs, reference, msa_query_selection) are in
+# config/shared/00_common.toml.
+# ============================================================================
+
+[general]
+gene_group = "GEX2"
+base_dir = "III_RESULT/GEX2"

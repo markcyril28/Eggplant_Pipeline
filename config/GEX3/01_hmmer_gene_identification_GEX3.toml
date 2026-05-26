@@ -1,0 +1,20 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: GEX3 — 01_Identification (HMMER)
+# ============================================================================
+# Gene-group overrides only. Shared defaults (method, db_type, targets,
+# hmmer_params, nhmmer_params, cdhit_params, cdhit_est_params) live in
+# 01_hmmer_identifyCONFIG.toml (project root) and are deep-merged.
+# HMM profile is declared in 01_hmmer_identifyCONFIG.toml under
+# [identification.gene_groups.GEX3].
+#
+# Profile: PANTHER PTHR37253 (Protein GAMETE EXPRESSED 3 family;
+# matches InterPro IPR045301 "GEX3-like")
+# PANTHER HMMs carry no GA thresholds, so use_ga is forced off here via
+# deep-merge override. The family is land-plant-restricted (Embryophyta /
+# Viridiplantae per InterPro taxonomy), so no taxonomic post-filtering of
+# hmmsearch hits is required.
+# ============================================================================
+
+[identification.hmmer_params]
+# PANTHER PTHR37253 has no GA thresholds — override shared use_ga = true.
+use_ga = false

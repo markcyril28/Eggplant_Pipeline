@@ -1,0 +1,15 @@
+# ============================================================================
+# Eggplant Pipeline Configuration: GEX - 01_Identification (HMMER)
+# ============================================================================
+# Gene-group overrides only. Shared defaults (method, db_type, targets,
+# hmmer_params, nhmmer_params, cdhit_params, cdhit_est_params) live in
+# 01_hmmer_identifyCONFIG.toml (project root) and are deep-merged.
+# Combined group profiles are declared under:
+# [identification.gene_groups.GEX.genes]
+#
+# GEX1 and GEX3 use PANTHER HMM profiles (no GA thresholds), so use_ga must
+# be false for this combined group.
+# ============================================================================
+
+[identification.hmmer_params]
+use_ga = false

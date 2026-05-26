@@ -52,10 +52,34 @@
 #                         the submission checklist)
 #   iptm_heatmap        - HAP2 x DMP ipTM heatmap from AF3 summary JSONs
 #                         (no downstream deps; runs straight from AF3 outputs)
+#   smeldmp_panels      - re-render SmelDMP_variants/ PSE -> PNG (deletion +
+#                         frameshift, red + model), re-crop + re-label red
+#                         panels, then rebuild the four grouped figures.
+#                         Intended for use after the user reorients .pse files
+#                         in PyMOL. deletion_ladder experiment only.
+#   combined_variants   - render the "special" HAP2 x DMP double-deletion
+#                         pairs from [pairing.special_pairs].pairs into a
+#                         Combined_Variants/ subtree (PSE + per-variant PNG +
+#                         grouped combined_variants_{stoich}.png panel).
+#                         Highlights BOTH deletions on the model. deletion_ladder
+#                         experiment only.
 #   interface_analysis  - residue contacts, BSA, ipTM, PRODIGY DG_pred
 #   md_equilibration    - short GROMACS MD via the existing PPI stage-10 modules
 #   binding_energy      - gmx_MMPBSA on the trajectory + FoldX AnalyseComplex
 #   alanine_scan        - MutaTeX alanine scan of the WT-complex interface
+#   render_domain_map   - PyMOL: trimeric HAP2 + DMP, colour-coded by deletion-variant
+#                         bands  (07_Summary/deletion_variants/domain_map/)
+#                         (NOT YET WIRED IN ORCHESTRATOR; run manually for now via
+#                         modules/14_special_pipeline/render_hap2_domain_map.py +
+#                         compose_legend.py.)
+#   render_model_views  - PyMOL: per-variant complex model overview (one .pse + .png
+#                         per HAP2 variant per stoichiometry)
+#                         (07_Summary/deletion_variants/model_{monomeric,postfusion}/)
+#                         (NOT YET WIRED IN ORCHESTRATOR.)
+#   render_deletion_red - PyMOL render_deletion_red.py + overlay_red_legend.py:
+#                         per-variant red-highlight of removed residues on the WT model
+#                         (07_Summary/deletion_variants/deletion_red_{monomeric,postfusion}/)
+#                         (NOT YET WIRED IN ORCHESTRATOR.)
 #   comparative_report  - cross-variant heatmap, ranking, summary TSV / PDF
 #
 # Output layout under III_RESULT/{GROUP}/14_Domain_Mapping/:
@@ -69,7 +93,8 @@
 #     04_MD/{stoich}/{pair}/                    (GROMACS .gro/.xtc/.edr)
 #     05_BindingEnergy/{stoich}/{pair}/         (MM-PBSA, FoldX dG)
 #     06_AlanineScan/{stoich}/                  (per-residue DDG; WT/WT pair only)
-#     07_Summary/{stoich}/                      (figures per stoich: iptm_heatmap_*, etc.)
+#     07_Summary/                               (cross-stoich aggregates: comparative_report, hypothesis_test, domain maps)
+#       ipTM_Figures/{stoich}/                  (per-stoich AF3 metric heatmaps: iptm_heatmap_*, ptm_heatmap_*, iptm_table_*.tsv)
 #   deletion_ladder/                            (Experiment 2: HAP2 ladder x DMP ladder at basis stoich)
 #     01_Variants/{pairing_mode}/HAP2/          (truncated HAP2 FASTAs; mode-scoped)
 #     01_Variants/{pairing_mode}/DMP/           (truncated DMP FASTAs; mode-scoped)
@@ -80,10 +105,11 @@
 #     04_MD/{stoich}/{pair}/                    (GROMACS .gro/.xtc/.edr)
 #     05_BindingEnergy/{stoich}/{pair}/         (MM-PBSA, FoldX dG)
 #     06_AlanineScan/{stoich}/                  (per-residue DDG; WT/WT pair only)
-#     07_Summary/{stoich}/                      (figures per stoich: iptm_heatmap_*, etc.)
+#     07_Summary/                               (cross-stoich aggregates: comparative_report, hypothesis_test, domain maps)
+#       ipTM_Figures/{stoich}/                  (per-stoich AF3 metric heatmaps: iptm_heatmap_*, ptm_heatmap_*, iptm_table_*.tsv)
 # Numbered output category is ALWAYS the parent; the {stoich} subfolder (monomeric |
 # dimeric | postfusion_like) sits directly inside it. For deletion_ladder ONLY,
-# 01_Variants/ additionally splits by [pairing].mode (orthogonal | matrix | pairwise)
+# 01_Variants/ additionally splits by [pairing].mode (orthogonal | matrix | pairwise | special)
 # since the per-side and per-pair FASTA lists differ by mode. The numbered downstream
 # folders (02_Complexes through 07_Summary, plus _AF3_Backup) stay at the experiment
 # root because their {pair_label} keying already distinguishes mode-specific outputs
@@ -394,6 +420,56 @@ env_for() {
     printf '%s' "$val"
 }
 
+# ── Version-probe helpers (used by the Stage-14 software catalog) ───────────
+# catalog_all_software's awk extractor takes "$NF" of the first line of each
+# probe's stdout. Naive probes (gmx --version, gmx_MMPBSA --version, prodigy
+# --version) print banners, ASCII smileys, or Python tracebacks on line 1,
+# leaving garbage like "(-:", "last):", or an empty cell in the catalog CSV.
+# These helpers do the parse / fallback so the probe stdout is a single
+# clean version string.
+_probe_gmx_version() {
+    # gmx --version prints a multi-line banner that includes a smiley
+    # ":-) GROMACS - gmx, 2024.x (-:" and later "GROMACS version: 2024.x".
+    # The latter is stable across recent releases; the former is not.
+    local bin="${1:-gmx}"
+    local v
+    v=$("$bin" --version 2>&1 | sed -n 's/^GROMACS version:[[:space:]]*//p' | head -n1)
+    [[ -z "$v" ]] && v="unknown"
+    printf '%s\n' "$v"
+}
+
+_probe_gmx_mmpbsa_version() {
+    # gmx_MMPBSA prints "gmx_MMPBSA v1.6.4" inside its banner; the rest of
+    # --version output is empty / banner lines. Grep just the v-tagged
+    # number.
+    local env="$1"
+    [[ -z "$env" ]] && { printf 'unknown\n'; return; }
+    local v
+    v=$(conda run -n "$env" --no-capture-output gmx_MMPBSA --version 2>&1 \
+        | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' \
+        | head -n1)
+    [[ -z "$v" ]] && v="unknown"
+    printf '%s\n' "$v"
+}
+
+_probe_python_pkg_version() {
+    # Generic: print __version__ of the first importable module from the
+    # given env. Probe order matters -- the first hit wins. Returns
+    # "unknown" if none of the modules can be imported (e.g. prodigy
+    # installed under a different distribution name, or the env is broken).
+    local env="$1"; shift
+    [[ -z "$env" ]] && { printf 'unknown\n'; return; }
+    local pkg v
+    for pkg in "$@"; do
+        v=$(conda run -n "$env" --no-capture-output python -c "import $pkg; print($pkg.__version__)" 2>/dev/null)
+        if [[ -n "$v" ]]; then
+            printf '%s\n' "$v"
+            return 0
+        fi
+    done
+    printf 'unknown\n'
+}
+
 TMP_CONFIG_FILES=()
 cleanup_tmp_configs() {
     local cfg
@@ -437,6 +513,12 @@ OUT_DIR="$BASE_DIR/14_Domain_Mapping"
 mkdir -p "$OUT_DIR"
 
 setup_logging
+
+# Generic configuration dump (component 1: full log). RNA-seq-flavoured
+# fields like keep_bam_global / USE_GNU_PARALLEL surface as N/A here -- a
+# Stage-14-specific dump follows below once tool envs and pair tables are
+# resolved.
+THREADS="$CPU" JOBS="$MAX_PARALLEL" log_configuration
 
 ENABLED=$(get_toml domain_mapping enabled 2>/dev/null || echo "true")
 if [[ "$ENABLED" != "true" && "$ENABLED" != "True" ]]; then
@@ -594,11 +676,20 @@ fi
 
 # build_pairs builds PAIR_HAP2/PAIR_DMP/PAIR_LABEL from the active HAP2 +
 # DMP variant lists (EXP_HAP2_NAMES / EXP_DMP_NAMES) according to mode.
-# Called per-experiment so the pair list reflects the active ladder.
+# Called per-mode inside the deletion_ladder experiment so multiple modes
+# can be staged in a single invocation.
 #   PAIR_HAP2[k]  = HAP2 variant name at pair index k
 #   PAIR_DMP[k]   = DMP variant name at pair index k
 #   PAIR_LABEL[k] = "{hap2}__{dmp}" composite label used in all output paths
-PAIRING_MODE=$(get_toml pairing mode 2>/dev/null || echo "orthogonal")
+# [pairing].mode is read as an ARRAY (PAIRING_MODES); legacy scalar form is
+# tolerated. PAIRING_MODE (singular) holds the active mode during per-mode
+# iteration so existing log messages and the comparative_report --pairing-mode
+# arg keep working; outside the loop it falls back to the first mode.
+mapfile -t PAIRING_MODES < <(get_toml pairing mode 2>/dev/null)
+if (( ${#PAIRING_MODES[@]} == 0 )); then
+    PAIRING_MODES=("orthogonal")
+fi
+PAIRING_MODE="${PAIRING_MODES[0]}"
 build_pairs() {
     local mode="$1"
     local i j h d
@@ -641,8 +732,43 @@ build_pairs() {
                 PAIR_LABEL+=("${h}__${d}")
             done
             ;;
+        special)
+            # Orthogonal ladder PLUS explicit non-orthogonal pairs from
+            # [pairing.special_pairs].pairs. The ipTM heatmap then shows the
+            # full orthogonal cross plus the extra double-deletion combos
+            # (e.g. delPreTMDAndTMD__delN) without requiring the user to
+            # activate "orthogonal" separately. Duplicates are skipped.
+            # HAP2 ladder x WT DMP (DMP index 0 must be the WT row)
+            for i in "${!EXP_HAP2_NAMES[@]}"; do
+                PAIR_HAP2+=("${EXP_HAP2_NAMES[$i]}")
+                PAIR_DMP+=("${EXP_DMP_NAMES[0]}")
+                PAIR_LABEL+=("${EXP_HAP2_NAMES[$i]}__${EXP_DMP_NAMES[0]}")
+            done
+            # WT HAP2 x DMP ladder (skip j=0 to avoid duplicating WT__WT)
+            for j in "${!EXP_DMP_NAMES[@]}"; do
+                (( j == 0 )) && continue
+                PAIR_HAP2+=("${EXP_HAP2_NAMES[0]}")
+                PAIR_DMP+=("${EXP_DMP_NAMES[$j]}")
+                PAIR_LABEL+=("${EXP_HAP2_NAMES[0]}__${EXP_DMP_NAMES[$j]}")
+            done
+            # Append special_pairs (skip any already covered by the ladder).
+            local _sp_lab _existing _seen
+            local _sp_pairs=()
+            mapfile -t _sp_pairs < <(get_toml pairing special_pairs pairs 2>/dev/null)
+            for _sp_lab in "${_sp_pairs[@]}"; do
+                [[ -z "$_sp_lab" ]] && continue
+                _seen=0
+                for _existing in "${PAIR_LABEL[@]}"; do
+                    [[ "$_existing" == "$_sp_lab" ]] && { _seen=1; break; }
+                done
+                (( _seen )) && continue
+                PAIR_HAP2+=("${_sp_lab%%__*}")
+                PAIR_DMP+=("${_sp_lab#*__}")
+                PAIR_LABEL+=("$_sp_lab")
+            done
+            ;;
         *)
-            log_error "Unknown [pairing].mode = '$mode'. Valid: orthogonal | matrix | pairwise"
+            log_error "Unknown [pairing].mode = '$mode'. Valid: orthogonal | matrix | pairwise | special"
             return 1
             ;;
     esac
@@ -678,6 +804,38 @@ ENV_PRODIGY_DG=$(env_for prodigy_dg)
 ENV_ASCAN=$(env_for alanine_scan)
 ENV_REPORT=$(env_for comparative_report)
 
+# ── Stage-14 software catalog (component 6 of the 6-component logging system) ──
+# RUN_ID is shared across gene-group iterations, so the SOFTWARE_FILE path
+# is the same per script invocation -- a second iteration would append
+# duplicate rows. Guard with a script-scope sentinel so the catalog runs
+# exactly once per invocation, after the per-tool env vars are resolved.
+if [[ "${_STAGE14_CATALOG_DONE:-}" != "true" ]]; then
+    _CAT_TOOLS=(
+        "python:python3 --version"
+        "conda:conda --version"
+        "gmx:_probe_gmx_version ${GMX_BIN:-gmx}"
+    )
+    if [[ -n "$FOLDX_BIN" && -x "$FOLDX_BIN" ]]; then
+        # FoldX --version usually prints "FoldX 5.0 ..." -- head -n1 + $NF
+        # picks up the numeric token at the end of line 1, which is good
+        # enough; no helper needed.
+        _CAT_TOOLS+=("foldx:$FOLDX_BIN --version 2>&1 | head -n1")
+    fi
+    # conda-env-scoped tools: each version probe runs inside the same env
+    # the operation will use, so the cataloged version reflects the binary
+    # actually invoked. The helpers strip banners / tracebacks so the awk
+    # extractor in catalog_all_software lands on the actual version number.
+    [[ -n "$ENV_MMPBSA"     ]] && _CAT_TOOLS+=("gmx_MMPBSA:_probe_gmx_mmpbsa_version $ENV_MMPBSA")
+    [[ -n "$ENV_PRODIGY_DG" ]] && _CAT_TOOLS+=("prodigy:_probe_python_pkg_version $ENV_PRODIGY_DG prodigy_prot prodigy")
+    [[ -n "$ENV_IFACE"      ]] && _CAT_TOOLS+=("biopython:_probe_python_pkg_version $ENV_IFACE Bio")
+    # Skip the default RNA-seq R package catalog -- none of the listed
+    # packages (DESeq2, tximport, WGCNA, ...) are used by Stage 14 and
+    # they pollute the catalog CSV with not_installed rows.
+    CATALOG_SKIP_R="true" catalog_all_software "${_CAT_TOOLS[@]}"
+    unset _CAT_TOOLS
+    _STAGE14_CATALOG_DONE="true"
+fi
+
 log_step "Stage 14 (Domain Mapping): $GENE_GROUP  (active: ${ACTIVE_COMPARISON[*]})"
 log_info "Complex prep backend: $PREPARE_BACKEND   MD backend: $MD_BACKEND"
 log_info "Compute: host=${HOST_CPU}c  CPU=$CPU  MAX_PARALLEL=$MAX_PARALLEL"
@@ -711,7 +869,7 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
     # Per-experiment output dirs. Numbered output category is ALWAYS the
     # parent; the {stoich} subfolder (monomeric | dimeric | postfusion_like)
     # sits directly inside it. For deletion_ladder, ONLY 01_Variants/ is
-    # additionally split by [pairing].mode (orthogonal | matrix | pairwise)
+    # additionally split by [pairing].mode (orthogonal | matrix | pairwise | special)
     # since the variant FASTA lists (the per-side ladders + the per-pair
     # concat) differ by mode -- the numbered downstream folders
     # (02_Complexes, 03_Interfaces, 04_MD, 05_BindingEnergy, 06_AlanineScan,
@@ -759,7 +917,6 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
     slab_md_dir()      { echo "$MD_DIR/$1"; }
     slab_dg_dir()      { echo "$DG_DIR/$1"; }
     slab_ascan_dir()   { echo "$ASCAN_DIR/$1"; }
-    slab_report_dir()  { echo "$REPORT_DIR/$1"; }
 
     # Per-experiment operations list. The TOML structure is
     # [domain_mapping.operations].<experiment> = [ ... ], so we query that
@@ -834,10 +991,58 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
         EXP_DMP_DESCS=("${DMP_VARIANT_DESCRIPTIONS[@]}")
         EXP_DMP_DELETIONS=("${DMP_VARIANT_DELETIONS[@]}")
         EXP_DMP_GUIDES=("${DMP_VARIANT_GUIDES[@]:-}")
-        if ! build_pairs "$PAIRING_MODE"; then
-            log_error "  [deletion_ladder] build_pairs failed for mode='$PAIRING_MODE'; skipping experiment."
+        # Loop every selected pairing mode, accumulating a deduplicated union
+        # into PAIR_HAP2 / PAIR_DMP / PAIR_LABEL (consumed by downstream ops)
+        # and recording each pair's *first* source mode in PAIR_FIRST_MODE for
+        # the per-mode prepare_variants writes. PAIRS_BY_MODE_<mode> stores
+        # each mode's ordered pair-label list so prepare_variants can write
+        # mode-specific 01_Variants/{mode}/ trees from a clean per-mode view.
+        PAIR_HAP2=()
+        PAIR_DMP=()
+        PAIR_LABEL=()
+        PAIR_FIRST_MODE=()
+        _UNION_HAP2=()
+        _UNION_DMP=()
+        _UNION_LABEL=()
+        _UNION_MODE=()
+        declare -A _PAIR_SEEN=()
+        # Clear any per-mode pair caches from a previous gene-group iteration.
+        for _m in orthogonal matrix pairwise; do
+            unset "PAIRS_BY_MODE_${_m}" 2>/dev/null || true
+        done
+        for _MODE in "${PAIRING_MODES[@]}"; do
+            if ! build_pairs "$_MODE"; then
+                log_error "  [deletion_ladder] build_pairs failed for mode='$_MODE'; skipping mode."
+                continue
+            fi
+            # Stash this mode's ordered pair-label list as a single space-
+            # separated string under PAIRS_BY_MODE_<mode>. Indirect-var deref
+            # is the simplest bash equivalent of a dict-of-arrays here.
+            printf -v "PAIRS_BY_MODE_${_MODE}" '%s' "${PAIR_LABEL[*]}"
+            # Merge into the dedup union (keyed on pair label).
+            for _k in "${!PAIR_LABEL[@]}"; do
+                _lab="${PAIR_LABEL[$_k]}"
+                if [[ -z "${_PAIR_SEEN[$_lab]:-}" ]]; then
+                    _PAIR_SEEN[$_lab]=1
+                    _UNION_HAP2+=("${PAIR_HAP2[$_k]}")
+                    _UNION_DMP+=("${PAIR_DMP[$_k]}")
+                    _UNION_LABEL+=("$_lab")
+                    _UNION_MODE+=("$_MODE")
+                fi
+            done
+        done
+        unset _MODE _k _lab _m
+        _UNION_N=${#_UNION_LABEL[@]}
+        if (( _UNION_N == 0 )); then
+            log_error "  [deletion_ladder] no pairs produced from any mode in PAIRING_MODES=(${PAIRING_MODES[*]}); skipping experiment."
+            unset _PAIR_SEEN _UNION_HAP2 _UNION_DMP _UNION_LABEL _UNION_MODE _UNION_N
             continue
         fi
+        PAIR_HAP2=("${_UNION_HAP2[@]}")
+        PAIR_DMP=("${_UNION_DMP[@]}")
+        PAIR_LABEL=("${_UNION_LABEL[@]}")
+        PAIR_FIRST_MODE=("${_UNION_MODE[@]}")
+        unset _PAIR_SEEN _UNION_HAP2 _UNION_DMP _UNION_LABEL _UNION_MODE _UNION_N
         # [stoichiometry].basis is an array; deletion_ladder iterates each
         # selected basis. HAP2 copies are derived from the label name
         # (monomeric=1, dimeric=2, postfusion_like=3) so the TOML cannot drift
@@ -873,7 +1078,11 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
     log_info "    Operations:    ${OPERATIONS[*]}"
     log_info "    HAP2 variants: ${EXP_HAP2_NAMES[*]}"
     log_info "    DMP variants:  ${EXP_DMP_NAMES[*]}"
-    log_info "    Pairs (${#PAIR_LABEL[@]}): ${PAIR_LABEL[*]}"
+    if [[ "$EXPERIMENT" == "deletion_ladder" ]]; then
+        log_info "    Pairing modes: ${PAIRING_MODES[*]} (union pair count: ${#PAIR_LABEL[@]})"
+    else
+        log_info "    Pairs (${#PAIR_LABEL[@]}): ${PAIR_LABEL[*]}"
+    fi
     log_info "    Stoichiometry: ${STOICH_LABELS[*]} (${STOICH_COUNTS[*]} HAP2 copies)"
 
 # ============================================================================
@@ -882,154 +1091,13 @@ for EXPERIMENT in "${ACTIVE_COMPARISON[@]}"; do
 if op_enabled "prepare_variants"; then
     log_step "  Op 1/8: prepare_variants  (HAP2 + DMP ladders)"
     GEN_SCRIPT="$MODULES/14_special_pipeline/generate_variants.py"
-
-    log_info "    HAP2 ladder -> $HAP2_VARIANTS_DIR"
-    for i in "${!EXP_HAP2_NAMES[@]}"; do
-        VNAME="${EXP_HAP2_NAMES[$i]}"
-        variant_enabled "$VNAME" || continue
-        VDESC="${EXP_HAP2_DESCS[$i]:-no description}"
-        VDEL="${EXP_HAP2_DELETIONS[$i]:-}"   # empty = WT
-        OUT_FA="$HAP2_VARIANTS_DIR/${VNAME}.fasta"
-        if [[ -f "$OUT_FA" && "$OVERWRITE" != "true" ]]; then
-            log_info "      [$VNAME] exists, skip (OVERWRITE=false)"
-            continue
-        fi
-        log_info "      [$VNAME] $VDESC  (delete='$VDEL')"
-        conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
-            --input "$HAP2_FASTA" \
-            --name "$VNAME" \
-            --description "$VDESC" \
-            --deletions "$VDEL" \
-            --output "$OUT_FA"
-    done
-
-    log_info "    DMP ladder  -> $DMP_VARIANTS_DIR"
-    for j in "${!EXP_DMP_NAMES[@]}"; do
-        DNAME="${EXP_DMP_NAMES[$j]}"
-        dmp_variant_enabled "$DNAME" || continue
-        DDESC="${EXP_DMP_DESCS[$j]:-no description}"
-        DDEL="${EXP_DMP_DELETIONS[$j]:-}"
-        DGUIDE="${EXP_DMP_GUIDES[$j]:-}"
-        OUT_FA="$DMP_VARIANTS_DIR/${DNAME}.fasta"
-        if [[ -f "$OUT_FA" && "$OVERWRITE" != "true" ]]; then
-            log_info "      [$DNAME] exists, skip (OVERWRITE=false)"
-            continue
-        fi
-        if [[ -n "$DGUIDE" ]]; then
-            # Frameshift mode: guide spec format = "23mer|strand".
-            # Requires the DMP transcript FASTA (DNA) to locate the cut and
-            # re-translate from the original ATG; the transcript path is set
-            # by [inputs].dmp_transcript_fasta + [inputs].dmp_transcript_record.
-            if [[ -z "$DMP_TRANSCRIPT_FASTA" || ! -f "$DMP_TRANSCRIPT_FASTA" ]]; then
-                log_warn "      [$DNAME] guide variant declared but [inputs].dmp_transcript_fasta missing or unreadable ('$DMP_TRANSCRIPT_FASTA'); skipping."
-                continue
-            fi
-            _GUIDE_SEQ="${DGUIDE%%|*}"
-            _GUIDE_STRAND="${DGUIDE##*|}"
-            log_info "      [$DNAME] (frameshift) $DDESC  (guide='$_GUIDE_SEQ' strand='$_GUIDE_STRAND')"
-            conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
-                --mode frameshift \
-                --name "$DNAME" \
-                --description "$DDESC" \
-                --dna-input "$DMP_TRANSCRIPT_FASTA" \
-                --dna-record "$DMP_TRANSCRIPT_RECORD" \
-                --guide-23mer "$_GUIDE_SEQ" \
-                --guide-strand "$_GUIDE_STRAND" \
-                --output "$OUT_FA"
-            unset _GUIDE_SEQ _GUIDE_STRAND
-        else
-            # Deletion mode (protein-space truncation; existing behavior).
-            log_info "      [$DNAME] (deletion)   $DDESC  (delete='$DDEL')"
-            conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
-                --mode deletion \
-                --input "$DMP_FASTA" \
-                --name "$DNAME" \
-                --description "$DDESC" \
-                --deletions "$DDEL" \
-                --output "$OUT_FA"
-        fi
-    done
-
-    # Pair FASTAs (DMP-HAP2/{pair}.fasta) -- one per (HAP2_variant, DMP_variant)
-    # entry in PAIR_LABEL. HAP2 + DMP concatenated with role-prefixed headers
-    # ("HAP2_" / "DMP_") so the file is ready to paste into the AF3 server UI
-    # without manual header editing. The user manually sets the HAP2 copy
-    # count per stoichiometry.
-    #
-    # Pair label format = "{hap2_variant}__{dmp_variant}", matching the rest
-    # of the stage-14 output paths.
-    log_info "    Pair FASTAs -> $PAIR_VARIANTS_DIR"
-    _JSON_PAIR_LABELS=()
-    _JSON_HAP2_FASTAS=()
-    _JSON_DMP_FASTAS=()
-    _JSON_HAP2_DELS=()   # pipe-separated parallel array for the helper's --hap2-deletions
-    for k in "${!PAIR_LABEL[@]}"; do
-        H="${PAIR_HAP2[$k]}"
-        D="${PAIR_DMP[$k]}"
-        PLAB="${PAIR_LABEL[$k]}"
-        pair_enabled "$H" "$D" || continue
-        H_FA="$HAP2_VARIANTS_DIR/${H}.fasta"
-        D_FA="$DMP_VARIANTS_DIR/${D}.fasta"
-        OUT_PAIR_FA="$PAIR_VARIANTS_DIR/${PLAB}.fasta"
-        if [[ ! -s "$H_FA" ]]; then
-            log_warn "      [$PLAB] missing HAP2 source $H_FA; skip"
-            continue
-        fi
-        if [[ ! -s "$D_FA" ]]; then
-            log_warn "      [$PLAB] missing DMP source $D_FA; skip"
-            continue
-        fi
-        # Look up the HAP2 variant's deletion string from EXP_HAP2_* (parallel
-        # to EXP_HAP2_NAMES); needed by the template alignment in the JSON
-        # helper. Empty / WT entries map to an empty token in the pipe-
-        # separated --hap2-deletions argument.
-        _H_DEL=""
-        for _hi in "${!EXP_HAP2_NAMES[@]}"; do
-            if [[ "${EXP_HAP2_NAMES[$_hi]}" == "$H" ]]; then
-                _H_DEL="${EXP_HAP2_DELETIONS[$_hi]:-}"
-                break
-            fi
-        done
-        # Collect the pair into the aggregate-JSON inputs even if the FASTA
-        # already exists (the JSON is rebuilt as one combined file below;
-        # skipping an existing FASTA must not drop the pair from the JSON).
-        _JSON_PAIR_LABELS+=("$PLAB")
-        _JSON_HAP2_FASTAS+=("$H_FA")
-        _JSON_DMP_FASTAS+=("$D_FA")
-        _JSON_HAP2_DELS+=("$_H_DEL")
-        unset _hi _H_DEL
-        if [[ -f "$OUT_PAIR_FA" && "$OVERWRITE" != "true" ]]; then
-            log_info "      [$PLAB] FASTA exists, skip (OVERWRITE=false)"
-            continue
-        fi
-        if [[ "$DRY_RUN" == "true" ]]; then
-            log_info "      [DRY-RUN] [$PLAB] HAP2[$H] + DMP[$D] -> $OUT_PAIR_FA"
-            continue
-        fi
-        {
-            sed '1s/^>/>HAP2_/' "$H_FA"
-            printf '\n'
-            sed '1s/^>/>DMP_/' "$D_FA"
-        } > "$OUT_PAIR_FA"
-        log_info "      [$PLAB] HAP2[$H] + DMP[$D] -> $(basename "$OUT_PAIR_FA")"
-    done
-
-    # Single aggregate AlphaFold Server JSON covering every (pair, stoich)
-    # combination for this experiment. The AF3 server accepts an array of
-    # jobs in one upload, so this file is the only thing the user needs to
-    # drop into the "Upload job" field. Job names embed both axes
-    # ("{pair}_{stoich}") so the downstream SCATTER step in prepare_complexes
-    # can route each result zip to the correct pair slot.
-    #
-    # Path: $PAIR_VARIANTS_DIR/_AF3_jobs.json -- sibling to the per-pair
-    # FASTAs and mode-scoped for deletion_ladder (under 01_Variants/{mode}/).
-    OUT_AGG_JSON="$PAIR_VARIANTS_DIR/_AF3_jobs.json"
     JSON_WRAP="$MODULES/14_special_pipeline/build_af3_job_json.py"
 
-    # Optional HAP2 structural template (embedded into every HAP2 chain of
-    # the AF3 Server JSON). [template].hap2_mmcif points at e.g. the Stage-08
-    # SWISS-MODEL homology model; coverage_start/coverage_end describe the
-    # 1-indexed residue range of the ORIGINAL HAP2 covered by the template.
+    # Optional HAP2 structural template -- read once per experiment; the
+    # template is embedded into every HAP2 chain of every per-mode JSON.
+    # [template].hap2_mmcif points at e.g. the Stage-08 SWISS-MODEL homology
+    # model; coverage_start/coverage_end describe the 1-indexed residue range
+    # of the ORIGINAL HAP2 covered by the template.
     TEMPLATE_ENABLED=$(get_toml template enabled 2>/dev/null || echo "false")
     TEMPLATE_MMCIF=""
     TEMPLATE_COV_START=""
@@ -1050,59 +1118,234 @@ if op_enabled "prepare_variants"; then
         fi
     fi
 
-    # Pipe-separated deletion strings parallel to _JSON_PAIR_LABELS
-    # (commas already used internally for multi-range deletions, so pipe is
-    # the only safe outer separator). Use IFS join so leading / consecutive
-    # empty entries (e.g. WT__WT at index 0, WT__del* at the tail) are
-    # preserved -- a per-iteration "is the accumulator empty?" check would
-    # silently drop the first empty token and produce off-by-one parallelism.
-    if (( ${#_JSON_HAP2_DELS[@]} > 0 )); then
-        _OLD_IFS="${IFS-}"
-        IFS='|'
-        _JSON_HAP2_DELS_JOINED="${_JSON_HAP2_DELS[*]}"
-        IFS="$_OLD_IFS"
-        unset _OLD_IFS
+    # Iteration list. For deletion_ladder this is every pairing mode; for
+    # stoichiometry_comparison it is a single sentinel "_none_" that selects
+    # the no-mode 01_Variants/ path.
+    if [[ "$EXPERIMENT" == "deletion_ladder" ]]; then
+        _ITER_MODES=("${PAIRING_MODES[@]}")
     else
-        _JSON_HAP2_DELS_JOINED=""
+        _ITER_MODES=("_none_")
     fi
 
-    if (( ${#_JSON_PAIR_LABELS[@]} == 0 )); then
-        log_warn "    AF3 aggregate JSON: no enabled pairs after filtering; skipped."
-    elif [[ -f "$OUT_AGG_JSON" && "$OVERWRITE" != "true" ]]; then
-        log_info "    AF3 aggregate JSON exists, skip (OVERWRITE=false): $OUT_AGG_JSON"
-    elif [[ "$DRY_RUN" == "true" ]]; then
-        if [[ -n "$TEMPLATE_MMCIF" ]]; then
-            log_info "    [DRY-RUN] AF3 aggregate JSON (${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs) + HAP2 template ($(basename "$TEMPLATE_MMCIF"), ${TEMPLATE_COV_START}-${TEMPLATE_COV_END}) -> $OUT_AGG_JSON"
+    for _MODE in "${_ITER_MODES[@]}"; do
+        # Per-mode path + pair-list resolution. The orchestrator-level
+        # HAP2_VARIANTS_DIR / DMP_VARIANTS_DIR / PAIR_VARIANTS_DIR were
+        # initialised earlier with the FIRST mode's paths; this block
+        # overwrites them per iteration so the variant writes land in the
+        # right tree.
+        if [[ "$_MODE" == "_none_" ]]; then
+            HAP2_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/HAP2"
+            DMP_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/DMP"
+            PAIR_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/DMP-HAP2"
+            # stoichiometry_comparison has a single fixed pair from PAIR_LABEL[0]
+            _MODE_PAIR_LABELS=("${PAIR_LABEL[@]}")
+            _MODE_TAG=""   # log prefix
         else
-            log_info "    [DRY-RUN] AF3 aggregate JSON (${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs) -> $OUT_AGG_JSON"
+            HAP2_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/$_MODE/HAP2"
+            DMP_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/$_MODE/DMP"
+            PAIR_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/$_MODE/DMP-HAP2"
+            # Per-mode pair list cached in PAIRS_BY_MODE_<mode> as a space-
+            # joined string (assigned via printf -v during the pair-union
+            # build above). Indirect-var deref splits it back into an array.
+            _MODE_VARNAME="PAIRS_BY_MODE_${_MODE}"
+            read -r -a _MODE_PAIR_LABELS <<< "${!_MODE_VARNAME:-}"
+            unset _MODE_VARNAME
+            _MODE_TAG="[mode=$_MODE] "
         fi
-    else
-        _JSON_ARGS=(
-            --pair-labels   "${_JSON_PAIR_LABELS[*]}"
-            --hap2-fastas   "${_JSON_HAP2_FASTAS[*]}"
-            --dmp-fastas    "${_JSON_DMP_FASTAS[*]}"
-            --stoich-labels "${STOICH_LABELS[*]}"
-            --stoich-counts "${STOICH_COUNTS[*]}"
-            --dmp-copies 1
-            --output "$OUT_AGG_JSON"
-        )
-        if [[ -n "$TEMPLATE_MMCIF" ]]; then
-            _JSON_ARGS+=(
-                --hap2-template-mmcif   "$TEMPLATE_MMCIF"
-                --hap2-coverage-start   "$TEMPLATE_COV_START"
-                --hap2-coverage-end     "$TEMPLATE_COV_END"
-                --hap2-deletions        "$_JSON_HAP2_DELS_JOINED"
+        mkdir -p "$HAP2_VARIANTS_DIR" "$DMP_VARIANTS_DIR" "$PAIR_VARIANTS_DIR"
+
+        log_info "    ${_MODE_TAG}HAP2 ladder -> $HAP2_VARIANTS_DIR"
+        for i in "${!EXP_HAP2_NAMES[@]}"; do
+            VNAME="${EXP_HAP2_NAMES[$i]}"
+            variant_enabled "$VNAME" || continue
+            VDESC="${EXP_HAP2_DESCS[$i]:-no description}"
+            VDEL="${EXP_HAP2_DELETIONS[$i]:-}"   # empty = WT
+            OUT_FA="$HAP2_VARIANTS_DIR/${VNAME}.fasta"
+            if [[ -f "$OUT_FA" && "$OVERWRITE" != "true" ]]; then
+                log_info "      [$VNAME] exists, skip (OVERWRITE=false)"
+                continue
+            fi
+            log_info "      [$VNAME] $VDESC  (delete='$VDEL')"
+            conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
+                --input "$HAP2_FASTA" \
+                --name "$VNAME" \
+                --description "$VDESC" \
+                --deletions "$VDEL" \
+                --output "$OUT_FA"
+        done
+
+        log_info "    ${_MODE_TAG}DMP ladder  -> $DMP_VARIANTS_DIR"
+        for j in "${!EXP_DMP_NAMES[@]}"; do
+            DNAME="${EXP_DMP_NAMES[$j]}"
+            dmp_variant_enabled "$DNAME" || continue
+            DDESC="${EXP_DMP_DESCS[$j]:-no description}"
+            DDEL="${EXP_DMP_DELETIONS[$j]:-}"
+            DGUIDE="${EXP_DMP_GUIDES[$j]:-}"
+            OUT_FA="$DMP_VARIANTS_DIR/${DNAME}.fasta"
+            if [[ -f "$OUT_FA" && "$OVERWRITE" != "true" ]]; then
+                log_info "      [$DNAME] exists, skip (OVERWRITE=false)"
+                continue
+            fi
+            if [[ -n "$DGUIDE" ]]; then
+                # Frameshift mode: guide spec format = "23mer|strand".
+                if [[ -z "$DMP_TRANSCRIPT_FASTA" || ! -f "$DMP_TRANSCRIPT_FASTA" ]]; then
+                    log_warn "      [$DNAME] guide variant declared but [inputs].dmp_transcript_fasta missing or unreadable ('$DMP_TRANSCRIPT_FASTA'); skipping."
+                    continue
+                fi
+                _GUIDE_SEQ="${DGUIDE%%|*}"
+                _GUIDE_STRAND="${DGUIDE##*|}"
+                log_info "      [$DNAME] (frameshift) $DDESC  (guide='$_GUIDE_SEQ' strand='$_GUIDE_STRAND')"
+                conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
+                    --mode frameshift \
+                    --name "$DNAME" \
+                    --description "$DDESC" \
+                    --dna-input "$DMP_TRANSCRIPT_FASTA" \
+                    --dna-record "$DMP_TRANSCRIPT_RECORD" \
+                    --guide-23mer "$_GUIDE_SEQ" \
+                    --guide-strand "$_GUIDE_STRAND" \
+                    --output "$OUT_FA"
+                unset _GUIDE_SEQ _GUIDE_STRAND
+            else
+                log_info "      [$DNAME] (deletion)   $DDESC  (delete='$DDEL')"
+                conda_run_in "$ENV_PREPARE" python3 "$GEN_SCRIPT" \
+                    --mode deletion \
+                    --input "$DMP_FASTA" \
+                    --name "$DNAME" \
+                    --description "$DDESC" \
+                    --deletions "$DDEL" \
+                    --output "$OUT_FA"
+            fi
+        done
+
+        # Pair FASTAs + AF3 JSON for THIS mode only. Iterate the mode's
+        # pair-label list (PAIRS_BY_MODE_<mode>) and look up each pair's
+        # HAP2/DMP names in the union arrays.
+        log_info "    ${_MODE_TAG}Pair FASTAs -> $PAIR_VARIANTS_DIR"
+        _JSON_PAIR_LABELS=()
+        _JSON_HAP2_FASTAS=()
+        _JSON_DMP_FASTAS=()
+        _JSON_HAP2_DELS=()
+        for PLAB in "${_MODE_PAIR_LABELS[@]}"; do
+            [[ -z "$PLAB" ]] && continue
+            # Resolve HAP2/DMP names by scanning the union pair list.
+            H=""; D=""
+            for k in "${!PAIR_LABEL[@]}"; do
+                if [[ "${PAIR_LABEL[$k]}" == "$PLAB" ]]; then
+                    H="${PAIR_HAP2[$k]}"
+                    D="${PAIR_DMP[$k]}"
+                    break
+                fi
+            done
+            if [[ -z "$H" || -z "$D" ]]; then
+                log_warn "      [$PLAB] not found in PAIR_LABEL union; skip"
+                continue
+            fi
+            pair_enabled "$H" "$D" || continue
+            H_FA="$HAP2_VARIANTS_DIR/${H}.fasta"
+            D_FA="$DMP_VARIANTS_DIR/${D}.fasta"
+            OUT_PAIR_FA="$PAIR_VARIANTS_DIR/${PLAB}.fasta"
+            if [[ ! -s "$H_FA" ]]; then
+                log_warn "      [$PLAB] missing HAP2 source $H_FA; skip"
+                continue
+            fi
+            if [[ ! -s "$D_FA" ]]; then
+                log_warn "      [$PLAB] missing DMP source $D_FA; skip"
+                continue
+            fi
+            # Look up the HAP2 variant's deletion string (parallel to
+            # EXP_HAP2_NAMES); empty for WT.
+            _H_DEL=""
+            for _hi in "${!EXP_HAP2_NAMES[@]}"; do
+                if [[ "${EXP_HAP2_NAMES[$_hi]}" == "$H" ]]; then
+                    _H_DEL="${EXP_HAP2_DELETIONS[$_hi]:-}"
+                    break
+                fi
+            done
+            _JSON_PAIR_LABELS+=("$PLAB")
+            _JSON_HAP2_FASTAS+=("$H_FA")
+            _JSON_DMP_FASTAS+=("$D_FA")
+            _JSON_HAP2_DELS+=("$_H_DEL")
+            unset _hi _H_DEL
+            if [[ -f "$OUT_PAIR_FA" && "$OVERWRITE" != "true" ]]; then
+                log_info "      [$PLAB] FASTA exists, skip (OVERWRITE=false)"
+                continue
+            fi
+            if [[ "$DRY_RUN" == "true" ]]; then
+                log_info "      [DRY-RUN] [$PLAB] HAP2[$H] + DMP[$D] -> $OUT_PAIR_FA"
+                continue
+            fi
+            {
+                sed '1s/^>/>HAP2_/' "$H_FA"
+                printf '\n'
+                sed '1s/^>/>DMP_/' "$D_FA"
+            } > "$OUT_PAIR_FA"
+            log_info "      [$PLAB] HAP2[$H] + DMP[$D] -> $(basename "$OUT_PAIR_FA")"
+        done
+
+        # Per-mode aggregate AF3 server JSON. The AF3 server accepts an array
+        # of jobs in one upload, so this file is the only thing the user
+        # needs to drop into the "Upload job" field for this mode.
+        OUT_AGG_JSON="$PAIR_VARIANTS_DIR/_AF3_jobs.json"
+
+        # Pipe-separated deletion strings parallel to _JSON_PAIR_LABELS.
+        if (( ${#_JSON_HAP2_DELS[@]} > 0 )); then
+            _OLD_IFS="${IFS-}"
+            IFS='|'
+            _JSON_HAP2_DELS_JOINED="${_JSON_HAP2_DELS[*]}"
+            IFS="$_OLD_IFS"
+            unset _OLD_IFS
+        else
+            _JSON_HAP2_DELS_JOINED=""
+        fi
+
+        if (( ${#_JSON_PAIR_LABELS[@]} == 0 )); then
+            log_warn "    ${_MODE_TAG}AF3 aggregate JSON: no enabled pairs after filtering; skipped."
+        elif [[ -f "$OUT_AGG_JSON" && "$OVERWRITE" != "true" ]]; then
+            log_info "    ${_MODE_TAG}AF3 aggregate JSON exists, skip (OVERWRITE=false): $OUT_AGG_JSON"
+        elif [[ "$DRY_RUN" == "true" ]]; then
+            if [[ -n "$TEMPLATE_MMCIF" ]]; then
+                log_info "    ${_MODE_TAG}[DRY-RUN] AF3 aggregate JSON (${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs) + HAP2 template ($(basename "$TEMPLATE_MMCIF"), ${TEMPLATE_COV_START}-${TEMPLATE_COV_END}) -> $OUT_AGG_JSON"
+            else
+                log_info "    ${_MODE_TAG}[DRY-RUN] AF3 aggregate JSON (${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs) -> $OUT_AGG_JSON"
+            fi
+        else
+            _JSON_ARGS=(
+                --pair-labels   "${_JSON_PAIR_LABELS[*]}"
+                --hap2-fastas   "${_JSON_HAP2_FASTAS[*]}"
+                --dmp-fastas    "${_JSON_DMP_FASTAS[*]}"
+                --stoich-labels "${STOICH_LABELS[*]}"
+                --stoich-counts "${STOICH_COUNTS[*]}"
+                --dmp-copies 1
+                --output "$OUT_AGG_JSON"
             )
+            if [[ -n "$TEMPLATE_MMCIF" ]]; then
+                _JSON_ARGS+=(
+                    --hap2-template-mmcif   "$TEMPLATE_MMCIF"
+                    --hap2-coverage-start   "$TEMPLATE_COV_START"
+                    --hap2-coverage-end     "$TEMPLATE_COV_END"
+                    --hap2-deletions        "$_JSON_HAP2_DELS_JOINED"
+                )
+            fi
+            conda_run_in "$ENV_PREPARE" python3 "$JSON_WRAP" "${_JSON_ARGS[@]}"
+            if [[ -n "$TEMPLATE_MMCIF" ]]; then
+                log_info "    ${_MODE_TAG}AF3 aggregate JSON: ${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs + HAP2 template ($(basename "$TEMPLATE_MMCIF"), ${TEMPLATE_COV_START}-${TEMPLATE_COV_END}) -> $(basename "$OUT_AGG_JSON")"
+            else
+                log_info "    ${_MODE_TAG}AF3 aggregate JSON: ${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs -> $(basename "$OUT_AGG_JSON")"
+            fi
+            unset _JSON_ARGS
         fi
-        conda_run_in "$ENV_PREPARE" python3 "$JSON_WRAP" "${_JSON_ARGS[@]}"
-        if [[ -n "$TEMPLATE_MMCIF" ]]; then
-            log_info "    AF3 aggregate JSON: ${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs + HAP2 template ($(basename "$TEMPLATE_MMCIF"), ${TEMPLATE_COV_START}-${TEMPLATE_COV_END}) -> $(basename "$OUT_AGG_JSON")"
-        else
-            log_info "    AF3 aggregate JSON: ${#_JSON_PAIR_LABELS[@]} pairs x ${#STOICH_LABELS[@]} stoichs -> $(basename "$OUT_AGG_JSON")"
-        fi
-        unset _JSON_ARGS
+        unset _JSON_PAIR_LABELS _JSON_HAP2_FASTAS _JSON_DMP_FASTAS _JSON_HAP2_DELS _JSON_HAP2_DELS_JOINED _MODE_PAIR_LABELS _MODE_TAG
+    done
+    unset _MODE _ITER_MODES
+
+    # Restore VARIANTS_ROOT-derived paths to the FIRST mode so downstream ops
+    # that look up source FASTAs find a valid tree. (All modes share the same
+    # HAP2/DMP single-chain FASTAs by content, just duplicated per-mode.)
+    if [[ "$EXPERIMENT" == "deletion_ladder" ]]; then
+        HAP2_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/${PAIRING_MODES[0]}/HAP2"
+        DMP_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/${PAIRING_MODES[0]}/DMP"
+        PAIR_VARIANTS_DIR="$EXP_OUT_DIR/01_Variants/${PAIRING_MODES[0]}/DMP-HAP2"
     fi
-    unset _JSON_PAIR_LABELS _JSON_HAP2_FASTAS _JSON_DMP_FASTAS _JSON_HAP2_DELS _JSON_HAP2_DELS_JOINED
 fi
 
 # ============================================================================
@@ -1467,10 +1710,43 @@ EOF
         done
     done
 
+    # ── Distribute zips parked in _AF3_Backup/ into the right pair slots ──
+    # The SCATTER pass above handles drop-zone zips (which it then deletes).
+    # _AF3_Backup/ is the immutable mirror: zips there must NOT be deleted,
+    # but they should still be extracted so a fresh batch of downloaded
+    # backups becomes useful predictions on the next run. The Python wrapper
+    # parses AF3-server-default filenames (lowercase "fold_<stoich>_<variant>
+    # _wt_eggplant.zip", etc.) and overwrites the target slot when it has a
+    # matching pair label.
+    DIST_WRAP="$MODULES/14_special_pipeline/distribute_af3_zips.py"
+    if [[ -f "$DIST_WRAP" && -d "$_BACKUP_DIR" ]]; then
+        log_info "  [DIST] sweeping $(basename "$_BACKUP_DIR")/ for parent-level zips..."
+        python3 "$DIST_WRAP" \
+            --backup-dir "$_BACKUP_DIR" \
+            --complex-dir "$COMPLEX_DIR" \
+            --stoich-tokens "monomeric:monomeric,trimeric:postfusion_like,dimeric:dimeric" \
+            2>&1 | sed 's/^/    /' || log_warn "  [DIST] distribute_af3_zips.py exited non-zero"
+    fi
+
+    # ── Dedupe double-extracted bundles ─────────────────────────────────────
+    # If a slot ended up with two AF3 bundles (e.g. an older camelCase-renamed
+    # extraction + a fresh lowercase one from this DIST pass), keep the most
+    # complete bundle and delete the redundant files. Divergent bundles
+    # (different rank-0 sha1 -> two distinct submissions) are flagged, NOT
+    # deleted -- the operator decides which one is canonical. The SWISS vs
+    # canonical sibling split (WT__WT/ + WT__WT_canonical/) is left untouched
+    # because each sibling has only one prefix.
+    DEDUP_WRAP="$MODULES/14_special_pipeline/dedupe_complexes.py"
+    if [[ -f "$DEDUP_WRAP" ]]; then
+        log_info "  [DEDUP] scanning $(basename "$COMPLEX_DIR")/ for double-extracted bundles..."
+        python3 "$DEDUP_WRAP" --complex-dir "$COMPLEX_DIR" --apply \
+            2>&1 | sed 's/^/    /' || log_warn "  [DEDUP] dedupe_complexes.py exited non-zero"
+    fi
+
     # Top-level drop-zone README explaining the whole tree
     if [[ "$EXPERIMENT" == "deletion_ladder" ]]; then
-        _MODE_NOTE="Pairing mode: $PAIRING_MODE  (orthogonal | matrix | pairwise; switch via [pairing].mode in 14_interaction_Domain_MappingCONFIG.toml). Only 01_Variants/ is mode-scoped (under 01_Variants/{mode}/); numbered downstream folders are shared because the {pair_label} keying already makes them mode-distinguishable."
-        _VARIANTS_LINE_FOR_README="01_Variants/$PAIRING_MODE/{HAP2,DMP,DMP-HAP2}/    # mode-scoped per-side variant FASTAs + per-pair"
+        _MODE_NOTE="Pairing modes: ${PAIRING_MODES[*]}  (orthogonal | matrix | pairwise | special; switch via [pairing].mode in 14_interaction_Domain_MappingCONFIG.toml -- it is a LIST and may list more than one). Only 01_Variants/ is mode-scoped (one tree per listed mode); numbered downstream folders are shared because the {pair_label} keying already makes them mode-distinguishable. Downstream ops operate on the union of pair labels across all listed modes."
+        _VARIANTS_LINE_FOR_README="01_Variants/{${PAIRING_MODES[*]}}/{HAP2,DMP,DMP-HAP2}/    # mode-scoped per-side variant FASTAs + per-pair"
     else
         _MODE_NOTE="No pairing-mode split for this experiment (single fixed WT/WT pair)."
         _VARIANTS_LINE_FOR_README="01_Variants/{HAP2,DMP,DMP-HAP2}/    # per-side variant FASTAs + per-pair"
@@ -1495,7 +1771,8 @@ subfolder sits inside it):
     04_MD/{stoichiometry}/{pair_label}/
     05_BindingEnergy/{stoichiometry}/{pair_label}/
     06_AlanineScan/{stoichiometry}/
-    07_Summary/{stoichiometry}/         # iptm_heatmap_<stoich>.{ext}, etc.
+    07_Summary/                         # cross-stoich aggregates: comparative_report, hypothesis_test, domain maps
+      ipTM_Figures/{stoichiometry}/     # iptm_heatmap_<stoich>.{ext}, ptm_heatmap_<stoich>.{ext}, iptm_table_<stoich>.tsv
     _AF3_Backup/{stoichiometry}/{pair_label}/  # auto-snapshotted zips (immutable)
 
 Manifest (machine-readable queue): $MANIFEST
@@ -1584,26 +1861,110 @@ if op_enabled "iptm_heatmap"; then
     IPTM_BORDER=$(get_toml af3_confidence iptm_borderline 2>/dev/null || echo "0.60")
     IPTM_MODEL_IDX=$(get_toml iptm_heatmap model_index 2>/dev/null || echo "0")
 
+    # Build --alone-control NAME=PATH flags from [iptm_heatmap.alone_controls].
+    # The dict keys often contain spaces ("HAP2 monomer"), so we enumerate via
+    # a small inline Python rather than `get_toml ... <dict>` (which flattens
+    # to invalid bash var names). Relative paths are resolved INSIDE Python
+    # against PIPELINE_DIR so they stay in Python's native (Windows or POSIX)
+    # form -- Git Bash's $PWD is MSYS POSIX (/c/...) which Windows Python's
+    # pathlib refuses to open. Each row is emitted as "NAME<TAB>PATH"; an
+    # empty PATH means "render this control name with n/a cells".
+    ALONE_CONTROL_FLAGS=()
+    while IFS=$'\t' read -r _name _path; do
+        [[ -z "$_name" ]] && continue
+        ALONE_CONTROL_FLAGS+=( --alone-control "${_name}=${_path}" )
+    done < <(python3 - "$CONFIG_FILE" "$PIPELINE_DIR" <<'PY'
+import sys, tomllib
+from pathlib import Path
+# Force LF stdout on Windows -- bash `read` keeps the \r otherwise and
+# every emitted path ends up with a trailing CR that breaks file open().
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(newline="\n")
+    except AttributeError:
+        pass
+cfg_path = sys.argv[1]
+pipeline_dir = Path(sys.argv[2]).resolve()
+with open(cfg_path, "rb") as f:
+    cfg = tomllib.load(f)
+ac = cfg.get("iptm_heatmap", {}).get("alone_controls", {})
+for name, path in ac.items():
+    if path and not Path(path).is_absolute():
+        path = str(pipeline_dir / path)
+    print(f"{name}\t{path}")
+PY
+)
+    unset _name _path
+    if (( ${#ALONE_CONTROL_FLAGS[@]} > 0 )); then
+        log_info "    Alone-controls strip: $(( ${#ALONE_CONTROL_FLAGS[@]} / 2 )) reference fold(s) configured"
+    fi
+
     for j in "${!STOICH_LABELS[@]}"; do
         SLAB="${STOICH_LABELS[$j]}"
         SLAB_COMPLEX_DIR="$(slab_complex_dir "$SLAB")"
-        SLAB_REPORT_DIR="$(slab_report_dir "$SLAB")"   # = $REPORT_DIR/$SLAB
-        mkdir -p "$SLAB_REPORT_DIR"
+        # ipTM/pTM heatmaps + iptm_table.tsv land in 07_Summary/ipTM_Figures/<stoich>/
+        # (segregated from hypothesis_test / comparative_report outputs which stay
+        # at $REPORT_DIR or $REPORT_DIR/<stoich>/).
+        SLAB_IPTM_DIR="$REPORT_DIR/ipTM_Figures/$SLAB"
+        mkdir -p "$SLAB_IPTM_DIR"
         conda_run_in "$ENV_IPTM_HEATMAP" python3 "$HEATMAP_WRAP" \
             --complex-dir "$SLAB_COMPLEX_DIR" \
             --stoich "$SLAB" \
             --hap2-variants "${EXP_HAP2_NAMES[*]}" \
             --dmp-variants "${EXP_DMP_NAMES[*]}" \
             --pair-labels "${PAIR_LABEL[*]}" \
-            --output-dir "$SLAB_REPORT_DIR" \
+            --output-dir "$SLAB_IPTM_DIR" \
             --format "$IPTM_FMT" \
             --cmap "$IPTM_CMAP" \
             --vmin "$IPTM_VMIN" \
             --vmax "$IPTM_VMAX" \
             --iptm-strong "$IPTM_STRONG" \
             --iptm-borderline "$IPTM_BORDER" \
-            --model-index "$IPTM_MODEL_IDX"
+            --model-index "$IPTM_MODEL_IDX" \
+            "${ALONE_CONTROL_FLAGS[@]}"
     done
+fi
+
+# ============================================================================
+# Operation 2c: SmelDMP_variants panels (deletion_ladder only)
+# ----------------------------------------------------------------------------
+# Re-renders every .pse session file under 07_Summary/deletion_variants/
+# SmelDMP_variants/ (deletion + frameshift, red + model), re-crops, re-labels
+# red panels with classify()+short-chain filter, then rebuilds the four
+# grouped figures (smeldmp_deletion_variants_*.png + smeldmp_frameshift_
+# variants_*.png). Intended to be run after the user re-orients any .pse
+# in PyMOL; idempotent if no .pse changed. Touches NOTHING under
+# HAP2_variants/ or domain_map/ -- use refresh_smeldmp_panels.py for those.
+# Only fires when EXPERIMENT == deletion_ladder (other experiments do not
+# carry the SmelDMP_variants subtree).
+if op_enabled "smeldmp_panels" && [[ "$EXPERIMENT" == "deletion_ladder" ]]; then
+    log_step "  Op 2c/8: smeldmp_panels  (re-render SmelDMP_variants from .pse + rebuild grouped panels)"
+    SMELDMP_DRIVER="$MODULES/14_special_pipeline/rerender_smeldmp_images.py"
+    if [[ -f "$SMELDMP_DRIVER" ]]; then
+        python3 "$SMELDMP_DRIVER" 2>&1 | sed 's/^/    /'
+    else
+        log_warn "  [skip] smeldmp_panels: $SMELDMP_DRIVER not found"
+    fi
+fi
+
+# ============================================================================
+# Operation 2d: Combined_Variants panels (deletion_ladder only)
+# ----------------------------------------------------------------------------
+# Renders the "special" combined-variant pairs (HAP2 deletion x DMP deletion
+# double-knockouts; defined in [pairing.special_pairs].pairs) into a dedicated
+# Combined_Variants/ subtree with PSE session files, per-variant rendered
+# images, and a grouped combined_variants_{stoich}.png panel. Highlights
+# BOTH deletions on the model. Idempotent w.r.t. existing .pse files (pass
+# --force on the script to force fresh CIF re-render). Only fires when
+# EXPERIMENT == deletion_ladder.
+if op_enabled "combined_variants" && [[ "$EXPERIMENT" == "deletion_ladder" ]]; then
+    log_step "  Op 2d/8: combined_variants  (special HAP2 x DMP double-deletion pairs)"
+    COMBINED_DRIVER="$MODULES/14_special_pipeline/render_combined_variants.py"
+    if [[ -f "$COMBINED_DRIVER" ]]; then
+        python3 "$COMBINED_DRIVER" 2>&1 | sed 's/^/    /'
+    else
+        log_warn "  [skip] combined_variants: $COMBINED_DRIVER not found"
+    fi
 fi
 
 # ============================================================================
@@ -1714,21 +2075,21 @@ elif op_enabled "binding_energy"; then
             [[ ! -s "$CIF" ]] && { log_warn "  [skip] $CIF missing"; continue; }
 
             if [[ "$DG_BACKENDS" == *mmpbsa* ]]; then
-                conda_run_in "$ENV_MMPBSA" bash "$MMPBSA_WRAP" \
+                conda_run_logged "$ENV_MMPBSA" bash "$MMPBSA_WRAP" \
                     --md-dir "$MD_SUB" --out "$DG_SUB/mmpbsa" --threads "$CPU"
             fi
             if [[ "$DG_BACKENDS" == *foldx* ]]; then
                 if [[ -z "$FOLDX_BIN" || ! -x "$FOLDX_BIN" ]]; then
                     log_warn "  FoldX binary not set or not executable (set [run].show_manual = true in the TOML to print step [M4]); skipping FoldX backend."
                 else
-                    conda_run_in "$ENV_FOLDX" bash "$FOLDX_WRAP" \
+                    conda_run_logged "$ENV_FOLDX" bash "$FOLDX_WRAP" \
                         --complex "$CIF" --foldx "$FOLDX_BIN" --out "$DG_SUB/foldx"
                 fi
             fi
             if [[ "$DG_BACKENDS" == *prodigy* ]]; then
                 # --env kept for back-compat with wrappers that activate
-                # PRODIGY themselves; the outer conda_run_in is authoritative.
-                conda_run_in "$ENV_PRODIGY_DG" bash "$PRODIGY_WRAP" \
+                # PRODIGY themselves; the outer conda_run_logged is authoritative.
+                conda_run_logged "$ENV_PRODIGY_DG" bash "$PRODIGY_WRAP" \
                     --complex "$CIF" --env "$ENV_PRODIGY_DG" --out "$DG_SUB/prodigy"
             fi
         done
@@ -1758,7 +2119,7 @@ elif op_enabled "alanine_scan"; then
         if [[ -z "$FOLDX_BIN" || ! -x "$FOLDX_BIN" ]]; then
             log_warn "  FoldX binary missing (set [run].show_manual = true in the TOML to print step [M4]); skip alanine scan."
         else
-            conda_run_in "$ENV_ASCAN" bash "$SCAN_WRAP" \
+            conda_run_logged "$ENV_ASCAN" bash "$SCAN_WRAP" \
                 --complex "$WT_CIF" \
                 --foldx "$FOLDX_BIN" \
                 --interface-tsv "$WT_IFACE_DIR/$WT_PLAB/interface_residues.tsv" \
@@ -1786,8 +2147,8 @@ elif op_enabled "comparative_report"; then
     PRIMARY_STOICH="${_PRIMARY_BASIS_LIST[0]:-monomeric}"
     unset _PRIMARY_BASIS_LIST
     # Aggregates across stoichs into the shared 07_Summary root; per-stoich
-    # iptm heatmaps live in 07_Summary/<stoich>/ alongside. The Python wrapper
-    # resolves per-stoich data paths as
+    # iptm heatmaps live in 07_Summary/ipTM_Figures/<stoich>/ alongside. The
+    # Python wrapper resolves per-stoich data paths as
     # $EXP_OUT_DIR/<stoich>/{03_Interfaces,05_BindingEnergy,06_AlanineScan}.
     conda_run_in "$ENV_REPORT" python3 "$REPORT_WRAP" \
         --hap2-variants "${EXP_HAP2_NAMES[*]}" \
@@ -1795,7 +2156,7 @@ elif op_enabled "comparative_report"; then
         --pair-labels "${PAIR_LABEL[*]}" \
         --pair-hap2 "${PAIR_HAP2[*]}" \
         --pair-dmp "${PAIR_DMP[*]}" \
-        --pairing-mode "$PAIRING_MODE" \
+        --pairing-mode "${PAIRING_MODES[*]}" \
         --stoich "${STOICH_LABELS[*]}" \
         --primary-stoich "$PRIMARY_STOICH" \
         --exp-dir "$EXP_OUT_DIR" \
@@ -1803,7 +2164,7 @@ elif op_enabled "comparative_report"; then
         --experiment "$EXPERIMENT"
 fi
 
-log_info "  Experiment '$EXPERIMENT' finished. Figures at $REPORT_DIR/{${STOICH_LABELS[*]}}/"
+log_info "  Experiment '$EXPERIMENT' finished. Aggregates at $REPORT_DIR/; per-stoich ipTM heatmaps at $REPORT_DIR/ipTM_Figures/{${STOICH_LABELS[*]}}/"
 
 done  # EXPERIMENT loop (active_comparison)
 
@@ -1811,3 +2172,11 @@ log_info "Stage 14 finished for $GENE_GROUP. Outputs under $OUT_DIR/"
 teardown_logging
 
 done  # GENE_GROUP loop
+
+# Loop completed cleanly. Clear the EXIT trap so its safe_teardown_logging
+# does not fire after the in-loop bare teardown_logging already closed the
+# logging FDs. safe_teardown_logging is short-circuited by LOGGING_INITIALIZED
+# being "false" at this point, but its child-PID sweep still runs and adds
+# noise; mirrors the pattern used by 12_In_Silico_PCR.sh.
+trap - EXIT
+cleanup_tmp_configs

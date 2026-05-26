@@ -257,14 +257,39 @@ setup_logging() {
 	XTRACE_LOG_DIR="${LOG_DIR%/log_files}/xtrace_logs"
 	XTRACE_LOG_FILE="${XTRACE_LOG_DIR}/pipeline_${RUN_ID}_xtrace.log"
 
-	# Create the logs base directory first, then all subdirectories
+	# Create the logs base directory first, then all subdirectories.
+	#
+	# WSL2 / DrvFs over NTFS occasionally returns "File exists" from
+	# `mkdir -p` for a path that does NOT exist on the Windows side and
+	# does NOT exist on a subsequent `stat`. This is a DrvFs cache
+	# consistency quirk that tends to fire right after a sibling directory
+	# was renamed or rotated (e.g. log_files -> log_files_v6). Multi-target
+	# `mkdir -p A B C` aborts at the first failing target with `set -e`,
+	# killing the whole pipeline before any work runs.
+	#
+	# Strategy: skip mkdir when the path is already a directory; only treat
+	# mkdir failure as fatal when the directory truly is not present after
+	# the call. A pre-existing file (true conflict) still surfaces clearly.
 	local log_base_dir="${LOG_DIR%/*}"
-	mkdir -p "$log_base_dir" || {
-		echo "ERROR: Failed to create log base directory: $log_base_dir" >&2
-		return 1
-	}
-	mkdir -p "$LOG_DIR" "$TIME_DIR" "$SPACE_DIR" "$SPACE_TIME_DIR" \
-		"$ERROR_WARN_DIR" "$SOFTWARE_CATALOG_DIR" "$GPU_LOG_DIR"
+	if [[ ! -d "$log_base_dir" ]] && ! mkdir -p "$log_base_dir" 2>/dev/null; then
+		if [[ ! -d "$log_base_dir" ]]; then
+			echo "ERROR: Failed to create log base directory: $log_base_dir" >&2
+			[[ -e "$log_base_dir" ]] && echo "       (exists as non-directory; remove it manually and re-run)" >&2
+			return 1
+		fi
+	fi
+	local _logd
+	for _logd in "$LOG_DIR" "$TIME_DIR" "$SPACE_DIR" "$SPACE_TIME_DIR" \
+			"$ERROR_WARN_DIR" "$SOFTWARE_CATALOG_DIR" "$GPU_LOG_DIR"; do
+		[[ -d "$_logd" ]] && continue
+		mkdir -p "$_logd" 2>/dev/null || true
+		if [[ ! -d "$_logd" ]]; then
+			echo "ERROR: Failed to create log directory: $_logd" >&2
+			[[ -e "$_logd" ]] && echo "       (exists as non-directory; remove it manually and re-run)" >&2
+			return 1
+		fi
+	done
+	unset _logd
 
 	# Save original stdout/stderr once so teardown_logging can restore them.
 	if [[ "${_LOGGING_FDS_SAVED:-}" != "true" ]]; then
@@ -808,9 +833,14 @@ catalog_all_software() {
 	done
 	rm -rf "$_ver_tmpdir"
 
-	# Catalog key R/Bioconductor packages used by analysis modules
+	# Catalog key R/Bioconductor packages used by analysis modules.
+	# The hardcoded list below is RNA-seq-flavoured (DESeq2, tximport, WGCNA,
+	# ...); callers that don't use any R can set CATALOG_SKIP_R=true to
+	# avoid polluting the catalog CSV with ~16 not_installed rows.
 	# Single Rscript call replaces 16 separate invocations (~30s → ~2s)
-	if command -v Rscript >/dev/null 2>&1; then
+	if [[ "${CATALOG_SKIP_R:-false}" == "true" ]]; then
+		log_info "R package catalog skipped (CATALOG_SKIP_R=true)"
+	elif command -v Rscript >/dev/null 2>&1; then
 		log_info "Cataloging R package versions..."
 		local session_info_file
 		session_info_file="${SOFTWARE_FILE%/*}/R_sessionInfo_${RUN_ID}.txt"

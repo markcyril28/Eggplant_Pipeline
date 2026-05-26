@@ -11,6 +11,7 @@ Usage:
     python3 merge_toml.py shared/00.toml shared/01.toml group/00.toml group/01.toml > merged.toml
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -18,6 +19,17 @@ try:
     import tomllib
 except ModuleNotFoundError:
     import tomli as tomllib
+
+# TOML bare keys: A-Z, a-z, 0-9, underscore, dash. Anything else (spaces,
+# dots, quotes, etc.) requires the key to be quoted as a basic string.
+_BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _fmt_key(key: str) -> str:
+    if _BARE_KEY_RE.match(key):
+        return key
+    escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -70,11 +82,11 @@ def _serialize(data: dict, section_path: str = "") -> list[str]:
     # Pass 1: emit scalar / list keys at this level
     for key, val in data.items():
         if not isinstance(val, dict):
-            lines.append(f"{key} = {_fmt_value(val)}")
+            lines.append(f"{_fmt_key(key)} = {_fmt_value(val)}")
     # Pass 2: emit sub-tables
     for key, val in data.items():
         if isinstance(val, dict):
-            path = f"{section_path}.{key}" if section_path else key
+            path = f"{section_path}.{_fmt_key(key)}" if section_path else _fmt_key(key)
             lines.append("")
             lines.append(f"[{path}]")
             lines.extend(_serialize(val, path))

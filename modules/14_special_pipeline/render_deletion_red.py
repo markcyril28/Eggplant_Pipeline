@@ -60,6 +60,17 @@ def main() -> int:
                          "from a saved PyMOL view (cmd.get_view()[:9]). "
                          "Overrides the auto SVD orientation so a hand-tuned "
                          "pose from a .pse can be reused across variants.")
+    ap.add_argument("--target", default="hap2", choices=["hap2", "dmp"],
+                    help="Which chain to paint red. 'hap2' (default) treats "
+                         "the deletion ranges as SmelHAP2 residue numbers and "
+                         "paints HAP2 chains; 'dmp' treats them as SmelDMP "
+                         "residue numbers and paints DMP chains.")
+    ap.add_argument("--also-dmp-residues", default=None,
+                    help="Optional second deletion zone painted red on the "
+                         "DMP chain(s), using SmelDMP residue numbers. Only "
+                         "valid with --target hap2; lets a combined-variant "
+                         "render highlight the HAP2 deletion AND the DMP "
+                         'deletion at once (e.g. "1-83" for DMP delN).')
     args = ap.parse_args()
 
     cif = Path(args.cif).resolve()
@@ -101,13 +112,42 @@ def main() -> int:
         dmp_sel = "complex and chain " + "+".join(dmp_chains)
         cmd.color("dmp_grey", dmp_sel)
 
-    # Paint deletion zones red on every HAP2 chain.
+    # Paint deletion zones red on the target chain(s). For DMP variants
+    # (--target dmp) we paint the DMP chain(s) and the residue ranges are
+    # SmelDMP-numbered (1..222); HAP2 chains stay dimmed grey.
     hap2_sel = "complex and chain " + "+".join(hap2_chains)
+    if args.target == "dmp":
+        if not dmp_chains:
+            print("[ERROR] --target dmp but no DMP chains identified", file=sys.stderr)
+            return 2
+        target_sel = "complex and chain " + "+".join(dmp_chains)
+        target_chains_print = dmp_chains
+    else:
+        target_sel = hap2_sel
+        target_chains_print = hap2_chains
     range_sel_parts = [f"resi {a}-{b}" for a, b in ranges]
-    red_sel = f"({hap2_sel}) and ({' or '.join(range_sel_parts)})"
+    red_sel = f"({target_sel}) and ({' or '.join(range_sel_parts)})"
     n_red = cmd.count_atoms(red_sel)
-    print(f"[INFO] painting {n_red} atoms red across ranges {ranges} on chains {hap2_chains}")
+    print(f"[INFO] painting {n_red} atoms red across ranges {ranges} on {args.target} chains {target_chains_print}")
     cmd.color("deletion_red", red_sel)
+
+    if args.also_dmp_residues:
+        if args.target != "hap2":
+            print("[ERROR] --also-dmp-residues only valid with --target hap2",
+                  file=sys.stderr)
+            return 2
+        if not dmp_chains:
+            print("[ERROR] --also-dmp-residues requested but no DMP chains found",
+                  file=sys.stderr)
+            return 2
+        dmp_ranges = parse_ranges(args.also_dmp_residues)
+        dmp_range_parts = [f"resi {a}-{b}" for a, b in dmp_ranges]
+        dmp_red_sel = ("complex and chain " + "+".join(dmp_chains)
+                       + " and (" + " or ".join(dmp_range_parts) + ")")
+        n_dmp_red = cmd.count_atoms(dmp_red_sel)
+        print(f"[INFO] also painting {n_dmp_red} atoms red across DMP ranges "
+              f"{dmp_ranges} on DMP chains {dmp_chains}")
+        cmd.color("deletion_red", dmp_red_sel)
 
     # Upright orientation via SVD on HAP2 CA cloud (same logic as
     # render_hap2_domain_map.py): HAP2 long axis -> vertical (TMD at

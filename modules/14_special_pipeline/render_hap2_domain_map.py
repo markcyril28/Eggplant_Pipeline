@@ -119,6 +119,34 @@ def main() -> int:
                          "from a saved PyMOL view (cmd.get_view()[:9]). "
                          "Overrides the auto SVD orientation so a hand-tuned "
                          "pose from a .pse can be reused across variants.")
+    ap.add_argument("--deleted-residues", default=None,
+                    help='Comma-separated SmelHAP2-numbering ranges removed '
+                         "by the HAP2 variant, e.g. \"22-589\" or "
+                         "\"22-589,655-804\". When set, HAP2_BANDS colours "
+                         "are applied by mapping the variant\'s 1..N residues "
+                         "back to their WT identities (variant residue i = "
+                         "i-th surviving WT residue). Omit for WT HAP2.")
+    ap.add_argument("--hap2-wt-length", type=int, default=804,
+                    help="Length of full-length SmelHAP2 in residues "
+                         "(default 804). Used with --deleted-residues for the "
+                         "WT-aware residue mapping.")
+    ap.add_argument("--dmp-deleted-residues", default=None,
+                    help='Comma-separated SmelDMP-numbering ranges removed by '
+                         "the DMP variant, e.g. \"1-83\" (delN) or "
+                         "\"84-220\" (delTMDcore). When set, the DMP topology "
+                         "palette is applied by mapping the variant DMP chain\'s "
+                         "1..N residues back to their WT DMP identities. Omit "
+                         "for WT DMP.")
+    ap.add_argument("--dmp-wt-length", type=int, default=222,
+                    help="Length of full-length SmelDMPv5_10.610 in residues "
+                         "(default 222). Used with --dmp-deleted-residues for "
+                         "the WT-aware residue mapping.")
+    ap.add_argument("--dmp-novel-tail", type=int, default=0,
+                    help="Number of NEW residues appended to the DMP variant "
+                         "chain after the last surviving WT residue (frameshift "
+                         "tail length). These trailing residues are coloured "
+                         "with a distinct 'frameshift' colour so they are not "
+                         "confused with WT-mapped DMP topology.")
     args = ap.parse_args()
 
     cif = Path(args.cif).resolve()
@@ -156,28 +184,130 @@ def main() -> int:
         hex_to_pymol(f"dmp_band{i}", hex_code)
 
     # Colour HAP2 bands on every HAP2 chain.
+    #
+    # AF3 renumbers each chain's residues 1..N regardless of which WT
+    # residues are present, so a deletion variant's residue 22 is NOT WT
+    # residue 22 -- it is the 22nd surviving residue. Without remapping,
+    # HAP2_BANDS (which is in WT numbering) would shift all colours toward
+    # the N-terminus. When --deleted-residues is set we therefore build a
+    # variant->WT residue map and group variant residues by which WT band
+    # they belong to before painting.
     hap2_sel = "complex and chain " + "+".join(hap2_chains)
-    for i, (start, end, _, _) in enumerate(HAP2_BANDS):
-        cmd.color(f"hap2_band{i}", f"{hap2_sel} and resi {start}-{end}")
+    if args.deleted_residues:
+        deleted = set()
+        for chunk in args.deleted_residues.split(","):
+            a, b = chunk.strip().split("-")
+            deleted.update(range(int(a), int(b) + 1))
+        # variant_to_wt[i] = WT residue number for variant residue i+1
+        variant_to_wt = [wt for wt in range(1, args.hap2_wt_length + 1)
+                         if wt not in deleted]
+        # Group variant residues by their assigned band index. Use a
+        # default band of -1 (skip) for any residue with no band.
+        def band_of_wt(wt: int) -> int:
+            for idx, (s, e, _, _) in enumerate(HAP2_BANDS):
+                if s <= wt <= e:
+                    return idx
+            return -1
+        per_band: dict[int, list[int]] = {}
+        for vi, wt in enumerate(variant_to_wt, start=1):
+            b = band_of_wt(wt)
+            if b >= 0:
+                per_band.setdefault(b, []).append(vi)
+        # Apply each band's colour to its variant residues. Compress
+        # consecutive runs into PyMOL "a-b" tokens to keep selections short.
+        def compress(nums: list[int]) -> str:
+            if not nums:
+                return ""
+            nums = sorted(nums)
+            parts = []
+            start = prev = nums[0]
+            for n in nums[1:]:
+                if n == prev + 1:
+                    prev = n
+                else:
+                    parts.append(f"{start}-{prev}" if start != prev else f"{start}")
+                    start = prev = n
+            parts.append(f"{start}-{prev}" if start != prev else f"{start}")
+            return "+".join(parts)
+        for i in range(len(HAP2_BANDS)):
+            sel = compress(per_band.get(i, []))
+            if sel:
+                cmd.color(f"hap2_band{i}", f"{hap2_sel} and resi {sel}")
+        print(f"[INFO] WT-aware coloring applied; deleted ranges {args.deleted_residues} "
+              f"-> {len(variant_to_wt)} surviving residues mapped to bands")
+    else:
+        for i, (start, end, _, _) in enumerate(HAP2_BANDS):
+            cmd.color(f"hap2_band{i}", f"{hap2_sel} and resi {start}-{end}")
 
     # Colour DMP by secondary-structure topology (matches stage 08's DMP
     # palette). PyMOL auto-assigns ss on load: 'H' = helix, 'S' = sheet,
     # 'L' (or unassigned) = loop.
     if dmp_chains:
         dmp_sel = "complex and chain " + "+".join(dmp_chains)
+        # Register the frameshift-tail colour (vivid pink) once per call so
+        # it shows up distinct from any band/topology hue.
+        hex_to_pymol("dmp_frameshift_tail", "#FF1493")
+
         # Default every DMP residue to the loops colour first, then overlay
         # helices and sheets so any residue PyMOL did not flag as H or S
         # falls through to grey.
         cmd.color("dmp_band3", dmp_sel)
-        cmd.color(
-            "dmp_band0",
-            f"{dmp_sel} and ss H and resi 1-{DMP_N_ZONE_END}",
-        )
-        cmd.color(
-            "dmp_band1",
-            f"{dmp_sel} and ss H and resi {DMP_TM_ZONE_START}-{DMP_TM_ZONE_END}",
-        )
-        cmd.color("dmp_band2", f"{dmp_sel} and ss S")
+
+        if args.dmp_deleted_residues or args.dmp_novel_tail:
+            # WT-aware DMP colouring: build a variant->WT residue map for
+            # the DMP chain so zone tests (1-83 amphipathic, 84-220 TM)
+            # apply against the WT residue identity, not the variant\'s
+            # renumbered position. Frameshifted tail residues (no WT
+            # mapping) are coloured with a distinct frameshift hue.
+            deleted_dmp: set[int] = set()
+            if args.dmp_deleted_residues:
+                for chunk in args.dmp_deleted_residues.split(","):
+                    a, b = chunk.strip().split("-")
+                    deleted_dmp.update(range(int(a), int(b) + 1))
+            wt_kept = [wt for wt in range(1, args.dmp_wt_length + 1)
+                       if wt not in deleted_dmp]
+            tail = max(0, int(args.dmp_novel_tail))
+            variant_total = len(wt_kept) + tail
+            # variant residue i (1-indexed) -> WT residue, or None for tail
+            def variant_to_wt(i: int) -> int | None:
+                if i <= len(wt_kept):
+                    return wt_kept[i - 1]
+                return None  # frameshifted-tail residue
+            amphi_var: list[int] = []
+            tm_var:    list[int] = []
+            for vi in range(1, variant_total + 1):
+                wt = variant_to_wt(vi)
+                if wt is None:
+                    continue
+                if wt <= DMP_N_ZONE_END:
+                    amphi_var.append(vi)
+                elif DMP_TM_ZONE_START <= wt <= DMP_TM_ZONE_END:
+                    tm_var.append(vi)
+            def compress(nums: list[int]) -> str:
+                if not nums: return ""
+                nums = sorted(nums); parts = []
+                s = p = nums[0]
+                for n in nums[1:]:
+                    if n == p + 1: p = n
+                    else: parts.append(f"{s}-{p}" if s != p else f"{s}"); s = p = n
+                parts.append(f"{s}-{p}" if s != p else f"{s}")
+                return "+".join(parts)
+            if amphi_var:
+                cmd.color("dmp_band0", f"{dmp_sel} and ss H and resi {compress(amphi_var)}")
+            if tm_var:
+                cmd.color("dmp_band1", f"{dmp_sel} and ss H and resi {compress(tm_var)}")
+            cmd.color("dmp_band2", f"{dmp_sel} and ss S")
+            if tail > 0:
+                tail_start = len(wt_kept) + 1
+                tail_end = variant_total
+                cmd.color("dmp_frameshift_tail",
+                          f"{dmp_sel} and resi {tail_start}-{tail_end}")
+            print(f"[INFO] DMP WT-aware coloring: deleted={args.dmp_deleted_residues or 'none'} "
+                  f"tail={tail} amphipathic={len(amphi_var)} TM={len(tm_var)}")
+        else:
+            cmd.color("dmp_band0", f"{dmp_sel} and ss H and resi 1-{DMP_N_ZONE_END}")
+            cmd.color("dmp_band1", f"{dmp_sel} and ss H and resi {DMP_TM_ZONE_START}-{DMP_TM_ZONE_END}")
+            cmd.color("dmp_band2", f"{dmp_sel} and ss S")
 
     # Upright orientation, unified across monomeric and trimer cases.
     # HAP2 is a class II fusion protein anchored at its C-terminus (the

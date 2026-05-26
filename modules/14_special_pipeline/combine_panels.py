@@ -20,20 +20,33 @@ import string
 import sys
 from pathlib import Path
 
-import matplotlib.image as mpimg
+import matplotlib.image as mpimg  # noqa: F401  (kept for back-compat; loader below uses PIL)
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.gridspec import GridSpec
+from PIL import Image
+
+
+def _load_uint8(path: Path) -> np.ndarray:
+    """Load a PNG as a uint8 RGBA / RGB array. Avoids matplotlib's float32
+    decode (~4x memory), which blew through the heap when stitching 24
+    2400-px tiles for the fsGuide panels."""
+    with Image.open(str(path)) as im:
+        if im.mode not in ("RGB", "RGBA"):
+            im = im.convert("RGBA")
+        return np.asarray(im, dtype=np.uint8)
 
 
 def combine(images: list[Path], out: Path, dpi: int = 300,
             background: str = "black", text_colour: str = "white",
             captions: list[str] | None = None,
             panel_height_in: float = 6.0,
-            cols: int = 0) -> None:
+            cols: int = 0,
+            caption_fontsize: float = 8.0) -> None:
     """Combine images in a grid of `cols` columns. cols=0 means 1xN single row."""
     if not images:
         raise ValueError("no images supplied")
-    arrs = [mpimg.imread(str(p)) for p in images]
+    arrs = [_load_uint8(p) for p in images]
     if cols <= 0:
         cols = len(arrs)
     rows = (len(arrs) + cols - 1) // cols
@@ -64,10 +77,13 @@ def combine(images: list[Path], out: Path, dpi: int = 300,
         cap = f"({letter})"
         if captions and i < len(captions) and captions[i]:
             cap = f"({letter}) {captions[i]}"
-        # Subpanel label, top-left of each tile.
+        # Subpanel label, top-left of each tile. clip_on=False lets long
+        # variant captions extend slightly past the panel edge instead of
+        # being chopped mid-name; the dark gutter between panels absorbs
+        # the overhang.
         ax.text(0.02, 0.98, cap, transform=ax.transAxes,
-                fontsize=14, fontweight="bold", color=text_colour,
-                va="top", ha="left",
+                fontsize=caption_fontsize, fontweight="bold", color=text_colour,
+                va="top", ha="left", clip_on=False,
                 bbox=dict(facecolor=background, edgecolor="none",
                           alpha=0.55, pad=3.0))
 
@@ -88,10 +104,13 @@ def main() -> int:
     ap.add_argument("--panel-height", type=float, default=6.0)
     ap.add_argument("--cols", type=int, default=0,
                     help="grid columns (default 0 = 1xN single row).")
+    ap.add_argument("--caption-fontsize", type=float, default=8.0,
+                    help="font size (pt) for the per-tile (A)/(B)/... captions")
     args = ap.parse_args()
     combine([Path(p) for p in args.image], Path(args.out),
             dpi=args.dpi, captions=args.caption,
-            panel_height_in=args.panel_height, cols=args.cols)
+            panel_height_in=args.panel_height, cols=args.cols,
+            caption_fontsize=args.caption_fontsize)
     print(f"[OK] wrote {args.out}")
     return 0
 

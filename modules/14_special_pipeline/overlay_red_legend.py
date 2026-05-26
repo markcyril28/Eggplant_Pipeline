@@ -61,9 +61,16 @@ def overlay(image_path: Path, out_path: Path, label: str,
     # category for at-a-glance reading.
     if iptm is not None:
         cat = (iptm_category or "").lower()
+        # Baseline-relative classification (see classify_iptm.py):
+        #   tolerated         green   (>= 80% of WT baseline)
+        #   reduced           amber   (50-80% of WT)
+        #   strongly reduced  orange  (25-50% of WT)
+        #   catastrophic      dark red (< 25% of WT)
         if "catastrophic" in cat:
             badge_face = "#7a0000"
-        elif "tolerated" in cat and "reduced" in cat:
+        elif "strongly reduced" in cat:
+            badge_face = "#a85a00"
+        elif "reduced" in cat:
             badge_face = "#8a6500"
         elif "tolerated" in cat:
             badge_face = "#1f5f1f"

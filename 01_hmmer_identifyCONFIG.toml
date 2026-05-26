@@ -12,16 +12,17 @@
 # ============================================================================
 
 [pipeline]
-# Gene groups to process. Available: "DMP", "AtDMP", "HAP2", "GRF_GIF", "EC1", "GEX1", "PLA"
+# Gene groups to process. Available: "DMP", "AtDMP", "HAP2", "GRF_GIF", "EC1",
+# "GEX1", "GEX2", "GEX3", "PLA"
 # AtDMP = Arabidopsis-only DMP run (same Pfam PF05078 profile as DMP); pair with
 # genome_sets = ["arabidopsis"] under [identification.targets] below.
 gene_groups   = [
     #"DMP",
-    "AtDMP",
+    #"AtDMP",
     #"HAP2",
     #"GRF_GIF",
     #"EC1",
-    #"GEX1",
+    "GEX",
     #"PLA",
 ]
 
@@ -142,8 +143,8 @@ strand        = 0               # -r   0 = +/- strands, 1 = + strand only
 # Genome sets to search. Comment in/out to enable. Multiple may be active;
 # the orchestrator concatenates the per-set arrays in the order listed.
 genome_sets = [
-    #"eggplant",
-    "arabidopsis",
+    "eggplant",
+    #"arabidopsis",
 ]
 
 # Eggplant-set toggle (no effect on other sets):
@@ -500,8 +501,12 @@ DMP = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05078_DMP.hmm"]
 # in [identification.targets] above). Per-group output isolation keeps the
 # Arabidopsis hits out of III_RESULT/DMP/ so they can be inspected separately
 # under III_RESULT/AtDMP/.
+# NOTE: inner gene key MUST be uppercase (ATDMP) — parse_toml.py uppercases
+# dict-subsection keys when flattening for shell parsing, so a mixed-case key
+# here breaks the round-trip lookup downstream. The outer group label
+# (AtDMP) is queried by exact match and stays as-is.
 [identification.gene_groups.AtDMP.genes]
-AtDMP = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05078_DMP.hmm"]
+ATDMP = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05078_DMP.hmm"]
 
 [identification.gene_groups.HAP2.genes]
 HAP2 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF10699_HAP2.hmm"]
@@ -523,12 +528,38 @@ GIF = [
 # Source: https://www.ebi.ac.uk/interpro/entry/pfam/PF05617/
 EC1 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF05617_EC1.hmm"]
 
+[identification.gene_groups.GEX.genes]
+# Combined GEX group: one output folder (III_RESULT/GEX), three per-gene profiles.
+# PANTHER profiles (GEX1/GEX3) have no GA thresholds; keep use_ga = false in
+# config/GEX/01_hmmer_gene_identification_GEX.toml.
+GEX1 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PTHR33538_GEX1.hmm"]
+GEX2 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF23616_GEX2.hmm"]
+GEX3 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PTHR37253_GEX3.hmm"]
+
 [identification.gene_groups.GEX1.genes]
 # PANTHER PTHR33538 — Protein GAMETE EXPRESSED 1 (GEX1/Brambleberry/Kar5 family).
 # use_ga is automatically forced off in config/GEX1/01_hmmer_gene_identification_GEX1.toml
 # (PANTHER HMMs carry no GA thresholds). Family is eukaryote-wide; post-filter to Viridiplantae if needed.
 # Source: https://www.pantherdb.org/panther/family.do?clsAccession=PTHR33538
 GEX1 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PTHR33538_GEX1.hmm"]
+
+[identification.gene_groups.GEX2.genes]
+# Pfam PF23616 — GEX2 N-terminal Ig-like domain (Ig_GEX2_N).
+# Plant-gamete-restricted (Embryophyta / Viridiplantae only per InterPro taxonomy),
+# so no manual taxonomic post-filtering is required.
+# Carries Pfam GA thresholds (27 27); the shared use_ga = true is appropriate.
+# Note: GEX2 also carries Filamin (PF00630) and Big_9 (PF17963), but those are broad
+# Ig/filamin folds — PF23616 alone is the gamete-specific signature.
+# Source: https://www.ebi.ac.uk/interpro/entry/pfam/PF23616/
+GEX2 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PF23616_GEX2.hmm"]
+
+[identification.gene_groups.GEX3.genes]
+# PANTHER PTHR37253 — Protein GAMETE EXPRESSED 3 family (matches InterPro IPR045301
+# "GEX3-like"). Land-plant-restricted (Embryophyta / Viridiplantae per InterPro taxonomy).
+# PANTHER HMM carries no GA thresholds, so use_ga MUST be set false at the group level
+# (mirror the GEX1 pattern via config/GEX3/01_hmmer_gene_identification_GEX3.toml).
+# Source: https://www.pantherdb.org/panther/family.do?clsAccession=PTHR37253
+GEX3 = ["II_INPUTS/1_HMMER_Inputs/a_HMM_Profiles/PTHR37253_GEX3.hmm"]
 
 [identification.gene_groups.PLA.genes]
 # Pfam PF01734 — Patatin / patatin-like phospholipase (pPLA).

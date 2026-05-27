@@ -18,6 +18,11 @@ operations = [
     "RUN_READY_DATABASE",
     "RUN_MEME_SUITE_Analysis",
     "RUN_JPEG_Export",
+    # Re-renders motif-locations PNGs from existing meme.xml files without
+    # rerunning MEME / TOMTOM / FIMO.  Use after tweaking plot_motif_locations.py
+    # (fonts, layout, colors) or the central palette TOML.  Skipped when the
+    # gene group has no 06_Motif_Analysis output yet.
+    #"RUN_Regenerate_Motif_Locations",
 ]
 
 [pipeline.compute.Local]

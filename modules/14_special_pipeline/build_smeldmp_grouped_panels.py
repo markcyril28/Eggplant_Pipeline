@@ -9,16 +9,22 @@ matching the HAP2 grouped panel style:
     ...
 
 Output files (overwrites in place):
-  smeldmp_deletion_variants_monomeric.png      # delN / delC / delTMDcore
+  smeldmp_deletion_variants_monomeric.png      # delN / delTMDcore / delC
   smeldmp_deletion_variants_postfusion.png
+  smeldmp_deletion_variants_composite.png      # mono (left) + trimeric (right)
   smeldmp_frameshift_variants_monomeric.png    # fsGuide{4,16,17,20,37,46,50}
   smeldmp_frameshift_variants_postfusion.png
 
-Sort within each subset: ipTM ascending (worst-first), same as refresh_all_v2.py.
+Sort within deletion subset: fixed canonical order [delN, delTMDcore, delC]
+so the same variant occupies the same row in the monomeric AND postfusion
+panels (the side-by-side composite then aligns delN-mono with delN-trimeric,
+etc.). Frameshift subset stays ipTM-sorted ascending (worst-first), same as
+refresh_all_v2.py.
 """
 from pathlib import Path
 import subprocess
 import sys
+from PIL import Image, ImageDraw, ImageFont
 
 PROJECT = Path(r"c:\PIPELINE\Eggplant_Pipeline")
 DMP_DIR = PROJECT / "III_RESULT/DMP_x_SmelHAP2/14_Domain_Mapping/deletion_ladder/07_Summary/deletion_variants/SmelDMP_variants"
@@ -147,13 +153,14 @@ def pairs_and_caps_pf(names, red_dir, mod_dir):
     return pairs, caps
 
 
-# Deletion subset (delN / delC / delTMDcore) - lives in deletion_*/model_*.
-del_names = list(DMP_DELETION_IPTM.keys())
-del_mo = sorted(del_names, key=lambda v: DMP_DELETION_IPTM[v][0])
-del_pf = sorted(del_names, key=lambda v: DMP_DELETION_IPTM[v][1])
-p, c = pairs_and_caps_mo(del_mo, DEL_RED_MO, DEL_MOD_MO)
+# Deletion subset (delN / delTMDcore / delC) - lives in deletion_*/model_*.
+# Fixed canonical row order so both panels show the same variant per row,
+# which lets the side-by-side composite below align delN-mono next to
+# delN-trimeric, delTMDcore-mono next to delTMDcore-trimeric, etc.
+DEL_ROW_ORDER = ["delN", "delTMDcore", "delC"]
+p, c = pairs_and_caps_mo(DEL_ROW_ORDER, DEL_RED_MO, DEL_MOD_MO)
 combine(DMP_DIR / "smeldmp_deletion_variants_monomeric.png", p, c)
-p, c = pairs_and_caps_pf(del_pf, DEL_RED_PF, DEL_MOD_PF)
+p, c = pairs_and_caps_pf(DEL_ROW_ORDER, DEL_RED_PF, DEL_MOD_PF)
 combine(DMP_DIR / "smeldmp_deletion_variants_postfusion.png", p, c)
 
 # Frameshift subset (fsGuide{4,16,17,20,37,46,50}) - lives in frameshift_*.
@@ -178,5 +185,79 @@ p, c = interleave_4col(fs_pf, FS_RED_PF, FS_MOD_PF,
                        mod_pat="hap2_dmp_{v}_model_postfusion_structure_cropped.png")
 combine(DMP_DIR / "smeldmp_frameshift_variants_postfusion.png", p, c, cols=4,
         caption_fontsize=FS_CAPTION_FONTSIZE)
+
+# ---------------------------------------------------------------------------
+# Side-by-side composite: Monomeric (left) + Trimeric / post-fusion (right).
+# Because DEL_ROW_ORDER fixes the row order on both grouped panels, the
+# composite's row N on the left shows the same variant as row N on the right
+# (i.e. delN-mono is flush with delN-trimeric, etc.).
+# ---------------------------------------------------------------------------
+def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    for name in ("arial.ttf", "Arial.ttf", "C:/Windows/Fonts/arialbd.ttf",
+                 "C:/Windows/Fonts/arial.ttf",
+                 "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
+        try:
+            return ImageFont.truetype(name, size)
+        except (OSError, IOError):
+            continue
+    return ImageFont.load_default()
+
+
+def side_by_side_composite(left_png: Path, right_png: Path, out: Path,
+                           left_label: str = "Monomeric (1:1)",
+                           right_label: str = "Trimeric (3:1, post-fusion)",
+                           gap_px: int = 18,
+                           bg=(0, 0, 0),
+                           fg=(255, 255, 255)) -> None:
+    """Place left_png and right_png side-by-side on a black canvas with a
+    column-header bar at the top labelling each side. Both inputs are scaled
+    to a common height so the rows line up across the seam."""
+    if not left_png.exists() or not right_png.exists():
+        print(f"  [skip] composite: missing {left_png.name} or {right_png.name}")
+        return
+    left  = Image.open(str(left_png)).convert("RGB")
+    right = Image.open(str(right_png)).convert("RGB")
+    target_h = min(left.height, right.height)
+
+    def _scale(im: Image.Image, h: int) -> Image.Image:
+        if im.height == h:
+            return im
+        new_w = int(round(im.width * h / im.height))
+        return im.resize((new_w, h), Image.LANCZOS)
+
+    left  = _scale(left,  target_h)
+    right = _scale(right, target_h)
+
+    header_h  = max(56, target_h // 38)
+    font_size = max(22, header_h - 26)
+    font      = _load_font(font_size)
+
+    W = left.width + gap_px + right.width
+    H = header_h + target_h
+    canvas = Image.new("RGB", (W, H), bg)
+    draw   = ImageDraw.Draw(canvas)
+
+    def _center_text(text: str, x0: int, x1: int) -> None:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        tx = x0 + (x1 - x0 - tw) // 2
+        ty = (header_h - th) // 2 - bbox[1]
+        draw.text((tx, ty), text, fill=fg, font=font)
+
+    _center_text(left_label,  0,                       left.width)
+    _center_text(right_label, left.width + gap_px,     W)
+
+    canvas.paste(left,  (0,                  header_h))
+    canvas.paste(right, (left.width + gap_px, header_h))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(str(out))
+    print(f"  {out.name}: composite OK ({W}x{H})")
+
+
+side_by_side_composite(
+    DMP_DIR / "smeldmp_deletion_variants_monomeric.png",
+    DMP_DIR / "smeldmp_deletion_variants_postfusion.png",
+    DMP_DIR / "smeldmp_deletion_variants_composite.png",
+)
 
 print("\n[DONE]")

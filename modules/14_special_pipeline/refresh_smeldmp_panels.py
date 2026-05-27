@@ -213,7 +213,7 @@ run_py(str(COMPOSE_LEG),
        "--structure", str(DOMAIN_DIR / "hap2_dmp_domain_map_monomeric_structure_cropped.png"),
        "--out",       str(OUT / "hap2_dmp_domain_map_monomeric.png"),
        "--hap2-title", "SmelHAP2 (chain A) -- deletion-variant bands",
-       "--dmp-title",  "SmelDMPv5_10.610 (chain B) -- DMP topology palette (08 config)")
+       "--dmp-title",  "SmelDMPv5_10.610 (chain B) -- DMP topology palette")
 run_py(str(COMPOSE_LEG),
        "--structure", str(DOMAIN_DIR / "hap2_dmp_domain_map_structure_cropped.png"),
        "--out",       str(OUT / "hap2_dmp_domain_map.png"))

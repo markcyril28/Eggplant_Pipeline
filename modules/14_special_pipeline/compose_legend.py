@@ -27,7 +27,7 @@ from render_hap2_domain_map import HAP2_BANDS, DMP_BANDS
 def compose(structure_png: Path, out_png: Path, dpi: int = 300,
             background: str = "black",
             hap2_title: str = "SmelHAP2 trimer (chains A/B/C) -- deletion-variant bands",
-            dmp_title: str = "SmelDMPv5_10.610 (chain D) -- DMP topology palette (08 config)",
+            dmp_title: str = "SmelDMPv5_10.610 (chain D) -- DMP topology palette",
             ) -> None:
     img = mpimg.imread(str(structure_png))
     h_in = 8

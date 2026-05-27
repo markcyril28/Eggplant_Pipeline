@@ -56,9 +56,13 @@ def overlay(image_path: Path, out_path: Path, label: str,
             fontsize=9, color=text_colour, va="center", ha="left",
             transform=ax.transAxes, zorder=10)
 
-    # Prominent ipTM badge in the top-right corner (the value of ipTM when
+    # Prominent ipTM badge in the upper-right area (the value of ipTM when
     # the red region is deleted from the AF3 model). Colour-coded by
-    # category for at-a-glance reading.
+    # category for at-a-glance reading. Anchored at y=0.86 (not flush
+    # against the top edge) so it sits BELOW the "(A) variant (red)" caption
+    # row that combine_panels.py paints over each tile in the grouped
+    # composites; previously the caption's semi-transparent bbox covered
+    # the left half of the badge and hid the "ipTM = " prefix.
     if iptm is not None:
         cat = (iptm_category or "").lower()
         # Baseline-relative classification (see classify_iptm.py):
@@ -79,7 +83,7 @@ def overlay(image_path: Path, out_path: Path, label: str,
         badge_text = f"ipTM = {iptm:.2f}"
         if iptm_category:
             badge_text += f"\n({iptm_category})"
-        ax.text(0.98, 0.97, badge_text,
+        ax.text(0.98, 0.86, badge_text,
                 fontsize=13, color="white", va="top", ha="right",
                 fontweight="bold",
                 transform=ax.transAxes, zorder=11,

@@ -28,7 +28,9 @@ Idempotent w.r.t. session files: each PSE renders the view stored inside.
 PNG/labeled targets are overwritten.
 
 Finally calls build_smeldmp_grouped_panels.py to refresh the four
-grouped figures from the new labeled/cropped PNGs.
+grouped figures from the new labeled/cropped PNGs, plus the side-by-side
+deletion composite (smeldmp_deletion_variants_composite.png) that pairs
+Monomeric (left) with Trimeric / post-fusion (right) row-by-row.
 """
 from __future__ import annotations
 from pathlib import Path

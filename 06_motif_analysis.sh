@@ -839,6 +839,34 @@ run_secondary_structure_notice() {
     log_step "Secondary Structure Analysis: $group (not yet implemented)"
 }
 
+# ===========================================================================
+# Re-render the full-view motif-locations PNG from existing meme.xml files
+# without rerunning MEME / TOMTOM / FIMO. Gated by "RUN_Regenerate_Motif_Locations".
+# Useful after tweaking plot_motif_locations.py or the palette TOML.
+# ===========================================================================
+run_regenerate_motif_locations() {
+    local group="$1"
+    local base_dir="$2"
+
+    should_run "RUN_Regenerate_Motif_Locations" || return 0
+
+    local gene_seq_dir scan_root
+    gene_seq_dir=$(resolve_gene_sequence_dir "$base_dir")
+    scan_root="$gene_seq_dir"
+
+    if [[ ! -d "$scan_root" ]]; then
+        log_warn "Motif-analysis directory not found for $group at $scan_root — skipping regen"
+        return 0
+    fi
+
+    log_step "Regenerate motif-locations PNGs: $group"
+    log_info "  Scan root: $scan_root"
+
+    bash "$MODULES/06_motif_analysis/meme_suite/regenerate_motif_locations.sh" \
+        --scan-root "$scan_root" \
+        || log_warn "Some motif-location regenerations failed for $group — see logs above"
+}
+
 run_gtf_extraction() {
     local group="$1"
     local base_dir="$2"
@@ -923,6 +951,7 @@ process_gene_group() {
     run_ready_database "$group"
     run_meme_analysis "$group" "$base_dir"
     run_combined_jpeg "$group" "$base_dir"
+    run_regenerate_motif_locations "$group" "$base_dir"
     run_plantcare_analysis "$group" "$base_dir"
     run_secondary_structure_notice "$group"
     teardown_logging

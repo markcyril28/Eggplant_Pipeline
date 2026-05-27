@@ -34,6 +34,10 @@ active_input_sets = [
     #"all_eggplant_nucleotide",
     #"all_eggplant_amino_acid",
 
+    # --- v5 vs v4.1: eggplant-only DMP gene comparison ---
+    "v5_vs_v4_1_genes_nucleotide",
+    "v5_vs_v4_1_genes_amino_acid",
+
     # — Eggplant + cross-species query FASTAs (merge at runtime) —
     #"eggplant_and_query_species_nucleotide",
     #"per_genome_smel_v4_1_nucleotide_and_query_species_nucleotide",
@@ -153,6 +157,18 @@ fastas  = ["02_BLAST_Alignment/hmmer_identified_transcripts.fa"]
 
 [alignment.input_sets.all_eggplant_amino_acid]
 fastas  = ["02_BLAST_Alignment/hmmer_identified_proteins.fa"]
+
+# --- v5 vs v4.1: eggplant-only DMP gene comparison ------------------------
+# Ordered copies of the combined 02_BLAST_Alignment HMMER outputs. Records are
+# alternated as v5, then its paired v4.1 gene. No query FASTAs are added.
+
+[alignment.input_sets.v5_vs_v4_1_genes_nucleotide]
+fastas = ["04_MSA/merged_input/All/v5_vs_v4_1_Genes/hmmer_identified_transcripts.fa"]
+output_subdir = "All_Result/v5_vs_v4_1_Genes"
+
+[alignment.input_sets.v5_vs_v4_1_genes_amino_acid]
+fastas = ["04_MSA/merged_input/All/v5_vs_v4_1_Genes/hmmer_identified_proteins.fa"]
+output_subdir = "All_Result/v5_vs_v4_1_Genes"
 
 # --- Eggplant + cross-species query FASTAs --------------------------------
 # Merge: concatenates listed fastas + ortholog_blast.query_fastas at runtime.

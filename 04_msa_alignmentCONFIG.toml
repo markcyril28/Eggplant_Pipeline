@@ -35,11 +35,13 @@ overwrite    = true
 #   "v2_Reduced"                     - reduced curated set
 #   "v3_Full_and_HI_DMPs"            - Selected Crop Species + verified HI panel (deduped)
 #   "v4_BLAST_Groups_bitscore200"    - per-paralog BLAST groups (bit score >= 200)
+#   "v5_vs_v4_1_Genes"               - GPE001970 v5 vs Smel v4.1 DMP genes
 input_sets = [
-    "v1_Full",
-    "v2_Reduced",
-    "v3_Full_and_HI_DMPs",
-    "v4_BLAST_Groups_bitscore200",
+    #"v1_Full",
+    #"v2_Reduced",
+    #"v3_Full_and_HI_DMPs",
+    #"v4_BLAST_Groups_bitscore200",
+    "v5_vs_v4_1_Genes",
 ]
 
 [pipeline.compute.Local]

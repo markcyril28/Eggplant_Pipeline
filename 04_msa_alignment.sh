@@ -74,7 +74,7 @@ resolve_top_folder() {
     local set_name="$1"
     case "$set_name" in
         *smel_v4_1*) echo "Solanum_melongena_v4.1" ;;
-        *gpe001970*|*selected_v1*|*selected_v2*|*selected_v3*|*selected_v4*) echo "GPE001970_SMEL5" ;;
+        *gpe001970*|*selected_v1*|*selected_v2*|*selected_v3*|*selected_v4*|*selected_v4b*) echo "GPE001970_SMEL5" ;;
         *) echo "shared" ;;
     esac
 }
@@ -84,6 +84,7 @@ resolve_top_folder() {
 #   Determine which sub-folder under <top_folder>/ to write results into.
 #   Priority: explicit output_subdir in config → name-based pattern → All_Result
 #   Naming rules (applied to set_name):
+#     *selected*v4b*                         → Selected_Result/v4b_DMP8_and_DMP2_3_group
 #     *selected*v4*                          → Selected_Result/v4_BLAST_Groups_bitscore200
 #     *selected*v3*                          → Selected_Result/v3_Full_and_HI_DMPs
 #     *selected*v2* | *v2_reduced*           → Selected_Result/v2_Reduced
@@ -99,8 +100,9 @@ resolve_output_subdir() {
         echo "$explicit"
         return
     fi
-    # 2. Infer from set name
+    # 2. Infer from set name. v4b must precede v4 so it isn't shadowed.
     case "$set_name" in
+        *selected*v4b*)             echo "Selected_Result/v4b_DMP8_and_DMP2_3_group" ;;
         *selected*v4*)              echo "Selected_Result/v4_BLAST_Groups_bitscore200" ;;
         *selected*v3*)              echo "Selected_Result/v3_Full_and_HI_DMPs" ;;
         *selected*v2*|*v2_reduced*) echo "Selected_Result/v2_Reduced" ;;

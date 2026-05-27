@@ -158,6 +158,7 @@ if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
     _val=$(cfg visualization combined_bootstrap_tree combined_style);  [[ -n "$_val" ]] && COMBINED_STYLE="$_val"
     _val=$(cfg visualization combined_bootstrap_tree combined_sep);    [[ -n "$_val" ]] && COMBINED_SEP="$_val"
     _val=$(cfg visualization combined_bootstrap_tree xlim_expand);    [[ -n "$_val" ]] && XLIM_EXPAND="$_val"
+    _val=$(cfg visualization combined_bootstrap_tree bootstrap_label_size); [[ -n "$_val" ]] && BOOTSTRAP_LABEL_SIZE="$_val"
     mapfile -t MANUAL_TOPOLOGY_DIRS < <(cfg visualization combined_bootstrap_tree manual_topology_dirs)
     mapfile -t MANUAL_TOPOLOGY_FILES < <(cfg visualization combined_bootstrap_tree manual_topology_files)
     unset _val

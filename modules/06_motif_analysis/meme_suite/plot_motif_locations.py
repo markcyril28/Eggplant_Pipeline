@@ -415,7 +415,7 @@ def build_figure(seq_map, motif_map, sites_by_seq, seq_pvalues,
 
     # Scaled font sizes  (web-default sizes multiplied by font_scale) --------
     FS_HEADER    = 13.5 * font_scale
-    FS_SEQNAME   = 11.0 * font_scale
+    FS_SEQNAME   = 15.5 * font_scale
     FS_PVALUE    = 10.5 * font_scale
     FS_RULER     =  9.5 * font_scale
     FS_POSLABEL  = 12.0 * font_scale
@@ -432,7 +432,7 @@ def build_figure(seq_map, motif_map, sites_by_seq, seq_pvalues,
     MAX_LEN = max(v["length"] for v in seq_map.values())
 
     # Column widths in normalized figure coords (sum to 1.0)
-    NAME_W    = 0.22   # gene name column
+    NAME_W    = 0.25   # gene name column
     PVAL_W    = 0.11   # p-value column
     GAP_W     = 0.015  # gap between p-value and locations panel
     LOC_LEFT  = NAME_W + PVAL_W + GAP_W

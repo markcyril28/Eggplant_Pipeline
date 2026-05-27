@@ -102,6 +102,13 @@ active_input_sets = [
     "selected_v4_blast_groups_merged_nucleotide",
     "selected_v4_blast_groups_merged_amino_acid",
 
+    # — Selected v4b: paired DMP8 clade (10g017610) + DMP2/3 clade (01g026030) —
+    # Single combined FASTA holding the 10g017610 BLAST group on top and the
+    # 01g026030 BLAST group (extended with AtDMP2 and AtDMP3 from UniProt
+    # Q9LVF1 / Q9STW3) at the bottom. Source files live in
+    # 04_MSA/merged_input/Selected/v4b_DMP8_and_DMP2_3_group/.
+    "selected_v4b_dmp8_and_dmp2_3_group_amino_acid",
+
     # — GPE001970 + Selected Crop Species (curated pre-merged) — v1 Full Selected
     #"per_genome_gpe001970_nucleotide_and_selected_crop_species_nucleotide",
     #"per_genome_gpe001970_amino_acid_and_selected_crop_species_amino_acid",
@@ -305,6 +312,20 @@ fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/per_genome_g
 
 [alignment.input_sets.selected_v4_blast_groups_merged_amino_acid]
 fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_AMINO_ACID_Sequence.fasta"]
+
+# --- v4b: paired DMP8 clade (10g017610) + DMP2/3 clade (01g026030) --------
+# Combined FASTA: SMEL5_10g017610.1 BLAST group concatenated on top of the
+# SMEL5_01g026030.1 BLAST group, with AtDMP2 (UniProt Q9LVF1) and AtDMP3
+# (UniProt Q9STW3) inserted right after the SmelDMP01.030 anchor in the
+# bottom block, and AtDMP8 (AT1G09157) + AtDMP9 (AT5G39650) inserted right
+# after the SmelDMP10.610 anchor in the top block. Rebuild by concatenating
+# the two source FASTAs:
+#   cat SMEL5_10g017610.1_AMINO_ACID_Sequence.fasta \
+#       SMEL5_01g026030.1_AMINO_ACID_Sequence.fasta
+# from 04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/.
+[alignment.input_sets.selected_v4b_dmp8_and_dmp2_3_group_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v4b_DMP8_and_DMP2_3_group/SMEL5_10g017610_and_01g026030_AMINO_ACID_Sequence.fasta"]
+output_subdir = "Selected_Result/v4b_DMP8_and_DMP2_3_group"
 
 [alignment.input_sets.selected_v2_reduced_nucleotide]
 fastas = ["04_MSA/merged_input/Selected/v2_Reduced/v2_nucleotide.fasta"]

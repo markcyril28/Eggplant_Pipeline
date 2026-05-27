@@ -1932,9 +1932,12 @@ fi
 # SmelDMP_variants/ (deletion + frameshift, red + model), re-crops, re-labels
 # red panels with classify()+short-chain filter, then rebuilds the four
 # grouped figures (smeldmp_deletion_variants_*.png + smeldmp_frameshift_
-# variants_*.png). Intended to be run after the user re-orients any .pse
-# in PyMOL; idempotent if no .pse changed. Touches NOTHING under
-# HAP2_variants/ or domain_map/ -- use refresh_smeldmp_panels.py for those.
+# variants_*.png) AND the side-by-side deletion composite
+# (smeldmp_deletion_variants_composite.png; Monomeric left, Trimeric right,
+# row-aligned on the fixed [delN, delTMDcore, delC] order). Intended to be
+# run after the user re-orients any .pse in PyMOL; idempotent if no .pse
+# changed. Touches NOTHING under HAP2_variants/ or domain_map/ -- use
+# refresh_smeldmp_panels.py for those.
 # Only fires when EXPERIMENT == deletion_ladder (other experiments do not
 # carry the SmelDMP_variants subtree).
 if op_enabled "smeldmp_panels" && [[ "$EXPERIMENT" == "deletion_ladder" ]]; then

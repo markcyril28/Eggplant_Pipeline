@@ -228,7 +228,7 @@ dpi    = 600
 width  = 15          # single-tree figure with combined bootstrap labels
 height = 12          # auto-scaled up for large tip counts
 dpi    = 600
-bootstrap_label_size = 5.4
+bootstrap_label_size = 4.5
 manual_topology_dirs = []
 manual_topology_files = [
     "GPE001970_SMEL5/v1_Full/MAFFT_aligned/MEGA12_GUI/Newick Export_PpDMP_rooted",

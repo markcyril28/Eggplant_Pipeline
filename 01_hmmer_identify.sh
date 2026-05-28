@@ -1,9 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Program 1: HMMER Gene Identification
-# ============================================================================
-# Comment in/out the gene groups below, then run:
-#   bash a_hmmer_identify.sh
+# Pipeline 1: HMMER Gene Identification
 # ============================================================================
 
 set -euo pipefail

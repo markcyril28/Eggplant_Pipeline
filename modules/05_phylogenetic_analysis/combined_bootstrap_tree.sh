@@ -536,6 +536,65 @@ done
 
 log_info "Combined bootstrap summary: rendered=$rendered, skipped=$skipped, failed=$fail_count"
 
+# ======================== Write Manifest Files ========================
+# One manifest.txt per Combined/ directory, covering all pairs that land there.
+
+declare -A _manifest_dirs
+for (( i=0; i<n_pairs; i++ )); do
+    _out_png="${PAIR_OUTPUT[$i]}"
+    _combined_dir="$(dirname "$(dirname "$_out_png")")"
+    _manifest_dirs["$_combined_dir"]=1
+done
+
+for _combined_dir in "${!_manifest_dirs[@]}"; do
+    mkdir -p "$_combined_dir"
+    manifest_file="$_combined_dir/manifest.txt"
+    {
+        printf '# Combined Bootstrap Tree Manifest\n'
+        printf '# Generated: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+        printf 'Tree Dir:   %s\n' "$TREE_DIR"
+        printf 'Overwrite:  %s\n' "$OVERWRITE"
+        printf '\n'
+        printf '[Parameters]\n'
+        printf 'Layout:              %s\n' "$LAYOUT"
+        printf 'DPI:                 %s\n' "$DPI"
+        printf 'Width:               %s\n' "$WIDTH"
+        printf 'Height:              %s\n' "$HEIGHT"
+        printf 'Combined Style:      %s\n' "$COMBINED_STYLE"
+        printf 'Combined Sep:        %s\n' "$COMBINED_SEP"
+        printf 'Bootstrap Threshold: %s\n' "$BOOTSTRAP_THRESHOLD"
+        printf 'Bootstrap Style:     %s\n' "$BOOTSTRAP_STYLE"
+        printf 'Root Outgroup:       %s\n' "$ROOT_OUTGROUP"
+        printf 'Outgroup Pattern:    %s\n' "$OUTGROUP_PATTERN"
+        printf 'Highlight Eggplant:  %s\n' "$HIGHLIGHT_EGGPLANT"
+        printf '\n'
+        printf '[Rendered Pairs]\n'
+        _idx=0
+        for (( j=0; j<n_pairs; j++ )); do
+            _pair_out="${PAIR_OUTPUT[$j]}"
+            _pair_combined_dir="$(dirname "$(dirname "$_pair_out")")"
+            [[ "$_pair_combined_dir" != "$_combined_dir" ]] && continue
+            _idx=$(( _idx + 1 ))
+            printf '\n[%d] %s\n' "$_idx" "${PAIR_SEQTYPE[$j]}"
+            printf '  Topology Source: %s\n' "${PAIR_TOPOLOGY_SOURCE[$j]}"
+            printf '  Support Source:  %s\n' "${PAIR_SUPPORT_SOURCE[$j]}"
+            printf '  IQ-TREE2:        %s\n' "${PAIR_IQTREE[$j]}"
+            printf '  RAxML:           %s\n' "${PAIR_RAXML[$j]}"
+            if [[ -n "${PAIR_THIRD_TREE[$j]:-}" ]]; then
+                printf '  Third Tree (%s): %s\n' "${PAIR_THIRD_SOURCE[$j]}" "${PAIR_THIRD_TREE[$j]}"
+            fi
+            printf '  Output:          %s\n' "$_pair_out"
+            if [[ -s "$_pair_out" ]]; then
+                printf '  File Size:       %s\n' "$(du -sh "$_pair_out" | cut -f1)"
+            else
+                printf '  File Size:       (not generated)\n'
+            fi
+        done
+    } > "$manifest_file"
+    log_info "Wrote manifest: $manifest_file"
+done
+unset _manifest_dirs _combined_dir _pair_out _pair_combined_dir _idx _out_png _idx j
+
 if (( fail_count > 0 )); then
     log_error "$fail_count combined bootstrap render(s) failed"
     exit 1

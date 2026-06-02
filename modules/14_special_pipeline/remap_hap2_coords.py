@@ -12,7 +12,7 @@ Usage (from repo root, inside the `egg` conda env):
 
     conda run -n egg python3 modules/14_special_pipeline/remap_hap2_coords.py \\
         --ref-fasta    II_INPUTS/HAP2/AtHAP2_At4g11720.fasta \\
-        --target-fasta II_INPUTS/HAP2/SmelHAP2.fasta \\
+        --target-fasta II_INPUTS/HAP2/SmelHAP2_v5.fasta \\
         --ref-coords   14_interaction_Domain_MappingCONFIG.toml \\
         --ref-section  hap2_variants.coords.at \\
         --target-section hap2_variants.coords.sm \\

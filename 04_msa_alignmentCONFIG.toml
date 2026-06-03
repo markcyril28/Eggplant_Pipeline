@@ -36,12 +36,16 @@ overwrite    = true
 #   "v3_Full_and_HI_DMPs"            - Selected Crop Species + verified HI panel (deduped)
 #   "v4_BLAST_Groups_bitscore200"    - per-paralog BLAST groups (bit score >= 200)
 #   "v5_vs_v4_1_Genes"               - GPE001970 v5 vs Smel v4.1 DMP genes
+#   "v5_v4_and_AtDMP"                - v4 merged + all 11 AtDMP individual sequences (AA: 83, NT: 49)
+#   "v6_v5_and_AllHI"                - v5 + all available verified HI crop genes, paired only (AA = NT = 60)
 input_sets = [
     #"v1_Full",
     #"v2_Reduced",
     #"v3_Full_and_HI_DMPs",
     #"v4_BLAST_Groups_bitscore200",
-    "v5_vs_v4_1_Genes",
+    #"v5_vs_v4_1_Genes",
+    #"v5_v4_and_AtDMP",
+    "v6_v5_and_AllHI",
 ]
 
 [pipeline.compute.Local]
@@ -63,7 +67,7 @@ methods = [
 ]
 
 sequence_types = [
-    #"nucleotide",
+    "nucleotide",
     "amino_acid",
 ]
 

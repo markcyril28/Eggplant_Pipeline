@@ -6,12 +6,11 @@
 # of the cross-species comparison (the Arabidopsis-paired side lives at
 # config/DMP_x_AtHAP2/).
 #
-# IMPORTANT: deletion coordinates in the shared config are AtHAP2-numbered
-# (705 aa). Before running this side, remap them onto SmelHAP2 via a
-# pairwise alignment (see --show-manual-steps step [M2]). The placeholder
-# values below intentionally keep the AtHAP2 numbers so the orchestrator
-# will refuse to truncate past the SmelHAP2 length if the operator forgets
-# to remap - that error is the prompt to come back and fix this file.
+# NOTE: the shared config's [hap2_variants.coords.sm] is now fully remapped to
+# SmelHAP2 v5 (SMEL5_08g021940.1, 782 aa) via MAFFT L-INS-i against AtHAP2
+# (modules/14_special_pipeline/remap_hap2_coords.py, 2026-05-31). [inputs].hap2_fasta
+# below points to the matching 782-aa v5 FASTA, so coords and sequence are consistent.
+# Re-run the remap only if either FASTA changes (see --show-manual-steps step [M2]).
 #
 # Merged on top of 14_interaction_Domain_MappingCONFIG.toml via merge_toml.py.
 # ============================================================================
@@ -20,7 +19,7 @@
 base_dir = "III_RESULT/DMP_x_SmelHAP2"
 
 [inputs]
-hap2_fasta = "II_INPUTS/HAP2/SmelHAP2.fasta"
+hap2_fasta = "II_INPUTS/HAP2/SmelHAP2_v5.fasta"
 # DMP and reference PDB inherit from shared config.
 
 # Flip the HAP2 coords table from AtHAP2 (default) to SmelHAP2. The

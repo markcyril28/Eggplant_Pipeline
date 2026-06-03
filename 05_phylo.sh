@@ -196,6 +196,7 @@ RAXML_REDO=$(get_toml phylogenetics raxml redo 2>/dev/null || echo "true")
 MSA_DIR_NAME=$(get_toml output_dirs msa 2>/dev/null || echo "04_MSA")
 ALIGN_DIR="$BASE_DIR/$MSA_DIR_NAME"
 PHYLO_INPUT_PATTERN=$(get_toml phylogenetics input_pattern 2>/dev/null || echo "*.fas")
+SKIP_IF_MSA_MISSING=$(get_toml pipeline skip_if_msa_missing 2>/dev/null || echo "false")
 
 # Read input_subdirs array; fall back to legacy input_subdir scalar if absent.
 # parse_toml.py emits one item per line, so use mapfile (read -ra would only
@@ -259,7 +260,19 @@ log_info "Operations: ${OPERATIONS[*]}"
 log_info "Program-level parallelism: max ${MAX_PARALLEL} software runs at once"
 
 # ======================== Build Trees ========================
-if should_run "build_tree"; then
+# When skip_if_msa_missing = true, build_tree is silently bypassed if the
+# aligned input files have not been produced by stage 04 yet. This lets you
+# keep "build_tree" in OPERATIONS and have it activate automatically once the
+# MSA outputs exist, without having to edit the operations list.
+_TREE_INPUTS_OK=true
+if (( ${#ALIGN_INPUT_DIRS[@]} == 0 && ${#ALIGN_INPUT_FILES[@]} == 0 )); then
+    if [[ "$SKIP_IF_MSA_MISSING" == "true" ]]; then
+        log_info "build_tree: no MSA inputs found yet — skipping (pipeline.skip_if_msa_missing = true). Run stage 04 first."
+        _TREE_INPUTS_OK=false
+    fi
+fi
+
+if should_run "build_tree" && [[ "$_TREE_INPUTS_OK" == "true" ]]; then
     if (( ${#ALIGN_INPUT_DIRS[@]} == 0 && ${#ALIGN_INPUT_FILES[@]} == 0 )); then
         log_error "No valid alignment inputs found: set phylogenetics.input_subdirs and/or phylogenetics.input_files"
         exit 1

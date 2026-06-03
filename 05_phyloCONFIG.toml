@@ -20,11 +20,17 @@ gene_groups = [
 machine   = "Local"  # "Local" or "HPC" — selects compute profile below
 overwrite = true
 operations = [
-    "build_tree",          # Already built from the HPC.
+    "build_tree",
     "visualize_tree",
     #"compare_trees",   # IQ-TREE2 vs RAxML tanglegram; exits gracefully if only one software was run
-    #"combined_bootstrap_tree"
+    "combined_bootstrap_tree"
 ]
+
+# When true, build_tree is silently skipped if the MSA input files don't exist
+# yet (stage 04 has not been run for the active input_sets). Allows keeping
+# "build_tree" in operations so it runs automatically once the MSA is ready.
+# Set to false (default) to get an error if inputs are missing.
+skip_if_msa_missing = false
 
 # Curated input sets to run. Filters phylogenetics.input_files by path substring:
 # an entry from input_files is kept only if it contains one of these tokens as a
@@ -35,11 +41,15 @@ operations = [
 #   "v2_Reduced"                     - reduced curated set
 #   "v3_Full_and_HI_DMPs"            - Selected Crop Species + verified HI panel (deduped)
 #   "v4_BLAST_Groups_bitscore200"    - union of 7 SmelDMP BLAST groups (bit score >= 200)
+#   "v5_v4_and_AtDMP"               - v4 merged + all 11 AtDMP individual sequences (AA: 83, NT: 49)
+#   "v6_v5_and_AllHI"               - v5 + all available verified HI crop genes, paired only (AA = NT = 60)
 input_sets = [
     #"v1_Full",
     #"v2_Reduced",
-    "v3_Full_and_HI_DMPs",
-    "v4_BLAST_Groups_bitscore200",
+    #"v3_Full_and_HI_DMPs",
+    #"v4_BLAST_Groups_bitscore200",
+    #"v5_v4_and_AtDMP",
+    "v6_v5_and_AllHI",
 ]
 
 [pipeline.compute.Local]
@@ -53,9 +63,9 @@ max_parallel = 2   # Max concurrent phylo software programs
 [phylogenetics]
 # Supported values: megacc, iqtree2, raxml
 software = [
-    "megacc",
-    #"iqtree2", 
-    #"raxml"
+    #"megacc",
+    "iqtree2", 
+    "raxml"
 ]
 
 #input_pattern = "*.fas"
@@ -121,8 +131,8 @@ optimal_threads = 12
 # IQ-TREE2 enforces a hard minimum of 1000 replicates for both UFBoot (-bb) and
 # SH-aLRT (-alrt); values below 1000 cause "#replicates must be >= 1000" exit 2.
 # Set to 0 to disable that branch, or any integer >= 1000.
-bootstrap = 10000
-alrt = 10000
+bootstrap = 1000
+alrt = 1000
 model = "MFP+MERGE"
 nucleotide_model = "GTR+F+R4"
 protein_model    = "LG+F+R4"
@@ -183,18 +193,18 @@ tip_point_size       = 2.5         # shape symbol size at each tip (requires hig
 
 # --- Category colors ---
 highlight_eggplant   = true        # color and shape tips by gene category; drives legend
-color_smeldmp        = "#4527A0"   # deep purple — eggplant SmelDMP genes
+color_smeldmp        = "#8B00FF"   # violet — eggplant SmelDMP genes
 color_haploid        = "#B71C1C"   # deep red — functionally validated haploid inducers
 color_ortholog       = "#37474F"   # blue-gray — other DMP orthologs
 color_outgroup       = "#78909C"   # light gray — outgroup taxa
 
-# --- Taxon pattens (regex) ---
-eggplant_patten     = "^SMEL5_|^Smel_|^SMELG"  # matches raw eggplant sequence IDs
+# --- Taxon patterns (regex) ---
+eggplant_pattern    = "^SMEL5_|^Smel_|^SMELG"  # matches raw eggplant sequence IDs
 
 # --- Outgroup ---
 # Universal outgroup for both amino acid and nucleotide phylogenetic trees:
 #   PpDMP5-like  (Physcomitrella patens, moss — distant land plant)
-outgroup_patten     = "PpDMP5-like"  # regex matching universal outgroup tip label; single-tip rooting on the moss DMP5-like sequence
+outgroup_pattern    = "PpDMP5-like"  # regex matching universal outgroup tip label; single-tip rooting on the moss DMP5-like sequence
 exclude_tips         = "BdDMP2.*Outgroup,GrDMP10.*Outgroup,SiDMP10.*"  # remove AA-only outgroups absent from NT trees so AA/NT figures stay comparable; SiDMP10 dropped (PpDMP5-like is sole outgroup)
 root_outgroup        = true       # root tree on PpDMP5-like before rendering
 

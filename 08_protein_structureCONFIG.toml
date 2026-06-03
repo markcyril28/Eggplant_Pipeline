@@ -7,9 +7,10 @@
 [protein_structure]
 # Gene groups to process. Comment out entries to skip them.
 gene_groups = [
-    "DMP",
-    "DMP-HAP2",
-    "HAP2",
+    #"DMP",
+    #"DMP-HAP2",
+    #"HAP2",
+    "GEX",
     # "GRF_GIF",
     # "PLA",
 ]

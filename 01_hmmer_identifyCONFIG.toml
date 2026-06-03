@@ -18,11 +18,11 @@
 # genome_sets = ["arabidopsis"] under [identification.targets] below.
 gene_groups   = [
     #"DMP",
-    #"AtDMP",
+    "AtDMP",
     #"HAP2",
     #"GRF_GIF",
     #"EC1",
-    "GEX",
+    #"GEX",
     #"PLA",
 ]
 
@@ -138,8 +138,8 @@ strand        = 0               # -r   0 = +/- strands, 1 = + strand only
 # Genome sets to search. Comment in/out to enable. Multiple may be active;
 # the orchestrator concatenates the per-set arrays in the order listed.
 genome_sets = [
-    "eggplant",
-    #"arabidopsis",
+    #"eggplant",
+    "arabidopsis",
 ]
 
 # Eggplant-set toggle (no effect on other sets):

@@ -109,6 +109,28 @@ active_input_sets = [
     # 04_MSA/merged_input/Selected/v4b_DMP8_and_DMP2_3_group/.
     "selected_v4b_dmp8_and_dmp2_3_group_amino_acid",
 
+    # — Selected v5 = v4 BLAST groups merged + all 11 AtDMP (individual AT* entries) —
+    # Built from the v4 merged FASTA by dropping the combined >AtDMP8+AtDMP9
+    # placeholder and appending all 11 AtDMP sequences from
+    # III_RESULT/AtDMP/01_Identification/shared/Arabidopsis_thaliana_Araport11/
+    # e-value_1e-5/d_GENES/ATDMP/ATDMP_{proteins,cds}.fa.
+    # Rebuild via: python3 c:/tmp/build_v5_AtDMP.py
+    #"selected_v5_v4_and_AtDMP_nucleotide",
+    #"selected_v5_v4_and_AtDMP_amino_acid",
+
+    # — Selected v6 = v5 + all available verified HI crop genes —
+    # Extends v5 by adding SlDMP3, GhDMPa/d, OsDMP1/3, BjuDMP1-4 (AA);
+    # GmDMP1/2, SlDMP8, GhDMPa/d, OsDMP1/3, BjuDMP1-4 (NT).
+    # 4 pre-existing exact duplicates removed: MaDMP8-like_2, CDY56548,
+    # CDX81135, BdDMP7_2. Not yet available: ZmDMP, NtDMP1-3, BnaDMP, CsaV3 CsDMP.
+    # AA-only (no CDS): 28 removed (Musa, SiDMP, BdDMP4/6/7, GrDMP2_2/7, etc.)
+    # NT-only (no protein): 3 removed (IbDMP3, PtDMP3, PtDMP3_2).
+    # BnaDMP restored: BnaA04g09480D + BnaC04g31700D added to both AA and NT.
+    # PpDMP5-like outgroup added to both AA and NT (required for tree rooting).
+    # Paired (AA = NT = 60 sequences).
+    "selected_v6_v5_and_AllHI_nucleotide",
+    "selected_v6_v5_and_AllHI_amino_acid",
+
     # — GPE001970 + Selected Crop Species (curated pre-merged) — v1 Full Selected
     #"per_genome_gpe001970_nucleotide_and_selected_crop_species_nucleotide",
     #"per_genome_gpe001970_amino_acid_and_selected_crop_species_amino_acid",
@@ -329,6 +351,37 @@ output_subdir = "Selected_Result/v4b_DMP8_and_DMP2_3_group"
 
 [alignment.input_sets.selected_v2_reduced_nucleotide]
 fastas = ["04_MSA/merged_input/Selected/v2_Reduced/v2_nucleotide.fasta"]
+
+# --- v5: v4 BLAST groups merged + all 11 individual AtDMP -----------------
+# v4 merged FASTA with the combined >AtDMP8+AtDMP9 placeholder replaced by
+# the 11 individual AT* entries from the AtDMP HMMER identification.
+# AA: 83 sequences (72 v4 + 11 AtDMP).  NT: 49 sequences (38 v4 + 11 AtDMP CDS).
+# Rebuild via: python3 c:/tmp/build_v5_AtDMP.py
+[alignment.input_sets.selected_v5_v4_and_AtDMP_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v5_v4_and_AtDMP/per_genome_gpe001970_v5_v4_and_AtDMP_NUCLEOTIDE_Sequence.fasta"]
+output_subdir = "Selected_Result/v5_v4_and_AtDMP"
+
+[alignment.input_sets.selected_v5_v4_and_AtDMP_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v5_v4_and_AtDMP/per_genome_gpe001970_v5_v4_and_AtDMP_AMINO_ACID_Sequence.fasta"]
+output_subdir = "Selected_Result/v5_v4_and_AtDMP"
+
+# --- v6: v5 + all available verified HI crop genes -------------------------
+# Extends v5 by adding 6 AA / 11 NT confirmed HI sequences missing from v5:
+#   AA added: SlDMP3, GhDMPa, GhDMPd, OsDMP1, OsDMP3, BjuB01g27600S (BjuDMP4).
+#   NT added: GmDMP1, GmDMP2, SlDMP8, GhDMPa, GhDMPd, OsDMP1, OsDMP3, BjuDMP1-4.
+# 4 pre-existing exact-duplicate entries removed: MaDMP8-like_2, CDY56548,
+#   CDX81135, BdDMP7_2 (CDY56548=BjuA03g54090S, CDX81135=BoDMP_LOC106333853).
+# Sequences not yet available (empty source FASTAs): ZmDMP (Zm00001d044822),
+#   NtDMP1-3 (XM_016604032 etc.), BnaDMP (BnaA03g55920D et al.), CsaV3_1G028660.
+# Length outliers to verify: GhDMPa (829 aa), StDMP (529 aa), GhDMPd (431 aa).
+# AA: 85 sequences.  NT: 60 sequences.
+[alignment.input_sets.selected_v6_v5_and_AllHI_nucleotide]
+fastas = ["04_MSA/merged_input/Selected/v6_v5_and_AllHI/per_genome_gpe001970_v6_v5_and_AllHI_NUCLEOTIDE_Sequence.fasta"]
+output_subdir = "Selected_Result/v6_v5_and_AllHI"
+
+[alignment.input_sets.selected_v6_v5_and_AllHI_amino_acid]
+fastas = ["04_MSA/merged_input/Selected/v6_v5_and_AllHI/per_genome_gpe001970_v6_v5_and_AllHI_AMINO_ACID_Sequence.fasta"]
+output_subdir = "Selected_Result/v6_v5_and_AllHI"
 
 # --- GPE001970 + Selected Crop Species (curated pre-merged FASTAs) --------
 # Source files: 04_MSA/merged_input/Selected/v1_Full/

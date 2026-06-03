@@ -74,7 +74,7 @@ resolve_top_folder() {
     local set_name="$1"
     case "$set_name" in
         *smel_v4_1*) echo "Solanum_melongena_v4.1" ;;
-        *gpe001970*|*selected_v1*|*selected_v2*|*selected_v3*|*selected_v4*|*selected_v4b*) echo "GPE001970_SMEL5" ;;
+        *gpe001970*|*selected_v1*|*selected_v2*|*selected_v3*|*selected_v4*|*selected_v4b*|*selected_v5*|*selected_v6*) echo "GPE001970_SMEL5" ;;
         *) echo "shared" ;;
     esac
 }

@@ -278,7 +278,8 @@ smeldmp_name_map <- c(
 # NOTE: "CsDMP9"/XP_006482605 is Citrus sinensis — NOT Cucumis sativus.
 # Yin et al. 2024 cucumber HI is CsaV3_1G028660 (which IS listed below).
 haploid_inducer_patterns <- c(
-    "AtDMP8",   "AtDMP9",                                       # Zhong et al. 2020
+    "AtDMP8",   "AT1G09157",                                    # AtDMP8 Zhong et al. 2020
+    "AtDMP9",   "AT5G39650",                                    # AtDMP9 Zhong et al. 2020
     "GmDMP",   "Glyma.18G097400", "Glyma.18G098300",            # Zhong et al. 2024
     "NtDMP",                                                    # X. Zhang et al. 2022
     "SlDMP3",  "SlDMP8",  "Solyc05g007920",                     # Zhong 2022b / Deng 2025
@@ -331,7 +332,18 @@ hi_alias_map <- c(
     "Soltu.DM.05G005100" = "StDMP",
     "Medtr7g010890"      = "MtDMP8",
     "Medtr5g044580"      = "MtDMP9",
-    "Zm00001d044822"     = "ZmDMP"
+    "Zm00001d044822"     = "ZmDMP",
+    # Arabidopsis thaliana DMP paralogs (AT locus -> gene symbol)
+    "AT1G09157"          = "AtDMP8",
+    "AT3G02430"          = "AtDMP5",
+    "AT3G21520"          = "AtDMP1",
+    "AT3G21550"          = "AtDMP2",
+    "AT4G18425"          = "AtDMP4",
+    "AT4G24310"          = "AtDMP3",
+    "AT4G28485"          = "AtDMP7",
+    "AT5G27370"          = "AtDMP10",
+    "AT5G39650"          = "AtDMP9",
+    "AT5G46090"          = "AtDMP6"
 )
 
 # Cosmetic shortening: removes purely-redundant accession suffixes from

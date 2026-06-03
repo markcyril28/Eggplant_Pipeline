@@ -301,14 +301,20 @@ n_tips <- length(iq_tree$tip.label)
 
 # ======================== Auto-size ========================
 
-if (n_tips > 30 && args$height == 10.0) {
-    args$height <- max(10, n_tips * 0.4)
-    cat(sprintf("  Auto-scaled height to %.1f inches for %d tips\n",
-                args$height, n_tips))
+if (n_tips > 30) {
+    auto_height <- max(10, n_tips * 0.4)
+    if (auto_height > args$height) {
+        args$height <- auto_height
+        cat(sprintf("  Auto-scaled height to %.1f inches for %d tips\n",
+                    args$height, n_tips))
+    }
 }
-if (n_tips > 30 && args$tip_label_size == 4.5) {
-    args$tip_label_size <- max(3.5, 5.5 - (n_tips / 100))
-    cat(sprintf("  Auto-scaled tip label size to %.1f\n", args$tip_label_size))
+if (n_tips > 30) {
+    auto_tip_size <- max(3.5, 5.5 - (n_tips / 100))
+    if (auto_tip_size > args$tip_label_size) {
+        args$tip_label_size <- auto_tip_size
+        cat(sprintf("  Auto-scaled tip label size to %.1f\n", args$tip_label_size))
+    }
 }
 
 # ======================== Clade Matching ========================
@@ -506,7 +512,8 @@ smeldmp_name_map <- c(
 # Validated HI loci from II_INPUTS/DMP_HI_registry.tsv (kept in sync with render_tree.R).
 # NOTE: "CsDMP9"/XP_006482605 is Citrus sinensis — NOT Cucumis sativus.
 haploid_inducer_patterns <- c(
-    "AtDMP8",   "AtDMP9",                                       # Zhong et al. 2020
+    "AtDMP8",   "AT1G09157",                                    # AtDMP8 Zhong et al. 2020
+    "AtDMP9",   "AT5G39650",                                    # AtDMP9 Zhong et al. 2020
     "GmDMP",   "Glyma.18G097400", "Glyma.18G098300",            # Zhong et al. 2024
     "NtDMP",                                                    # X. Zhang et al. 2022
     "SlDMP3",  "SlDMP8",  "Solyc05g007920",                     # Zhong 2022b / Deng 2025
@@ -556,7 +563,18 @@ hi_alias_map <- c(
     "Soltu.DM.05G005100" = "StDMP",
     "Medtr7g010890"      = "MtDMP8",
     "Medtr5g044580"      = "MtDMP9",
-    "Zm00001d044822"     = "ZmDMP"
+    "Zm00001d044822"     = "ZmDMP",
+    # Arabidopsis thaliana DMP paralogs (AT locus -> gene symbol)
+    "AT1G09157"          = "AtDMP8",
+    "AT3G02430"          = "AtDMP5",
+    "AT3G21520"          = "AtDMP1",
+    "AT3G21550"          = "AtDMP2",
+    "AT4G18425"          = "AtDMP4",
+    "AT4G24310"          = "AtDMP3",
+    "AT4G28485"          = "AtDMP7",
+    "AT5G27370"          = "AtDMP10",
+    "AT5G39650"          = "AtDMP9",
+    "AT5G46090"          = "AtDMP6"
 )
 
 shorten_label <- function(lab) {

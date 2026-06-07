@@ -49,20 +49,6 @@ FASTA_TO_CLUSTAL="$SCRIPT_DIR/../utils/fasta_to_clustal.py"
 # Keep a method-local copy of the input for traceability and downstream checks.
 cp -f "$INPUT_FASTA" "$INPUT_COPY"
 
-if [[ -s "$OUTPUT_FILE" ]]; then
-    # Generate .aln if missing even when .fas is cached
-    if [[ ! -s "$ALN_FILE" ]]; then
-        if python3 "$FASTA_TO_CLUSTAL" "$OUTPUT_FILE" "$ALN_FILE"; then
-            log_info "Generated .aln: $ALN_FILE"
-        else
-            log_warn ".aln conversion failed (non-fatal): $ALN_FILE"
-        fi
-    fi
-    log_info "Alignment exists, skipping: $OUTPUT_FILE"
-    echo "$OUTPUT_FILE"
-    exit 0
-fi
-
 # ---------------------------------------------------------------------------
 # cfg <method_key> <param_key> <default>
 #   Read a value from [alignment.<method_key>].<param_key> in the TOML config.
@@ -78,6 +64,131 @@ cfg() {
         echo "$default"
     fi
 }
+
+# ---------------------------------------------------------------------------
+# tool_version
+#   Best-effort one-line version string for the active aligner (non-fatal).
+# ---------------------------------------------------------------------------
+tool_version() {
+    case "$METHOD" in
+        CLUSTALO) clustalo --version 2>/dev/null | head -1 ;;
+        MAFFT)    mafft --version 2>&1 | head -1 ;;
+        MUSCLE)   muscle -version 2>&1 | head -1 ;;
+        PROBCONS) probcons --version 2>&1 | head -1 ;;
+        CLUSTALW) { command -v clustalw2 >/dev/null 2>&1 && clustalw2 -version 2>&1 | head -1; } \
+                  || { command -v clustalw  >/dev/null 2>&1 && clustalw  -version 2>&1 | head -1; } || true ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# method_params_md
+#   Emit markdown bullet lines for the parameters actually used by the active
+#   method (read back through cfg so config values and defaults both show).
+# ---------------------------------------------------------------------------
+method_params_md() {
+    case "$METHOD" in
+        CLUSTALO)
+            echo "- outfmt: \`$(cfg clustalo outfmt fasta)\`"
+            echo "- full: \`$(cfg clustalo full false)\`"
+            echo "- full_iter: \`$(cfg clustalo full_iter false)\`"
+            echo "- iterations: \`$(cfg clustalo iterations 0)\`"
+            echo "- max_guidetree_iterations: \`$(cfg clustalo max_guidetree_iterations 0)\`"
+            echo "- max_hmm_iterations: \`$(cfg clustalo max_hmm_iterations 0)\`"
+            ;;
+        MAFFT)
+            echo "- algorithm: \`$(cfg mafft algorithm --localpair)\`"
+            echo "- maxiterate: \`$(cfg mafft maxiterate 1000)\`"
+            echo "- ep: \`$(cfg mafft ep '(default)')\`"
+            echo "- anysymbol: \`$(cfg mafft anysymbol false)\`"
+            ;;
+        MUSCLE)
+            echo "- maxiters: \`$(cfg muscle maxiters 100)\`"
+            ;;
+        PROBCONS)
+            echo "- consistency: \`$(cfg probcons consistency 5)\`"
+            echo "- iterative_ref: \`$(cfg probcons iterative_ref 1000)\`"
+            echo "- pre_training: \`$(cfg probcons pre_training 20)\`"
+            ;;
+        CLUSTALW)
+            echo "- output: \`$(cfg clustalw output FASTA)\`"
+            echo "- iteration: \`$(cfg clustalw iteration '(default)')\`"
+            echo "- numiter: \`$(cfg clustalw numiter 0)\`"
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# write_manifest
+#   Write a human-readable manifest.md into the method output folder describing
+#   this one alignment: provenance, sequence/length counts, files, parameters.
+#   Called on both fresh runs and cache hits so every output folder has one.
+# ---------------------------------------------------------------------------
+write_manifest() {
+    local manifest="$ALIGN_DIR/manifest.md"
+    local set_name; set_name="$(basename "$OUTPUT_DIR")"
+    local ts; printf -v ts '%(%Y-%m-%d %H:%M:%S)T' -1
+    local version; version="$(tool_version 2>/dev/null || true)"
+    [[ -z "$version" ]] && version="(unknown)"
+    local cfg_src="(standalone defaults)"
+    [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]] && cfg_src="$CONFIG_FILE"
+
+    local n_in; n_in=$(grep -c '^>' "$INPUT_FASTA" 2>/dev/null || echo 0)
+    local n_out aln_len
+    read -r n_out aln_len < <(awk '
+        /^>/ { n++; next }
+        n==1 { len += length($0) }
+        END  { printf "%d %d\n", n+0, len+0 }
+    ' "$OUTPUT_FILE")
+
+    {
+        echo "# MSA Alignment Manifest"
+        echo ""
+        echo "- Set: \`$set_name\`"
+        echo "- Method: \`$METHOD\`"
+        echo "- Tool version: $version"
+        echo "- Generated: $ts"
+        echo "- Threads: $CPU"
+        echo ""
+        echo "## Sequences"
+        echo ""
+        echo "- Input sequences: $n_in"
+        echo "- Aligned sequences: $n_out"
+        echo "- Alignment length: $aln_len columns"
+        echo ""
+        echo "## Files"
+        echo ""
+        echo "- Aligned FASTA: \`$(basename "$OUTPUT_FILE")\`"
+        echo "- Clustal alignment: \`$(basename "$ALN_FILE")\`"
+        echo "- Input copy: \`$(basename "$INPUT_COPY")\`"
+        echo "- Source input: \`$INPUT_FASTA\`"
+        echo ""
+        echo "## Parameters"
+        echo ""
+        method_params_md
+        echo ""
+        echo "## Provenance"
+        echo ""
+        echo "- Module: \`modules/04_multiple_sequence_alignment/align.sh\`"
+        echo "- Config: \`$cfg_src\`"
+    } > "$manifest"
+
+    log_info "Wrote manifest: $manifest"
+}
+
+if [[ -s "$OUTPUT_FILE" ]]; then
+    # Generate .aln if missing even when .fas is cached
+    if [[ ! -s "$ALN_FILE" ]]; then
+        if python3 "$FASTA_TO_CLUSTAL" "$OUTPUT_FILE" "$ALN_FILE"; then
+            log_info "Generated .aln: $ALN_FILE"
+        else
+            log_warn ".aln conversion failed (non-fatal): $ALN_FILE"
+        fi
+    fi
+    write_manifest
+    log_info "Alignment exists, skipping: $OUTPUT_FILE"
+    echo "$OUTPUT_FILE"
+    exit 0
+fi
 
 log_step "Aligning $BASENAME with $METHOD"
 
@@ -176,6 +287,8 @@ if python3 "$FASTA_TO_CLUSTAL" "$OUTPUT_FILE" "$ALN_FILE"; then
 else
     log_warn ".aln conversion failed (non-fatal): $ALN_FILE"
 fi
+
+write_manifest
 
 log_info "Alignment complete -> $OUTPUT_FILE"
 echo "$OUTPUT_FILE"

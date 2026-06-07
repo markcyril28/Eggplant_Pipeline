@@ -44,6 +44,26 @@ GENE_GROUPS=(
 # 04_msa_alignmentCONFIG.toml [pipeline.compute.$MACHINE] section.
 # ===============================================================
 
+# --- Optional CLI overrides ------------------------------------------------
+# Standalone invocation (no args) keeps the values above. 05_phylo.sh's
+# "run_msa" operation drives this stage with explicit overrides so it aligns
+# exactly the input sets a phylo run needs:
+#   --gene-group GROUP        process only GROUP (replaces GENE_GROUPS array)
+#   --input-sets "A B C"      space-separated [pipeline].input_sets tokens
+#   --overwrite true|false    override [pipeline].overwrite
+CLI_GENE_GROUP=""
+CLI_INPUT_SETS=""
+CLI_OVERWRITE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --gene-group) CLI_GENE_GROUP="$2"; shift 2 ;;
+        --input-sets) CLI_INPUT_SETS="$2"; shift 2 ;;
+        --overwrite)  CLI_OVERWRITE="$2";  shift 2 ;;
+        *) echo "Unknown arg: $1" >&2; exit 1 ;;
+    esac
+done
+[[ -n "$CLI_GENE_GROUP" ]] && GENE_GROUPS=("$CLI_GENE_GROUP")
+
 PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES="$PIPELINE_DIR/modules"
 
@@ -152,6 +172,7 @@ CPU=$(get_toml pipeline compute "$MACHINE" threads 2>/dev/null || nproc)
 MAX_PARALLEL=$(get_toml pipeline compute "$MACHINE" max_parallel 2>/dev/null || echo "$CPU")
 (( MAX_PARALLEL < 1 )) && MAX_PARALLEL=1
 OVERWRITE=$(get_toml pipeline overwrite 2>/dev/null || echo "true")
+[[ -n "$CLI_OVERWRITE" ]] && OVERWRITE="$CLI_OVERWRITE"
 IFS=' ' read -ra ALIGNMENT_METHODS <<< "$(get_toml alignment methods)"
 
 MSA_DIR_NAME=$(get_toml output_dirs msa 2>/dev/null || echo "04_MSA")
@@ -186,6 +207,8 @@ fi
 # output_subdir (e.g. "v4_BLAST_Groups_bitscore200" matches
 # "Selected_Result/v4_BLAST_Groups_bitscore200").
 mapfile -t INPUT_SETS < <(get_toml pipeline input_sets 2>/dev/null || true)
+# CLI override (from 05_phylo.sh run_msa): replace the TOML input_sets filter
+[[ -n "$CLI_INPUT_SETS" ]] && read -ra INPUT_SETS <<< "$CLI_INPUT_SETS"
 _filtered_sets=()
 for _s in "${INPUT_SETS[@]:-}"; do
     [[ -n "$_s" ]] && _filtered_sets+=("$_s")

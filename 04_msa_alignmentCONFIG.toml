@@ -24,28 +24,17 @@ gene_groups  = [
 machine      = "Local"   # "Local" or "HPC" — selects compute profile below
 overwrite    = true
 
-# Curated input sets to run. Filters [alignment].active_input_sets by the
-# output_subdir token each set resolves to (see resolve_output_subdir in
-# 04_msa_alignment.sh). An active set is kept only if its resolved subdir
-# contains one of these tokens as a path component. Empty array = no
-# filtering (run every entry in active_input_sets).
-# Available tokens:
-#   "All_Result"                     - per-genome and combined-with-query-species sets
-#   "v1_Full"                        - Selected Crop Species (full)
-#   "v2_Reduced"                     - reduced curated set
-#   "v3_Full_and_HI_DMPs"            - Selected Crop Species + verified HI panel (deduped)
-#   "v4_BLAST_Groups_bitscore200"    - per-paralog BLAST groups (bit score >= 200)
-#   "v5_vs_v4_1_Genes"               - GPE001970 v5 vs Smel v4.1 DMP genes
-#   "v5_v4_and_AtDMP"                - v4 merged + all 11 AtDMP individual sequences (AA: 83, NT: 49)
-#   "v6_v5_and_AllHI"                - v5 + all available verified HI crop genes, paired only (AA = NT = 60)
+# Output_subdir tokens that filter [alignment].active_input_sets (see
+# resolve_output_subdir in 04_msa_alignment.sh). Empty array = run all.
 input_sets = [
-    #"v1_Full",
-    #"v2_Reduced",
-    #"v3_Full_and_HI_DMPs",
-    #"v4_BLAST_Groups_bitscore200",
-    #"v5_vs_v4_1_Genes",
-    #"v5_v4_and_AtDMP",
-    "v6_v5_and_AllHI",
+    #"All_Result",                  # per-genome + combined-with-query-species sets
+    #"v1_Full",                     # Selected Crop Species (full)
+    #"v2_Reduced",                  # reduced curated set
+    #"v3_Full_and_HI_DMPs",         # Selected Crop Species + verified HI panel (deduped)
+    #"v4_BLAST_Groups_bitscore200", # per-paralog BLAST groups (bit score >= 200)
+    #"v5_vs_v4_1_Genes",            # GPE001970 v5 vs Smel v4.1 DMP genes
+    #"v5_v4_and_AtDMP",             # v4 merged + all 11 AtDMP sequences (AA: 83, NT: 49)
+    "v6_v5_and_AllHI",             # v5 + all verified HI crop genes, paired (AA = NT = 60)
 ]
 
 [pipeline.compute.Local]

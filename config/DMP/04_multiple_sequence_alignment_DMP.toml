@@ -113,8 +113,9 @@ active_input_sets = [
     # Built from the v4 merged FASTA by dropping the combined >AtDMP8+AtDMP9
     # placeholder and appending all 11 AtDMP sequences from
     # III_RESULT/AtDMP/01_Identification/shared/Arabidopsis_thaliana_Araport11/
-    # e-value_1e-5/d_GENES/ATDMP/ATDMP_{proteins,cds}.fa.
-    # Rebuild via: python3 c:/tmp/build_v5_AtDMP.py
+    # e-value_1e-5/d_GENES/ATDMP/ATDMP_{proteins,cds}.fa, then the PpDMP5-like
+    # outgroup (AA: 84, NT: 50 with the outgroup).
+    # Rebuild via: python3 c:/tmp/build_v5_AtDMP.py (re-append >PpDMP5-like after)
     #"selected_v5_v4_and_AtDMP_nucleotide",
     #"selected_v5_v4_and_AtDMP_amino_acid",
 
@@ -247,6 +248,9 @@ fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_Selecte
 #   bash modules/04_multiple_sequence_alignment/build_v1_full_HI_DMPs.sh
 # Re-run that script whenever the HI panel under I_RefSeqs/d_DMP_Query_Fasta/
 # is updated; output writes back to the path below.
+# PpDMP5-like outgroup appended to both AA and NT (required for tree rooting in
+# stage 05, visualization.root_outgroup = true). The build script above does NOT
+# add it, so re-append the >PpDMP5-like record after any rebuild (50 seqs each).
 [alignment.input_sets.selected_v1_full_HI_DMPs_nucleotide]
 fastas = ["04_MSA/merged_input/Selected/v1_Full/per_genome_gpe001970_and_HI_DMPs_NUCLEOTIDE_Sequence.fasta"]
 
@@ -329,6 +333,9 @@ fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/SMEL5_12g005
 # Single combined FASTA per sequence type. Built by the inline merge step
 # alongside build_v4_blast_groups.{sh,py}; keeps anchor order from
 # [blast_groups_msa].paralog_ids and dedupes by header first-token.
+# PpDMP5-like outgroup appended to both AA (74 seqs) and NT (39 seqs) for tree
+# rooting in stage 05. build_v4_blast_groups.py does NOT add it, so re-append the
+# >PpDMP5-like record after any rebuild.
 [alignment.input_sets.selected_v4_blast_groups_merged_nucleotide]
 fastas = ["04_MSA/merged_input/Selected/v4_BLAST_Groups_bitscore200/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_NUCLEOTIDE_Sequence.fasta"]
 
@@ -355,8 +362,11 @@ fastas = ["04_MSA/merged_input/Selected/v2_Reduced/v2_nucleotide.fasta"]
 # --- v5: v4 BLAST groups merged + all 11 individual AtDMP -----------------
 # v4 merged FASTA with the combined >AtDMP8+AtDMP9 placeholder replaced by
 # the 11 individual AT* entries from the AtDMP HMMER identification.
-# AA: 83 sequences (72 v4 + 11 AtDMP).  NT: 49 sequences (38 v4 + 11 AtDMP CDS).
-# Rebuild via: python3 c:/tmp/build_v5_AtDMP.py
+# AA: 84 sequences (72 v4 + 11 AtDMP + 1 outgroup).  NT: 50 sequences (38 v4 +
+# 11 AtDMP CDS + 1 outgroup).
+# PpDMP5-like outgroup appended to both AA and NT for tree rooting in stage 05.
+# Rebuild via: python3 c:/tmp/build_v5_AtDMP.py (then re-append >PpDMP5-like —
+# that builder does NOT add the outgroup).
 [alignment.input_sets.selected_v5_v4_and_AtDMP_nucleotide]
 fastas = ["04_MSA/merged_input/Selected/v5_v4_and_AtDMP/per_genome_gpe001970_v5_v4_and_AtDMP_NUCLEOTIDE_Sequence.fasta"]
 output_subdir = "Selected_Result/v5_v4_and_AtDMP"
@@ -373,7 +383,14 @@ output_subdir = "Selected_Result/v5_v4_and_AtDMP"
 #   CDX81135, BdDMP7_2 (CDY56548=BjuA03g54090S, CDX81135=BoDMP_LOC106333853).
 # Sequences not yet available (empty source FASTAs): ZmDMP (Zm00001d044822),
 #   NtDMP1-3 (XM_016604032 etc.), BnaDMP (BnaA03g55920D et al.), CsaV3_1G028660.
-# Length outliers to verify: GhDMPa (829 aa), StDMP (529 aa), GhDMPd (431 aa).
+# 2026-06-07: 3 corrupted/over-long gene models replaced with clean curated NCBI
+#   RefSeq orthologs (single DUF679 domain, AtDMP8/9 HI clade), verified against
+#   Long et al. 2024 (cotton) and Zhang et al. 2022 (potato):
+#     StDMP  529 aa fusion (Soltu.DM.05G005100.1) -> XP_006355155.1 / XM_006355093.1 (228 aa, LOC102591030)
+#     GhDMPa 829 aa wrong model (Gohir.A11G304500.1) -> XP_016710322.1 / XM_016854833.2 (218 aa, A11, LOC107924398)
+#     GhDMPd 431 aa wrong model (Gohir.D11G073500.1) -> XP_016695232.1 / XM_016839743.2 (218 aa, D11, LOC107911807)
+#   Root cause was a bad CottonGen->Phytozome ID-padding assumption in the stage-00
+#   download scripts (now corrected). NT range after fix: 402-831 nt (no outliers).
 # AA: 85 sequences.  NT: 60 sequences.
 [alignment.input_sets.selected_v6_v5_and_AllHI_nucleotide]
 fastas = ["04_MSA/merged_input/Selected/v6_v5_and_AllHI/per_genome_gpe001970_v6_v5_and_AllHI_NUCLEOTIDE_Sequence.fasta"]

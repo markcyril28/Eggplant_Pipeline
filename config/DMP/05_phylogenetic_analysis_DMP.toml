@@ -72,8 +72,9 @@ input_files = [
     # "GPE001970_SMEL5/Selected_Result/v4_BLAST_Groups_bitscore200/selected_v4_blast_groups_merged_amino_acid/MUSCLE_aligned/per_genome_gpe001970_v4_BLAST_Groups_bitscore200_AMINO_ACID_Sequence.fas",
 
     # --- GPE001970 (unito) — selected_v5_v4_and_AtDMP_* (v4 BLAST groups merged + all 11 individual AtDMP) ---
-    # v4 merged with the combined >AtDMP8+AtDMP9 placeholder replaced by individual AT* entries.
-    # AA: 83 sequences (72 v4 + 11 AtDMP). NT: 49 sequences (38 v4 CDS + 11 AtDMP CDS).
+    # v4 merged with the combined >AtDMP8+AtDMP9 placeholder replaced by individual AT* entries,
+    # plus the PpDMP5-like outgroup for tree rooting.
+    # AA: 84 sequences (72 v4 + 11 AtDMP + 1 outgroup). NT: 50 sequences (38 v4 CDS + 11 AtDMP CDS + 1 outgroup).
     # "GPE001970_SMEL5/Selected_Result/v5_v4_and_AtDMP/selected_v5_v4_and_AtDMP_nucleotide/CLUSTALO_aligned/per_genome_gpe001970_v5_v4_and_AtDMP_NUCLEOTIDE_Sequence.fas",
     "GPE001970_SMEL5/Selected_Result/v5_v4_and_AtDMP/selected_v5_v4_and_AtDMP_nucleotide/MAFFT_aligned/per_genome_gpe001970_v5_v4_and_AtDMP_NUCLEOTIDE_Sequence.fas",
     # "GPE001970_SMEL5/Selected_Result/v5_v4_and_AtDMP/selected_v5_v4_and_AtDMP_nucleotide/MUSCLE_aligned/per_genome_gpe001970_v5_v4_and_AtDMP_NUCLEOTIDE_Sequence.fas",

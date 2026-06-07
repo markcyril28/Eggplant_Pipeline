@@ -257,9 +257,12 @@ if (nchar(args$exclude_tips) > 0) {
 root_on_outgroup <- function(tree, outgroup_pattern) {
     outgroup_tips <- grep(outgroup_pattern, tree$tip.label, value = TRUE)
     if (length(outgroup_tips) == 0) {
-        cat(sprintf("  Warning: no tips matching outgroup pattern '%s'\n",
-                    outgroup_pattern))
-        return(tree)
+        stop(sprintf(paste0(
+            "Rooting requested (root_outgroup = true) but no tips match outgroup ",
+            "pattern '%s'. Refusing to render an UNROOTED tree as if it were rooted. ",
+            "Add the outgroup to the alignment and re-infer the tree, or set ",
+            "visualization.root_outgroup = false to render unrooted on purpose."),
+            outgroup_pattern))
     }
     cat(sprintf("  Rooting on %d outgroup taxa matching '%s'\n",
                 length(outgroup_tips), outgroup_pattern))
@@ -530,7 +533,7 @@ haploid_inducer_patterns <- c(
 )
 
 classify_tip_orig <- function(label) {
-    if (grepl("^SMEL5_|^Smel_|^SMELG", label)) return("SmelDMP")
+    if (grepl("^SMEL5_|^Smel_|^SMELG|^SmelDMP", label)) return("SmelDMP")
     for (pat in haploid_inducer_patterns) {
         if (grepl(pat, label, fixed = TRUE)) return("Haploid Inducer")
     }

@@ -221,8 +221,15 @@ unset _subdir _dir
 
 # Read input_files array (direct .fas file references, relative to ALIGN_DIR).
 # Use mapfile because parse_toml.py emits one entry per line.
+#
+# Two lists are derived:
+#   DESIRED_REL_FILES - every input_file kept by the input_sets filter, whether
+#                       or not it exists yet. Drives the run_msa preflight below.
+#   ALIGN_INPUT_FILES - the subset that actually exists on disk. Built by
+#                       scan_align_input_files(), re-run after run_msa so freshly
+#                       produced alignments are picked up.
 mapfile -t _file_list < <(get_toml phylogenetics input_files 2>/dev/null || true)
-ALIGN_INPUT_FILES=()
+DESIRED_REL_FILES=()
 _filtered_out=0
 for _f in "${_file_list[@]:-}"; do
     [[ -z "$_f" ]] && continue
@@ -233,17 +240,27 @@ for _f in "${_file_list[@]:-}"; do
             continue
         fi
     fi
-    _fp="$ALIGN_DIR/$_f"
-    if [[ -f "$_fp" ]]; then
-        ALIGN_INPUT_FILES+=("$_fp")
-    else
-        log_warn "Phylo input file not found, skipping: $_fp"
-    fi
+    DESIRED_REL_FILES+=("$_f")
 done
 if (( _filtered_out > 0 )); then
     log_info "input_sets filter: dropped $_filtered_out input_files entries not in {${INPUT_SETS[*]}}"
 fi
-unset _file_list _f _fp _filtered_out
+unset _file_list _f _filtered_out
+
+# Build ALIGN_INPUT_FILES (existence-checked) from DESIRED_REL_FILES.
+scan_align_input_files() {
+    ALIGN_INPUT_FILES=()
+    local _rel _fp
+    for _rel in "${DESIRED_REL_FILES[@]:-}"; do
+        [[ -z "$_rel" ]] && continue
+        _fp="$ALIGN_DIR/$_rel"
+        if [[ -f "$_fp" ]]; then
+            ALIGN_INPUT_FILES+=("$_fp")
+        else
+            log_warn "Phylo input file not found, skipping: $_fp"
+        fi
+    done
+}
 
 PHYLO_DIR_NAME=$(get_toml output_dirs phylogenetics 2>/dev/null || echo "05_Phylogenetics")
 PHYLO_DIR="$BASE_DIR/$PHYLO_DIR_NAME"
@@ -258,6 +275,76 @@ setup_logging
 log_step "Phylogenetic Analysis: $GENE_GROUP"
 log_info "Operations: ${OPERATIONS[*]}"
 log_info "Program-level parallelism: max ${MAX_PARALLEL} software runs at once"
+
+# ======================== Run MSA (optional preflight) ========================
+# When "run_msa" is in OPERATIONS, make sure the alignments this phylo run needs
+# exist before building trees, by driving stage 04 (04_msa_alignment.sh) for the
+# current gene group and the same input_sets. Stage 04 only (re)aligns a set when
+# its output is missing (align.sh skips existing .fas) or when OVERWRITE=true (the
+# orchestrator clears the active sets first), so this satisfies "align if the input
+# set is missing or needs replacing". OVERWRITE is inherited from this phylo run.
+if should_run "run_msa"; then
+    if (( ${#INPUT_SETS[@]} == 0 && ${#DESIRED_REL_FILES[@]} == 0 )); then
+        log_warn "run_msa: no input_sets and no input_files configured — cannot determine MSA scope; skipping. Set [pipeline].input_sets in 05_phyloCONFIG.toml."
+    else
+        # Count how many of the desired alignments are missing on disk.
+        _msa_missing=0
+        for _rel in "${DESIRED_REL_FILES[@]:-}"; do
+            [[ -z "$_rel" ]] && continue
+            [[ -f "$ALIGN_DIR/$_rel" ]] || _msa_missing=$(( _msa_missing + 1 ))
+        done
+        unset _rel
+        if [[ "$OVERWRITE" == "true" ]] || (( _msa_missing > 0 )); then
+            log_step "MSA preflight (stage 04): $GENE_GROUP"
+            log_info "run_msa: missing=$_msa_missing/${#DESIRED_REL_FILES[@]} alignment(s), overwrite=$OVERWRITE → running stage 04 for sets: ${INPUT_SETS[*]:-<active_input_sets>}"
+            _msa_cmd=(bash "$PIPELINE_DIR/04_msa_alignment.sh" --gene-group "$GENE_GROUP" --overwrite "$OVERWRITE")
+            (( ${#INPUT_SETS[@]} > 0 )) && _msa_cmd+=(--input-sets "${INPUT_SETS[*]}")
+            "${_msa_cmd[@]}"
+            log_step "MSA preflight complete: $GENE_GROUP"
+            unset _msa_cmd
+        else
+            log_info "run_msa: all ${#DESIRED_REL_FILES[@]} expected alignment(s) present and overwrite=false → skipping stage 04"
+        fi
+        unset _msa_missing
+    fi
+fi
+
+# Resolve which alignment files actually exist (after the optional run_msa above
+# may have produced them) before deciding whether build_tree can proceed.
+scan_align_input_files
+
+# ======================== Outgroup Pre-flight Guard ========================
+# When rooting on an outgroup is requested ([visualization].root_outgroup = true),
+# every alignment that feeds tree building MUST contain at least one sequence whose
+# header matches [visualization].outgroup_pattern. If it does not, the downstream
+# renderers (render_tree.R / compare_trees.R / render_combined_bootstrap.R) silently
+# fall back to an UNROOTED tree on zero matches. Fail fast here so a missing outgroup
+# aborts the whole phylo run instead of emitting a wrongly-"rooted" figure.
+ROOT_OUTGROUP=$(get_toml visualization root_outgroup 2>/dev/null || echo "false")
+OUTGROUP_PATTERN=$(get_toml visualization outgroup_pattern 2>/dev/null || echo "")
+
+if [[ "$ROOT_OUTGROUP" == "true" && -n "$OUTGROUP_PATTERN" ]]; then
+    log_info "Outgroup guard: every alignment input must contain a tip matching '$OUTGROUP_PATTERN' (visualization.root_outgroup = true)"
+    _missing_outgroup=()
+    while IFS= read -r _aln; do
+        [[ -z "$_aln" || ! -f "$_aln" ]] && continue
+        # Match the pattern against FASTA header lines only (tip labels derive from headers).
+        if ! grep -E '^>' "$_aln" | grep -Eq -e "$OUTGROUP_PATTERN"; then
+            _missing_outgroup+=("$_aln")
+        fi
+    done < <({ [[ ${#ALIGN_INPUT_DIRS[@]} -gt 0 ]] && find "${ALIGN_INPUT_DIRS[@]}" -type f -name "$PHYLO_INPUT_PATTERN" 2>/dev/null; printf '%s\n' "${ALIGN_INPUT_FILES[@]:-}"; } | sort -u)
+
+    if (( ${#_missing_outgroup[@]} > 0 )); then
+        log_error "Outgroup '$OUTGROUP_PATTERN' is absent from ${#_missing_outgroup[@]} alignment input(s); rooting would silently produce an UNROOTED tree. Aborting before the phylo run."
+        for _m in "${_missing_outgroup[@]}"; do
+            log_error "    missing outgroup: $_m"
+        done
+        log_error "Fix: add the outgroup sequence to these alignments (re-run stage 04 MSA so '$OUTGROUP_PATTERN' is included), or set visualization.root_outgroup = false in 05_phyloCONFIG.toml to render unrooted on purpose."
+        exit 1
+    fi
+    log_info "Outgroup guard passed: '$OUTGROUP_PATTERN' present in all alignment inputs"
+    unset _missing_outgroup _aln _m
+fi
 
 # ======================== Build Trees ========================
 # When skip_if_msa_missing = true, build_tree is silently bypassed if the

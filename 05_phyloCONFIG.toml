@@ -20,6 +20,7 @@ gene_groups = [
 machine   = "Local"  # "Local" or "HPC" — selects compute profile below
 overwrite = true
 operations = [
+    "run_msa",           # drive stage 04 (04_msa_alignment.sh) for [pipeline].input_sets first; aligns a set only if its .fas is missing or overwrite=true. Must be explicitly listed (not in the fallback).
     "build_tree",
     "visualize_tree",
     #"compare_trees",   # IQ-TREE2 vs RAxML tanglegram; exits gracefully if only one software was run
@@ -32,24 +33,15 @@ operations = [
 # Set to false (default) to get an error if inputs are missing.
 skip_if_msa_missing = false
 
-# Curated input sets to run. Filters phylogenetics.input_files by path substring:
-# an entry from input_files is kept only if it contains one of these tokens as a
-# path component. Empty array = no filtering (run every uncommented input_file).
-# Available tokens (see config/{GROUP}/05_phylogenetic_analysis_{GROUP}.toml):
-#   "All_Result"                     - per-genome and combined-with-query-species sets
-#   "v1_Full"                        - Selected Crop Species (full)
-#   "v2_Reduced"                     - reduced curated set
-#   "v3_Full_and_HI_DMPs"            - Selected Crop Species + verified HI panel (deduped)
-#   "v4_BLAST_Groups_bitscore200"    - union of 7 SmelDMP BLAST groups (bit score >= 200)
-#   "v5_v4_and_AtDMP"               - v4 merged + all 11 AtDMP individual sequences (AA: 83, NT: 49)
-#   "v6_v5_and_AllHI"               - v5 + all available verified HI crop genes, paired only (AA = NT = 60)
+# Filters phylogenetics.input_files by path substring. Empty = run all.
 input_sets = [
-    #"v1_Full",
-    #"v2_Reduced",
-    #"v3_Full_and_HI_DMPs",
-    #"v4_BLAST_Groups_bitscore200",
-    #"v5_v4_and_AtDMP",
-    "v6_v5_and_AllHI",
+    #"All_Result",                  # per-genome and combined-with-query-species sets
+    #"v1_Full",                     # Selected Crop Species (full)
+    #"v2_Reduced",                  # reduced curated set
+    #"v3_Full_and_HI_DMPs",         # Selected Crop Species + verified HI panel (deduped)
+    #"v4_BLAST_Groups_bitscore200", # union of 7 SmelDMP BLAST groups (bit score >= 200)
+    #"v5_v4_and_AtDMP",             # v4 + all 11 AtDMP sequences (AA: 83, NT: 49)
+    "v6_v5_and_AllHI",              # v5 + all verified HI crop genes, paired only (AA = NT = 60)
 ]
 
 [pipeline.compute.Local]
@@ -149,8 +141,8 @@ optimal_threads = 12
 binary = "raxml-ng"
 seed = 12345
 mode = "all"
-bs_trees = 10000
-search_replicates = 10000
+bs_trees = 1000
+search_replicates = 1000
 redo = true
 
 [phylogenetics.raxml.nucleotide]
@@ -199,7 +191,7 @@ color_ortholog       = "#37474F"   # blue-gray — other DMP orthologs
 color_outgroup       = "#78909C"   # light gray — outgroup taxa
 
 # --- Taxon patterns (regex) ---
-eggplant_pattern    = "^SMEL5_|^Smel_|^SMELG"  # matches raw eggplant sequence IDs
+eggplant_pattern    = "^SMEL5_|^Smel_|^SMELG|^SmelDMP"  # matches raw eggplant IDs (SMEL5_/Smel_/SMELG) and short-form SmelDMP* labels
 
 # --- Outgroup ---
 # Universal outgroup for both amino acid and nucleotide phylogenetic trees:
